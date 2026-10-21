@@ -1,6 +1,7 @@
 package com.wm.starcam.session
 
 import android.content.Context
+import android.util.AtomicFile
 import android.util.Size
 import com.wm.starcam.camera.ShadingMapData
 import com.wm.starcam.engine.FrameStats
@@ -72,7 +73,8 @@ class SessionRepository(private val context: Context) {
      * spared (small, and needed for dark-calibrated re-stacks); DNGs, outputs and metadata are
      * never touched. A session that never got its photo (cut off, failed to stack) keeps its cache
      * for a week whatever its position: four retries after a crash used to delete the frames the
-     * crashed session needed to be stacked from.
+     * crashed session needed to be stacked from. And a session whose cache is its only copy of
+     * the light (no photo and no DNGs: RAW-only with DNG saving off) is never pruned at all.
      */
     private fun pruneOldCaches() {
         runCatching {
@@ -86,6 +88,9 @@ class SessionRepository(private val context: Context) {
             for (dir in dirs.drop(4)) {
                 val unstacked = readSessionJson(dir)?.has("result") != true
                 if (unstacked && dir.lastModified() > weekAgo) continue
+                val hasDngs = File(dir, "lights").listFiles { f -> f.extension == "dng" }
+                    ?.isNotEmpty() == true
+                if (unstacked && !hasDngs) continue
                 val cached = File(dir, "cache")
                     .listFiles { f -> f.isFile && f.name != "master_dark.sraw" } ?: continue
                 for (f in cached) {
@@ -292,7 +297,7 @@ class SessionRepository(private val context: Context) {
 
     /** Creates/overwrites session.json with the header block. */
     fun writeHeader(paths: SessionPaths, header: JSONObject) {
-        val root = readJson(paths) ?: JSONObject()
+        val root = loadForUpdate(paths)
         root.put("header", header)
         if (!root.has("frames")) root.put("frames", JSONArray())
         writeJson(paths, root)
@@ -302,7 +307,7 @@ class SessionRepository(private val context: Context) {
         paths: SessionPaths, stats: FrameStats, exposureNs: Long, iso: Int,
         gyroPeak: Float, bumped: Boolean, dngFile: String?
     ) {
-        val root = readJson(paths) ?: JSONObject().put("frames", JSONArray())
+        val root = loadForUpdate(paths)
         val frames = root.optJSONArray("frames") ?: JSONArray().also { root.put("frames", it) }
         frames.put(JSONObject().apply {
             put("index", stats.index)
@@ -329,7 +334,7 @@ class SessionRepository(private val context: Context) {
      * session ended the way it did.
      */
     fun writeIssue(paths: SessionPaths, message: String) {
-        val root = readJson(paths) ?: JSONObject()
+        val root = loadForUpdate(paths)
         val issues = root.optJSONArray("issues") ?: JSONArray().also { root.put("issues", it) }
         issues.put(JSONObject().apply {
             put("at", System.currentTimeMillis())
@@ -339,7 +344,7 @@ class SessionRepository(private val context: Context) {
     }
 
     fun writeResult(paths: SessionPaths, result: JSONObject) {
-        val root = readJson(paths) ?: JSONObject()
+        val root = loadForUpdate(paths)
         root.put("result", result)
         writeJson(paths, root)
     }
@@ -348,9 +353,7 @@ class SessionRepository(private val context: Context) {
         val root = sessionsRoot()
         val dirs = root.listFiles { f -> f.isDirectory } ?: return emptyList()
         return dirs.sortedByDescending { it.name }.map { dir ->
-            val json = runCatching {
-                JSONObject(File(dir, "meta/session.json").readText())
-            }.getOrNull()
+            val json = readSessionJson(dir)
             val header = json?.optJSONObject("header")
             val jpg = File(dir, "out").listFiles { f -> f.extension == "jpg" }
                 ?.maxByOrNull { it.lastModified() }
@@ -369,7 +372,9 @@ class SessionRepository(private val context: Context) {
     }
 
     fun readSessionJson(dir: File): JSONObject? =
-        runCatching { JSONObject(File(dir, "meta/session.json").readText()) }.getOrNull()
+        runCatching {
+            JSONObject(String(AtomicFile(File(dir, "meta/session.json")).readFully(), Charsets.UTF_8))
+        }.getOrNull()
 
     fun deleteSession(dir: File) {
         runCatching { dir.deleteRecursively() }
@@ -381,12 +386,44 @@ class SessionRepository(private val context: Context) {
             .listFiles { f -> f.extension == "sraw" && f.name != "master_dark.sraw" }
             ?.sorted() ?: emptyList()
 
-    private fun readJson(paths: SessionPaths): JSONObject? =
-        runCatching { JSONObject(paths.jsonFile.readText()) }.getOrNull()
+    /** Deletes a session's light-frame cache (not its master dark): "working files not kept". */
+    fun deleteCacheFrames(dir: File) {
+        var n = 0
+        cacheFrames(dir).forEach { if (it.delete()) n++ }
+        if (n > 0) AppLog.d("deleted $n cached frame(s) of ${dir.name}: working files are not kept")
+    }
 
+    /**
+     * session.json to update. Missing means a new session; present but unreadable is set aside
+     * as session.json.corrupt-<time> rather than overwritten, which used to replace a damaged
+     * manifest - header, frames, issues - with an almost empty one.
+     */
+    private fun loadForUpdate(paths: SessionPaths): JSONObject {
+        val text = runCatching { String(AtomicFile(paths.jsonFile).readFully(), Charsets.UTF_8) }
+            .getOrNull() ?: return JSONObject()
+        return runCatching { JSONObject(text) }.getOrElse {
+            val aside = File(paths.meta, "session.json.corrupt-${System.currentTimeMillis()}")
+            runCatching { paths.jsonFile.copyTo(aside, overwrite = true) }
+            AppLog.e("session.json of ${paths.dir.name} did not parse — kept as ${aside.name}", it)
+            JSONObject()
+        }
+    }
+
+    /**
+     * Written to a new file and renamed over the old one (AtomicFile): rewritten after every
+     * frame, a plain overwrite cut short by a kill or a full disk left an unreadable manifest.
+     */
     private fun writeJson(paths: SessionPaths, root: JSONObject) {
         runCatching {
-            paths.jsonFile.writeText(root.toString(2))
+            val file = AtomicFile(paths.jsonFile)
+            val out = file.startWrite()
+            try {
+                out.write(root.toString(2).toByteArray(Charsets.UTF_8))
+                file.finishWrite(out)
+            } catch (t: Throwable) {
+                file.failWrite(out)
+                throw t
+            }
         }.onFailure { AppLog.e("session.json write failed", it) }
     }
 

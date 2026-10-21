@@ -115,8 +115,13 @@ struct Transform {
         r.ty = -(r.b * tx + r.a * ty);
         return r;
     }
-    // Same rotation, translation scaled by s (for moving between luma (half) and raw (full) coords).
-    Transform scaledTranslation(double s) const { return Transform{a, b, tx * s, ty * s}; }
+    // The same mapping in RAW coordinates, for a transform between luma (2x2 superpixel) coords.
+    // Superpixel u covers RAW 2u..2u+1 and is centred on RAW 2u + 0.5, so u' = A u + t becomes
+    // x' = A x + 2t + (I - A) c with c = (0.5, 0.5). Doubling t alone left rotated frames off by
+    // (I - A) c: about 0.37 RAW px at 30 degrees, nothing for a pure shift.
+    Transform lumaToRaw() const {
+        return Transform{a, b, 2.0 * tx + 0.5 * (1.0 - a + b), 2.0 * ty + 0.5 * (1.0 - a - b)};
+    }
     // Composition: result applies `first`, then `this`.
     Transform compose(const Transform& first) const {
         Transform r;

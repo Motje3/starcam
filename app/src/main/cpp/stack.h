@@ -17,13 +17,16 @@ struct StackParams {
     // warping. nullptr or an empty map = off, which must behave exactly as before it existed.
     const ShadingMap* shading = nullptr;
     // Optional per-CFA-position pedestal of the master dark (see subtract_dark_region). nullptr =
-    // subtract the dark's excess over each light frame's own black level.
+    // subtract the dark's excess over its own black level ([darkBlack]).
     const float* darkPedestal = nullptr;
+    // The black level the master dark was shot at (raster order); nullptr = assume each light
+    // frame's own black.
+    const float* darkBlack = nullptr;
 };
 
 // Stacks all frames with rejected==false into `outRGB` (RAW resolution, 3ch, linear, [0,1]-ish).
-// frames[i].T maps reference LUMA coords -> frame i LUMA coords; internally scaled x2 to RAW coords
-// (rotation part unchanged, translation doubled — Transform::scaledTranslation(2)).
+// frames[i].T maps reference LUMA coords -> frame i LUMA coords; internally converted to RAW coords
+// (Transform::lumaToRaw).
 // Per tile & frame: snap source region to even coords, copy_region_u16, subtract_dark_region (if
 // masterDark non-empty), fix_hot_pixels_region (if hotPixelFix), demosaic_region_malvar, bilinear
 // sample at warped coords. Combine across frames per pixel-channel with 2-iteration sigma clip

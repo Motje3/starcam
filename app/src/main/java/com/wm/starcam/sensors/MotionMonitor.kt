@@ -64,12 +64,18 @@ class MotionMonitor(context: Context) : SensorEventListener {
         windowCount = 0
     }
 
-    /** Ends the exposure window: (peak rad/s, rms rad/s, bumped). */
+    /**
+     * One exposure's motion. [samples] is how many gyro readings it saw: none means "unknown",
+     * not "still" - [bumped] is then false only because there is nothing to judge by.
+     */
+    data class Window(val peak: Float, val rms: Float, val bumped: Boolean, val samples: Int)
+
+    /** Ends the exposure window. */
     @Synchronized
-    fun endWindow(): Triple<Float, Float, Boolean> {
+    fun endWindow(): Window {
         windowActive = false
         val rms = if (windowCount > 0) sqrt(windowSumSq / windowCount).toFloat() else 0f
-        return Triple(windowPeak, rms, windowPeak > bumpThreshold)
+        return Window(windowPeak, rms, windowPeak > bumpThreshold, windowCount)
     }
 
     override fun onSensorChanged(event: SensorEvent) {

@@ -1,5 +1,6 @@
 package com.wm.starcam.camera
 
+import android.hardware.camera2.CaptureResult
 import com.wm.starcam.engine.AnalyzeStats
 import com.wm.starcam.engine.NativeEngine
 import com.wm.starcam.util.AppLog
@@ -22,11 +23,15 @@ object FocusSweep {
     )
 
     private const val EXPOSURE_NS = 2_000_000_000L
+    private const val SETTLE_EXPOSURE_NS = 200_000_000L
     private const val ISO = 6400
     private const val MIN_STARS = 8
 
-    /** Rough cost of one sweep point: the exposure plus the native FWHM measure. Drives the UI clock. */
-    const val STEP_DURATION_MS = EXPOSURE_NS / 1_000_000L + 2_000L
+    /**
+     * Rough cost of one sweep point: the settle frame, the exposure and the native FWHM measure.
+     * Drives the UI clock.
+     */
+    const val STEP_DURATION_MS = (SETTLE_EXPOSURE_NS + EXPOSURE_NS) / 1_000_000L + 2_000L
 
     /**
      * Coarse 7 points over [0, 0.30] diopters, then 3-point fine pass around the vertex.
@@ -105,13 +110,36 @@ object FocusSweep {
     ): AnalyzeStats? {
         val cam = controller.cam
         return runCatching {
-            val shot = controller.captureRaw(
+            // The lens travels to a new position at the start of the frame that asks for it, and
+            // a HAL with control latency gets there a frame later still. A short throwaway frame
+            // takes that move, so the measured exposure is spent where it is scored.
+            runCatching {
+                controller.captureRaw(
+                    exposureNs = SETTLE_EXPOSURE_NS.coerceIn(cam.exposureRangeNs.lower, cam.exposureRangeNs.upper),
+                    iso = ISO.coerceIn(cam.isoRange.lower, cam.isoRange.upper),
+                    focusDistance = diopters,
+                    wb = wb,
+                    label = "focus %.3f settle".format(diopters),
+                ).close()
+            }.onFailure { AppLog.w("focus", "settle frame at $diopters failed: ${it.message}") }
+            var shot = controller.captureRaw(
                 exposureNs = EXPOSURE_NS.coerceIn(cam.exposureRangeNs.lower, cam.exposureRangeNs.upper),
                 iso = ISO.coerceIn(cam.isoRange.lower, cam.isoRange.upper),
                 focusDistance = diopters,
                 wb = wb,
                 label = "focus %.3f".format(diopters),
             )
+            if (shot.result.get(CaptureResult.LENS_STATE) == CaptureResult.LENS_STATE_MOVING) {
+                AppLog.i("focus", "%.3f dpt: the lens was still moving — measuring again".format(diopters))
+                shot.close()
+                shot = controller.captureRaw(
+                    exposureNs = EXPOSURE_NS.coerceIn(cam.exposureRangeNs.lower, cam.exposureRangeNs.upper),
+                    iso = ISO.coerceIn(cam.isoRange.lower, cam.isoRange.upper),
+                    focusDistance = diopters,
+                    wb = wb,
+                    label = "focus %.3f again".format(diopters),
+                )
+            }
             try {
                 val plane = shot.image.planes[0]
                 val gains = CamMeta.rasterWbGains(wb?.gains, cam.cfa)
@@ -129,7 +157,7 @@ object FocusSweep {
                         diopters, it.starCount, it.medianFwhm, it.bgFrac * 100))
                 }
             } finally {
-                shot.image.close()
+                shot.close()
             }
         }.onFailure { AppLog.e("focus", "measure failed at $diopters", it) }.getOrNull()
     }

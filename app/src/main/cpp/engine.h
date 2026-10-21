@@ -75,9 +75,11 @@ private:
     int refIndex_ = -1;
     Transform prevT_;                   // last successful alignment (incremental guess)
 
-    // Dark accumulation (full-res running sum) and count.
+    // Dark accumulation (full-res running sum) and count, plus the sum of each dark's own black
+    // level (raster order): the master dark is subtracted relative to the baseline it was shot at.
     std::vector<float> darkSum_;
     int darkCount_ = 0;
+    double darkBlackSum_[4] = {0, 0, 0, 0};
 
     // Live preview: running sum/count of warped superpixel RGB in reference geometry.
     ImageF liveSum_;                    // (w/2, h/2, 3)

@@ -15,6 +15,7 @@ import java.time.format.DateTimeFormatter
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * The app's log, built for debugging a phone that is out in a field at night with no laptop
@@ -45,6 +46,23 @@ object AppLog {
     /** A single log file never grows past this; the next one continues the story. */
     private const val MAX_FILE_BYTES = 8L * 1024 * 1024
 
+    /** All app logs together stay under this, also while the process runs (see [pruneOldLogs]). */
+    private const val MAX_TOTAL_BYTES = 120L * 1024 * 1024
+    private const val MAX_FILES = 40
+
+    /** One session's own log stops here; the rest of the story is in the app log. */
+    private const val MAX_SESSION_LOG_BYTES = 32L * 1024 * 1024
+
+    /** Below this much free storage, log files stop growing: the space is for the frames. */
+    private const val MIN_FREE_BYTES = 200L * 1024 * 1024
+
+    /**
+     * Lines waiting for the writer. A stalled disk or a runaway error loop must not turn the queue
+     * into a memory leak: past this, lines are counted and dropped (they stay in logcat and the
+     * in-memory ring) and the file says how many went missing.
+     */
+    private const val MAX_QUEUED_LINES = 20_000
+
     private val stampFmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
     private val fileStampFmt = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")
 
@@ -70,6 +88,8 @@ object AppLog {
     }
 
     private val queue = LinkedBlockingQueue<Item>()
+    private val queuedLines = AtomicInteger(0)
+    private val droppedLines = AtomicInteger(0)
     @Volatile private var writerStarted = false
 
     /** Directory holding every log the app writes; null until [init]. */
@@ -95,7 +115,10 @@ object AppLog {
         val stamp = LocalDateTime.now().format(fileStampFmt)
         currentFile = File(dir, "app_$stamp.log")
         synchronized(ring) {
-            ring.forEach { queue.put(Item.Text(it.text)) }
+            ring.forEach {
+                queuedLines.incrementAndGet()
+                queue.put(Item.Text(it.text))
+            }
             writerStarted = true
         }
         Thread({ writerLoop(dir, stamp) }, "StarCamLog").apply {
@@ -173,8 +196,16 @@ object AppLog {
             _lines.value = (_lines.value + uiText).takeLast(UI_LINES)
             _version.value = nextSeq
             // Same lock as attachSessionLog, so the file order matches the ring order. The queue
-            // is unbounded: put() never blocks while holding it.
-            if (writerStarted) queue.put(Item.Text(text))
+            // itself is unbounded, so put() never blocks while holding the lock; text lines are
+            // bounded by count instead (see MAX_QUEUED_LINES).
+            if (writerStarted) {
+                if (queuedLines.incrementAndGet() <= MAX_QUEUED_LINES) {
+                    queue.put(Item.Text(text))
+                } else {
+                    queuedLines.decrementAndGet()
+                    droppedLines.incrementAndGet()
+                }
+            }
         }
     }
 
@@ -184,6 +215,10 @@ object AppLog {
         var out: BufferedWriter? = null
         var written = 0L
         var session: BufferedWriter? = null
+        var sessionWritten = 0L
+        var sinceSpaceCheck = 0L
+        // False while storage is almost full: the lines still reach logcat and the ring.
+        var filesOn = true
 
         fun open() {
             out = runCatching {
@@ -193,29 +228,67 @@ object AppLog {
         }
         open()
 
+        fun writeLine(s: String) {
+            if (!filesOn) return
+            out?.apply { write(s); write("\n") }
+            written += s.length + 1
+            session?.let { w ->
+                if (sessionWritten < MAX_SESSION_LOG_BYTES) {
+                    w.write(s); w.write("\n")
+                    sessionWritten += s.length + 1
+                    if (sessionWritten >= MAX_SESSION_LOG_BYTES) {
+                        w.write("(session log stops here at ${MAX_SESSION_LOG_BYTES shr 20} MB; the rest is in ${file.name})\n")
+                    }
+                }
+            }
+        }
+
         while (true) {
             val item = try { queue.take() } catch (_: InterruptedException) { continue }
             try {
                 when (item) {
                     is Item.Text -> {
-                        out?.apply { write(item.s); write("\n") }
-                        written += item.s.length + 1
-                        session?.apply { write(item.s); write("\n") }
+                        queuedLines.decrementAndGet()
+                        val dropped = droppedLines.getAndSet(0)
+                        if (dropped > 0) writeLine("($dropped log lines dropped: the log writer fell behind)")
+                        writeLine(item.s)
+                        sinceSpaceCheck += item.s.length + 1
+                        if (sinceSpaceCheck > 1L shl 20) {
+                            sinceSpaceCheck = 0L
+                            val free = runCatching { dir.usableSpace }.getOrDefault(Long.MAX_VALUE)
+                            if (filesOn && free < MIN_FREE_BYTES) {
+                                writeLine("(log files paused: only ${free shr 20} MB of storage left)")
+                                out?.flush()
+                                session?.flush()
+                                filesOn = false
+                            } else if (!filesOn && free > MIN_FREE_BYTES * 2) {
+                                filesOn = true
+                                writeLine("(log files resumed: ${free shr 20} MB of storage free)")
+                            }
+                        }
                         if (written > MAX_FILE_BYTES) {
                             runCatching { out?.close() }
                             part++
                             file = File(dir, "app_${stamp}_$part.log")
                             currentFile = file
                             open()
+                            // Limits held at startup only, so one long run could rotate forever.
+                            pruneOldLogs(dir)
                         }
                     }
                     is Item.AttachSession -> {
                         runCatching { session?.close() }
+                        sessionWritten = 0L
                         session = runCatching {
                             item.file.parentFile?.mkdirs()
                             BufferedWriter(OutputStreamWriter(FileOutputStream(item.file, true), Charsets.UTF_8))
                         }.onFailure { Log.e(TAG, "session log open failed: ${item.file}", it) }.getOrNull()
-                        session?.let { s -> item.backlog.forEach { s.write(it); s.write("\n") } }
+                        session?.let { s ->
+                            item.backlog.forEach {
+                                s.write(it); s.write("\n")
+                                sessionWritten += it.length + 1
+                            }
+                        }
                     }
                     Item.DetachSession -> {
                         runCatching { session?.close() }
@@ -239,7 +312,10 @@ object AppLog {
         }
     }
 
-    /** Keeps the newest 40 app logs and at most ~120 MB of them. */
+    /**
+     * Keeps the newest [MAX_FILES] app logs and at most [MAX_TOTAL_BYTES] of them. The file being
+     * written is the newest, so it is always kept.
+     */
     private fun pruneOldLogs(dir: File) {
         runCatching {
             val files = dir.listFiles { f -> f.isFile && f.name.startsWith("app_") }
@@ -247,7 +323,7 @@ object AppLog {
             var total = 0L
             for ((i, f) in files.withIndex()) {
                 total += f.length()
-                if (i >= 40 || total > 120L * 1024 * 1024) f.delete()
+                if (i > 0 && (i >= MAX_FILES || total > MAX_TOTAL_BYTES)) f.delete()
             }
         }
     }

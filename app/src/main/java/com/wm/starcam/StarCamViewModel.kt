@@ -145,8 +145,8 @@ class StarCamViewModel(app: Application) : AndroidViewModel(app) {
             if (!cam.hasManualSensor) {
                 AppLog.e(TAG, "MANUAL_SENSOR not exposed — captures may ignore manual exposure!")
             }
+            val ctrl = newController(cam)
             try {
-                val ctrl = newController(cam)
                 ctrl.open()
                 controller = ctrl
                 engine = CaptureEngine(app, ctrl, settingsStore, motion, thermal, repo)
@@ -155,6 +155,8 @@ class StarCamViewModel(app: Application) : AndroidViewModel(app) {
                 pendingSurface?.let { attachSurface(it) }
             } catch (t: Throwable) {
                 AppLog.e(TAG, "camera open failed", t)
+                // Its camera thread would otherwise outlive it; every retry left one more behind.
+                if (controller !== ctrl) ctrl.close()
                 _cameraError.value = "Camera open failed: ${t.message}"
             }
         }
@@ -255,12 +257,26 @@ class StarCamViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun openCamera(id: String, force: Boolean, what: String) {
+        // The shutter goes off now, not once the coroutine below runs: a session started in
+        // between would have had its camera closed under it.
+        val wasReady = _ready.value
+        _ready.value = false
         viewModelScope.launch(Dispatchers.Default) {
             // Serialized: a second tap waits for the first teardown/open to finish instead of
             // racing it (which could leak a CameraDevice + its thread forever).
             cameraMutex.withLock {
-                if (!force && controller?.cam?.cameraId == id) return@withLock  // already there
+                if (cameraBusy) {
+                    AppLog.w(TAG, "${what.lowercase()} skipped: a session or camera test owns the camera")
+                    _ready.value = wasReady
+                    return@withLock
+                }
+                if (!force && controller?.cam?.cameraId == id) {  // already there
+                    _ready.value = wasReady
+                    return@withLock
+                }
                 val app = getApplication<Application>()
+                var tornDown = false
+                var fresh: CameraController? = null
                 runCatching {
                     // Validate the target before tearing anything down: a bad id must not leave
                     // the app with no camera at all.
@@ -268,11 +284,12 @@ class StarCamViewModel(app: Application) : AndroidViewModel(app) {
                         ?: throw IllegalStateException("camera $id is not usable for RAW capture")
                     AppLog.i(TAG, "$what: opening camera $id")
                     settingsStore.update { it.copy(lensId = id) }
-                    _ready.value = false
+                    tornDown = true
                     runCatching { controller?.close() }
                     controller = null
                     _camInfo.value = cam
                     val ctrl = newController(cam)
+                    fresh = ctrl
                     ctrl.open()
                     controller = ctrl
                     // Swapped only now, and carrying over a result on screen (a session that
@@ -288,6 +305,10 @@ class StarCamViewModel(app: Application) : AndroidViewModel(app) {
                     pendingSurface?.let { attachSurface(it) }
                 }.onFailure { t ->
                     AppLog.e(TAG, "${what.lowercase()} failed", t)
+                    // A controller that never became the current one is closed with its thread.
+                    fresh?.let { if (controller !== it) runCatching { it.close() } }
+                    // Nothing was torn down (a bad id): the old camera is still there.
+                    if (!tornDown) _ready.value = wasReady
                     _cameraError.value = "$what failed: ${t.message}"
                 }
             }
@@ -463,7 +484,7 @@ class StarCamViewModel(app: Application) : AndroidViewModel(app) {
     /** Runs [CameraTest] with [p]; ignored while a session or another test owns the camera. */
     fun runCameraTest(p: CameraTest.Params) {
         val ctrl = controller ?: return
-        if (cameraBusy) return
+        if (cameraBusy || !_ready.value) return
         val app = getApplication<Application>()
         testCancel = false
         val generation = ++serviceGeneration
@@ -561,10 +582,11 @@ class StarCamViewModel(app: Application) : AndroidViewModel(app) {
         SessionBeacon.clearActions()
         CaptureService.stop(getApplication())
         // viewModelScope is cancelled by now, but a session or test can still be inside native
-        // code reading an Image's buffer. Closing the controller closes that ImageReader, which
-        // frees the buffer under the native read. Let them return first (bounded wait).
+        // code reading an Image's buffer: a cancelled job is no longer "active" while it runs, so
+        // wait for "completed" (bounded). Even past the wait the buffer is safe: the controller
+        // closes a reader only once its last image has been released.
         val ctrl = controller
-        val running = listOfNotNull(engine?.activeJob, testJob?.takeIf { it.isActive })
+        val running = listOfNotNull(engine?.activeJob, testJob?.takeIf { !it.isCompleted })
         CoroutineScope(Dispatchers.Default).launch {
             withTimeoutOrNull(30_000L) { running.joinAll() }
             ctrl?.close()

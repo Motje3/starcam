@@ -29,3 +29,7 @@ find_library(jnigraphics-lib jnigraphics)
 find_library(android-lib android)
 
 target_link_libraries(starcam ${log-lib} ${jnigraphics-lib} ${android-lib})
+
+# 16 KB page alignment for the LOAD segments: devices with 16 KB pages (and Google Play, for apps
+# targeting Android 15+) need it. NDK r27 still defaults to 4 KB; r28+ makes this the default.
+target_link_options(starcam PRIVATE "-Wl,-z,max-page-size=16384" "-Wl,-z,common-page-size=16384")

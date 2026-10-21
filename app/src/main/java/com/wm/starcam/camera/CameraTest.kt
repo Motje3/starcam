@@ -3,6 +3,7 @@ package com.wm.starcam.camera
 import android.content.Context
 import android.hardware.camera2.CaptureResult
 import android.os.SystemClock
+import com.wm.starcam.engine.FrameStats
 import com.wm.starcam.engine.NativeEngine
 import com.wm.starcam.session.AppSettings
 import com.wm.starcam.util.AppLog
@@ -81,6 +82,11 @@ object CameraTest {
         var failed = 0
         var probeFailed = false
         var rawOnlyFallback = false
+        // The session's work between exposures, when asked for: a test that skipped it, or whose
+        // ingest or DNG write failed, has not shown that the camera copes with it.
+        var workSkipped = false
+        var ingestFailures = 0
+        var dngFailures = 0
         val t0 = SystemClock.elapsedRealtime()
         fun record(r: FrameResult) {
             if (r.ok) AppLog.i(TAG, "${r.label}: ok in ${r.ms}ms ${r.detail}")
@@ -129,7 +135,7 @@ object CameraTest {
                         "(lsc ${if (shot.result.get(CaptureResult.STATISTICS_LENS_SHADING_CORRECTION_MAP) != null) "map" else "none"})"))
                     if (gains != null) WbLock(gains, transform) else null
                 } finally {
-                    shot.image.close()
+                    shot.close()
                 }
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
@@ -151,7 +157,10 @@ object CameraTest {
                     put("livePreview", true)
                 }.toString()
                 handle = NativeEngine.createSession(config)
-                if (handle == 0L) AppLog.w(TAG, "scratch engine could not start; continuing without ingest")
+                if (handle == 0L) {
+                    workSkipped = true
+                    AppLog.w(TAG, "scratch engine could not start; continuing without ingest")
+                }
             }
             val wbRaster = CamMeta.rasterWbGains(wb?.gains, cam.cfa)
 
@@ -198,23 +207,38 @@ object CameraTest {
                             put("ccm", JSONArray(CamMeta.ccmToFloatArray(wb?.transform).map { it.toDouble() }))
                             put("gyroRms", 0.0)
                         }.toString()
-                        NativeEngine.addFrame(handle, plane.buffer, got.image.width, got.image.height,
-                            plane.rowStride, meta)
+                        val stats = FrameStats.fromJson(NativeEngine.addFrame(
+                            handle, plane.buffer, got.image.width, got.image.height, plane.rowStride, meta))
                         detail += "ingest ${SystemClock.elapsedRealtime() - tIngest}ms"
+                        if (!stats.saved) {
+                            ingestFailures++
+                            detail += " (NOT SAVED)"
+                        }
                         status("$label: writing DNG (as in a session)")
                         val tDng = SystemClock.elapsedRealtime()
-                        DngWriter.write(cam, got, File(scratch, "test_%02d.dng".format(i)))
+                        val dngOk = DngWriter.write(cam, got, File(scratch, "test_%02d.dng".format(i)))
                         detail += " · dng ${SystemClock.elapsedRealtime() - tDng}ms"
+                        if (!dngOk) {
+                            dngFailures++
+                            detail += " (FAILED)"
+                        }
                     }
                 } finally {
-                    got.image.close()
+                    got.close()
                 }
                 ok++
                 record(FrameResult(label, true, got.elapsedMs, detail))
                 i++
             }
+            val workFailed = ingestFailures + dngFailures > 0
             val verdict = when {
                 isCancelled() -> "stopped by you: $ok frame(s) ok, $failed failure(s)"
+                ok == p.frames && workFailed ->
+                    "FAIL — the camera delivered all ${p.frames} frames, but the work between them failed " +
+                        "($ingestFailures ingest, $dngFailures DNG). See the log."
+                ok == p.frames && workSkipped ->
+                    "INCOMPLETE — the camera delivered all ${p.frames} frames, but the ingest and DNG " +
+                        "work did not run (the engine did not start)"
                 ok == p.frames && failed == 0 -> "PASS — all ${p.frames} frames ok"
                 ok == p.frames -> "PASS with repairs — ${p.frames} frames ok, $failed failed attempt(s) recovered"
                 else -> "FAIL — $ok of ${p.frames} frames ok, $failed failure(s). See the log for the camera trace."

@@ -177,8 +177,11 @@ class CaptureEngine(
 
     val isRunning: Boolean get() = job?.isActive == true
 
-    /** The running session's job, so app teardown can wait for it to leave native code. */
-    val activeJob: Job? get() = job?.takeIf { it.isActive }
+    /**
+     * The session's job until it has fully ended, so app teardown can wait for it to leave
+     * native code. Not "active": a cancelled job stops being active while its native call runs on.
+     */
+    val activeJob: Job? get() = job?.takeIf { !it.isCompleted }
 
     /** Starts a session and returns its Job, so the owner can react when it ends. */
     fun start(scope: CoroutineScope): Job? {
@@ -399,6 +402,12 @@ class CaptureEngine(
             val wbLock: WbLock?
             val ccm: FloatArray
             val probeStats: AnalyzeStats
+            // What the sensor actually did, which a HAL may round: the exposure decision scales
+            // from the probe, so it scales from the real settings.
+            val probeActualExp = probeShot.result.get(CaptureResult.SENSOR_EXPOSURE_TIME)
+                ?.takeIf { it > 0L } ?: probeExp
+            val probeActualIso = probeShot.result.get(CaptureResult.SENSOR_SENSITIVITY)
+                ?.takeIf { it > 0 } ?: probeIso
             // Vignetting is a property of the lens, not of the frame, so one map per session is
             // all we need — and the probe frame is the natural place to read it.
             var shading: ShadingMapData? = null
@@ -417,7 +426,7 @@ class CaptureEngine(
                     )
                 )
             } finally {
-                probeShot.image.close()
+                probeShot.close()
             }
             AppLog.i(TAG, "probe: sky %.2f%% of white, %d stars, fwhm %.2f px, noise %.4f · wb %s".format(
                 probeStats.bgFrac * 100, probeStats.starCount, probeStats.medianFwhm, probeStats.noiseSigma,
@@ -437,7 +446,7 @@ class CaptureEngine(
                 // Auto: derive the per-frame cap from this lens (NPF) instead of a fixed guess.
                 val cap = if (s.autoTrailLimit) cam.trailLimitSeconds() else s.trailCapSec.toDouble()
                 AutoExposure.decide(
-                    probeStats, probeExp, probeIso, cam,
+                    probeStats, probeActualExp, probeActualIso, cam,
                     baseFrames = s.effectiveFrames(), trailCapSec = cap,
                 )
             }
@@ -455,6 +464,15 @@ class CaptureEngine(
             // Every light frame writes a full-res raw cache file (and optionally a DNG). A 2-hour
             // meteor session would otherwise try to write tens of GB and fill the phone.
             val totalFrames = capFramesToDisk(requestedFrames, rawSize, s.saveDngs)
+            if (totalFrames < MIN_FRAMES_TO_STACK) {
+                val needMb = (bytesPerFrame(rawSize, s.saveDngs) * MIN_FRAMES_TO_STACK * 100L / 60L +
+                    outputReserve(rawSize)) / (1L shl 20)
+                AppLog.e(TAG, "not enough storage for a session: ${freeBytes() / (1L shl 20)} MB free")
+                setState(CaptureState.Error(
+                    "The phone is almost out of storage (${freeBytes() / (1L shl 20)} MB free; a session " +
+                        "needs about $needMb MB). Free up some space and try again.", null))
+                return
+            }
 
             // ---- Focus ----
             var focusDistance = 0f
@@ -577,7 +595,9 @@ class CaptureEngine(
                 put("cfa", cam.cfa)
                 put("whiteLevel", cam.whiteLevel)
                 put("blackLevel", JSONArray(cam.blackLevelRaster.map { it.toDouble() }))
-                put("keepCache", s.keepRawCache)
+                // The engine used to delete the frames at the end of the stack, before the JPEG
+                // was even written; now they go only once the photo is safely saved (below).
+                put("keepCache", true)
                 put("livePreview", s.livePreview)
             }.toString()
             handleLock.withLock { engineHandle = NativeEngine.createSession(config) }
@@ -602,6 +622,15 @@ class CaptureEngine(
             var stoppedEarly: String? = null
             // Sky background of the kept light frames, to judge the dark frames against.
             val lightBg = ArrayList<Float>()
+            var dngFailures = 0
+            val perFrameBytes = bytesPerFrame(rawSize, s.saveDngs)
+            val outputReserveBytes = outputReserve(rawSize)
+            val burstStart = SystemClock.elapsedRealtime()
+            val durationMs = when (s.mode) {
+                Mode.TRAILS -> s.trailsMinutes * 60_000L
+                Mode.METEOR -> s.meteorMinutes * 60_000L
+                else -> 0L
+            }
             var i = 0
             while (i < planned) {
                 if (cancelRequested || finishEarlyRequested) break
@@ -638,7 +667,18 @@ class CaptureEngine(
                     }
                 }
 
-                motion.startWindow()
+                // Storage is checked again before every frame: a long session can outlast the
+                // space it started with, and the photo itself still needs room at the end.
+                if (captured >= MIN_FRAMES_TO_STACK && freeBytes() < perFrameBytes + outputReserveBytes) {
+                    AppLog.e(TAG, "storage nearly full (${freeBytes() / (1L shl 20)} MB free) — " +
+                        "finishing early with $captured frames")
+                    buzz(longArrayOf(0, 60, 120, 60))
+                    stoppedEarly = "The phone is almost out of storage, so the session finished early " +
+                        "with $captured frames."
+                    finishEarlyRequested = true
+                    break
+                }
+
                 val exposureMs = decision.exposureNs / 1_000_000L
                 val shot = try {
                     captureFrame(
@@ -646,6 +686,9 @@ class CaptureEngine(
                         focusDistance, wbLock, rawSize, s,
                         busyLabel = "exposing frame ${i + 1}/$planned", expectedMs = exposureMs,
                         wantShadingMap = s.lensShading && s.debugShadingEveryFrame,
+                        // Per attempt: a knock during a failed attempt or a camera repair says
+                        // nothing about the retry that succeeds afterwards.
+                        onAttempt = { motion.startWindow() },
                     )
                 } catch (t: Throwable) {
                     if (t is CancellationException) throw t
@@ -658,7 +701,13 @@ class CaptureEngine(
                     buzz(longArrayOf(0, 200, 100, 200))
                     break
                 }
-                val (peak, rms, bumped) = motion.endWindow()
+                val motionWindow = motion.endWindow()
+                val peak = motionWindow.peak
+                val rms = motionWindow.rms
+                val bumped = motionWindow.bumped
+                if (motion.hasGyro && motionWindow.samples == 0) {
+                    AppLog.w(TAG, "light ${i + 1}: no gyro readings during the exposure — bumps cannot be detected")
+                }
 
                 val stats: FrameStats
                 var dngName: String? = null
@@ -698,10 +747,25 @@ class CaptureEngine(
                         val t1 = SystemClock.elapsedRealtime()
                         val f = File(paths.lights, "frame_%04d.dng".format(i))
                         if (DngWriter.write(cam, shot, f)) dngName = f.name
+                        else dngFailures++
                         dngMs = SystemClock.elapsedRealtime() - t1
                     }
                 } finally {
-                    shot.image.close()
+                    shot.close()
+                }
+                // A frame counts once it is on disk where it will be used: stacking reads every
+                // frame back from its cache file, a RAW-only session keeps the DNG (or the cache).
+                // Counting frames that never reached storage made a full disk look like success.
+                val durable = if (s.stackOnDevice) stats.saved else stats.saved || dngName != null
+                if (!durable) {
+                    AppLog.e(TAG, "light ${i + 1}/$planned could not be saved (storage full?) — " +
+                        "finishing with $captured frames")
+                    repo.writeIssue(paths, "light ${i + 1} could not be saved (storage full?)")
+                    buzz(longArrayOf(0, 60, 120, 60))
+                    stoppedEarly = "The phone ran out of storage, so the session finished early " +
+                        "with $captured frames."
+                    finishEarlyRequested = true
+                    break
                 }
                 AppLog.i(TAG, ("light ${i + 1}/$planned ok: exposure+readout ${shot.elapsedMs}ms · ingest ${ingestMs}ms · " +
                     "stars %d fwhm %.2f bg %.2f%% dx %.1f dy %.1f rot %.3f° %s · dng %s · gyro peak %.4f%s · %s").format(
@@ -733,6 +797,21 @@ class CaptureEngine(
                     frameStartedAtMs = frameStart,   // same slot: the countdown must not restart
                 ))
                 i++
+                // Duration modes promise wall-clock minutes, but each frame also spends time on
+                // ingest and saving that the exposure-based count left out, so a "20 minute" trail
+                // ran well past 20. Once the real frame period is known, the plan shrinks to what
+                // still fits (never below the duration modes' floor).
+                if (durationMs > 0L && i >= 2) {
+                    val now = SystemClock.elapsedRealtime()
+                    val periodMs = (now - burstStart) / i
+                    val fits = i + ((burstStart + durationMs - now) / periodMs.coerceAtLeast(1L)).toInt()
+                    val capped = maxOf(fits, minOf(planned, DURATION_MIN_FRAMES), i)
+                    if (capped < planned) {
+                        AppLog.i(TAG, "duration ${durationMs / 60_000L} min at ${periodMs}ms a frame: " +
+                            "$capped frames fit, not $planned")
+                        planned = capped
+                    }
+                }
             }
             // Hard cancel always returns to Idle — frames already on disk stay there, and the
             // separate "Finish & stack now" button is the path for stack-what-we-have.
@@ -764,6 +843,10 @@ class CaptureEngine(
                     "session but recovered" +
                     (if (recoveryCount > 0) " after $recoveryCount repair(s)" else "") +
                     " — details are in the log.")
+            }
+            if (dngFailures > 0) {
+                warning = addSentence(warning, "$dngFailures of the DNG files could not be written.")
+                repo.writeIssue(paths, "$dngFailures DNG file(s) could not be written")
             }
             // "Finish & stack now" during the first exposure leaves one frame, and the stacker
             // needs two: the frame is kept and that is said plainly, not as a stacking error.
@@ -859,6 +942,13 @@ class CaptureEngine(
                                     put("wbGains", JSONArray(wbRaster.map { it.toDouble() }))
                                     put("ccm", JSONArray(ccm.map { it.toDouble() }))
                                     put("gyroRms", 0.0)
+                                    // The dark's own black level, as for a light: the master
+                                    // dark is subtracted relative to it, not the light's.
+                                    shot.result.get(CaptureResult.SENSOR_DYNAMIC_BLACK_LEVEL)?.let { dyn ->
+                                        if (dyn.size >= 4) {
+                                            put("blackLevel", JSONArray(dyn.take(4).map { it.toDouble() }))
+                                        }
+                                    }
                                 }.toString()
                                 beginBusy("ingesting dark frame ${d + 1}")
                                 NativeEngine.addDarkFrame(
@@ -873,7 +963,7 @@ class CaptureEngine(
                                 }
                             }
                         } finally {
-                            shot.image.close()
+                            shot.close()
                         }
                         if (!lit) AppLog.i(TAG, "dark ${d + 1}/${s.darkCount} ok (${shot.elapsedMs}ms)")
                     }
@@ -928,6 +1018,11 @@ class CaptureEngine(
                 return
             }
             repo.writeResult(paths, JSONObject(resultJson))
+            if (result.tiffPath.isEmpty()) {
+                // Not fatal - the photo does not depend on it - but never silent.
+                AppLog.e(TAG, "the linear master TIFF could not be written")
+                repo.writeIssue(paths, "the linear master TIFF could not be written (storage full?)")
+            }
             // The engine writes cache/master_dark.sraw during finalize; file it so the next
             // session at these settings can skip shooting darks altogether. Only a set in which
             // every dark was dark: one lit frame says the covering was not trustworthy.
@@ -957,11 +1052,15 @@ class CaptureEngine(
             }
             if (saved.jpegWritten) {
                 AppLog.i(TAG, "saved ${paths.finalJpg.name} (gallery: ${saved.galleryUri ?: "FAILED"})")
+                // Only now, with the photo on disk, may the frames go (when the user keeps no
+                // working files): a failed save leaves them for a re-stack.
+                if (!s.keepRawCache) repo.deleteCacheFrames(paths.dir)
+                buzz(longArrayOf(0, 40, 100, 40, 100, 80))  // session complete
             } else {
-                AppLog.e(TAG, "the final JPEG could not be written")
+                AppLog.e(TAG, "the final JPEG could not be written — keeping the frames for a re-stack")
                 repo.writeIssue(paths, "the final JPEG could not be written (storage full?)")
+                buzz(longArrayOf(0, 200, 100, 200))  // not the success pattern
             }
-            buzz(longArrayOf(0, 40, 100, 40, 100, 80))  // session complete
             setState(CaptureState.Done(
                 result, paths.finalJpg, saved.galleryUri, paths.dir, captured,
                 elapsedMs = SystemClock.elapsedRealtime() - sessionStart,
@@ -1039,12 +1138,14 @@ class CaptureEngine(
         busyLabel: String,
         expectedMs: Long,
         wantShadingMap: Boolean = false,
+        onAttempt: () -> Unit = {},
     ): CapturedRaw {
         val repairs = if (s.cameraRecovery) intArrayOf(1, 2, 3) else intArrayOf(0)
         var attempt = 0
         while (true) {
             try {
                 val shot = step(if (attempt == 0) busyLabel else "$busyLabel (retry $attempt)", expectedMs) {
+                    onAttempt()
                     controller.captureRaw(exposureNs, iso, focus, wb, label, wantShadingMap)
                 }
                 if (attempt > 0) AppLog.w(TAG, "$label succeeded on retry $attempt — the camera recovered")
@@ -1111,18 +1212,30 @@ class CaptureEngine(
         bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
     }.getOrDefault(100).let { if (it <= 0) 100 else it }
 
+    /** Bytes one light frame takes: its .sraw (w*h*2 + header) plus, when enabled, a DNG. */
+    private fun bytesPerFrame(rawSize: android.util.Size, saveDngs: Boolean): Long =
+        rawSize.width.toLong() * rawSize.height.toLong() * 2L * (if (saveDngs) 2L else 1L) + 4096L
+
     /**
-     * Limits the planned frame count to what the storage can actually hold, leaving headroom.
-     * Each frame costs one .sraw (w*h*2 + header) plus, when enabled, a DNG of roughly the same
-     * size. Returns at least 4 so a session is never silently reduced to nothing.
+     * Room the end of a session needs: master dark, linear TIFF, final RGB and JPEG, about 12
+     * bytes per RAW pixel (150 MB at 12.6 MP).
+     */
+    private fun outputReserve(rawSize: android.util.Size): Long =
+        rawSize.width.toLong() * rawSize.height.toLong() * 12L
+
+    private fun freeBytes(): Long = runCatching { repo.sessionsRoot().usableSpace }.getOrDefault(Long.MAX_VALUE)
+
+    /**
+     * Limits the planned frame count to what the storage can actually hold, leaving headroom
+     * (60% of the free space at most). No longer rounded up to 4: four frames the disk cannot
+     * hold fail just the same, only later.
      */
     private fun capFramesToDisk(requested: Int, rawSize: android.util.Size, saveDngs: Boolean): Int {
-        val perFrame = rawSize.width.toLong() * rawSize.height.toLong() * 2L *
-            (if (saveDngs) 2L else 1L) + 4096L
+        val perFrame = bytesPerFrame(rawSize, saveDngs)
         val usable = runCatching { repo.sessionsRoot().usableSpace }.getOrDefault(0L)
         if (usable <= 0L || perFrame <= 0L) return requested
         val budget = (usable * 60L) / 100L  // never consume more than 60% of free space
-        val affordable = (budget / perFrame).toInt().coerceAtLeast(4)
+        val affordable = (budget / perFrame).toInt().coerceAtLeast(0)
         if (affordable < requested) {
             AppLog.e(
                 TAG,
@@ -1150,6 +1263,9 @@ class CaptureEngine(
 
         /** The native stacker refuses fewer than this many usable frames. */
         private const val MIN_FRAMES_TO_STACK = 2
+
+        /** TRAILS and METEOR plan at least this many frames, whatever the duration (see below). */
+        private const val DURATION_MIN_FRAMES = 10
 
         /** Fewer usable darks than this are dropped: a single dark adds its own noise to every frame. */
         private const val MIN_DARKS = 2

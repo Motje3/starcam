@@ -137,6 +137,22 @@ native memory, free storage, screen on/off, and whether the app was in the foreg
 - `not reusing focus: the phone's temperature moved 6.2°C since it was found`, and the issue
   `the final JPEG could not be written (storage full?)`, are what they say.
 
+## More of the same (0.3.2)
+
+- `cam`: `RAW reader retired with 1 image(s) still being read` means the camera went away (or the
+  app was closing) while a frame was being ingested; `retired RAW reader closed` follows when the
+  frame is done. `camera 0 was taken away while it was opening` is a disconnect that raced the
+  open.
+- `session`: `storage nearly full (… MB free) — finishing early`, `light N could not be saved
+  (storage full?)` (also an issue in session.json), `no gyro readings during the exposure` (that
+  frame could not be judged for bumps), and for TRAILS/METEOR `duration 20 min at 31500ms a
+  frame: 38 frames fit, not 40`.
+- `focus`: `the lens was still moving — measuring again`.
+- Native (`StarCamEngine` in logcat): `finalize: master dark black 64.0 64.0 64.0 64.0`, and
+  `stack_frames: … region copy failed (out of memory?)` when a stack fails for memory.
+- A `session.json.corrupt-<time>` beside session.json is a manifest that did not parse, kept as it
+  was found. In the app log, `(N log lines dropped …)` and `(log files paused …)` mark gaps.
+
 ## The October 2026 field failure (root cause found)
 
 **Symptom.** Every session on 2026-10-18 (four attempts in seven minutes, 22.5 s at ISO 1600)

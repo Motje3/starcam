@@ -231,26 +231,27 @@ object CamMeta {
     }
 
     /**
-     * Camera2's RggbChannelVector (R, G-even = green in the red row, G-odd = green in the blue
-     * row, B) converted to 2x2 raster-order gains for the given CFA.
+     * Camera2's RggbChannelVector (R, G-even = the green on even rows, G-odd = the green on odd
+     * rows, B) converted to 2x2 raster-order gains for the given CFA.
      */
     fun rasterWbGains(gains: RggbChannelVector?, cfa: Int): FloatArray {
         if (gains == null) return floatArrayOf(1f, 1f, 1f, 1f)
-        // Per-CFA raster color layout, and which row holds red (for G-even vs G-odd).
+        // Per-CFA raster color layout.
         val colors = when (cfa) {
             0 -> intArrayOf(0, 1, 1, 2)  // RGGB
             1 -> intArrayOf(1, 0, 2, 1)  // GRBG
             2 -> intArrayOf(1, 2, 0, 1)  // GBRG
             else -> intArrayOf(2, 1, 1, 0)  // BGGR
         }
-        val redRow = if (cfa == 0 || cfa == 1) 0 else 1
         val out = FloatArray(4)
         for (idx in 0..3) {
             val row = idx / 2
             out[idx] = when (colors[idx]) {
                 0 -> gains.red
                 2 -> gains.blue
-                else -> if (row == redRow) gains.greenEven else gains.greenOdd
+                // By image row, as Camera2 defines it. Choosing by "the red row" swapped the two
+                // greens on BGGR and GBRG sensors (this phone is BGGR) whenever they differ.
+                else -> if (row == 0) gains.greenEven else gains.greenOdd
             }
         }
         return out

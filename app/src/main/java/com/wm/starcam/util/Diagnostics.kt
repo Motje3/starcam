@@ -230,10 +230,20 @@ object Diagnostics {
                     }
                     if (written > LOGCAT_FILE_BYTES) {
                         runCatching { out?.close() }
+                        // The frames need the space more than the mirror does.
+                        val free = runCatching { dir.usableSpace }.getOrDefault(Long.MAX_VALUE)
+                        if (free < LOGCAT_MIN_FREE_BYTES) {
+                            AppLog.w(TAG, "logcat mirror stopped: only ${free shr 20} MB of storage left")
+                            out = null
+                            proc.destroy()
+                            break
+                        }
                         part++
                         file = File(dir, "logcat_${stamp}_$part.txt")
                         out = runCatching { openWriter(file) }.getOrNull()
                         written = 0L
+                        // Limits held at startup only, so one long run could rotate forever.
+                        pruneLogcat(dir)
                     }
                 }
             }
@@ -247,6 +257,7 @@ object Diagnostics {
     }
 
     private const val LOGCAT_FILE_BYTES = 16L * 1024 * 1024
+    private const val LOGCAT_MIN_FREE_BYTES = 300L * 1024 * 1024
 
     private fun openWriter(f: File): BufferedWriter =
         BufferedWriter(OutputStreamWriter(FileOutputStream(f, true), Charsets.UTF_8))
@@ -258,7 +269,8 @@ object Diagnostics {
             var total = 0L
             for ((i, f) in files.withIndex()) {
                 total += f.length()
-                if (i >= 16 || total > 160L * 1024 * 1024) f.delete()
+                // The newest is the one being written.
+                if (i > 0 && (i >= 16 || total > 160L * 1024 * 1024)) f.delete()
             }
         }
     }

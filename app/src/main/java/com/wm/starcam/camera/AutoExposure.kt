@@ -20,6 +20,9 @@ object AutoExposure {
     private val ISO_STOPS = intArrayOf(200, 400, 800, 1600, 3200, 6400)
     private const val TARGET_BG = 0.06  // sky background target: 6% of white level, linear
 
+    /** The shortest exposure a bright sky is cut to; below this it is twilight, not night. */
+    private const val MIN_BRIGHT_EXPOSURE_SEC = 1.0
+
     /**
      * [baseFrames] comes from the quality preset (Fast 8 / Best 20 / Insane 40).
      * [trailCapSec] default 8s (~24mm equiv on a tripod; stacking tolerates slight residual trail).
@@ -46,18 +49,38 @@ object AutoExposure {
         val bg = probe.bgFrac.toDouble().coerceAtLeast(1e-5)
         val probeExpSec = probeExposureNs / 1e9
         val ideal = probeIso * (TARGET_BG / bg) * (probeExpSec / expSec)
-        var iso = ISO_STOPS.minByOrNull { kotlin.math.abs(it - ideal) } ?: 800
+
+        // A sky too bright for the full exposure even at the lowest ISO (city glow, moonlight)
+        // used to get it anyway, background far over target and star cores clipped. The
+        // exposure is shortened instead, with more frames for the same total time.
+        val isoFloor = maxOf(ISO_STOPS.first(), cam.isoRange.lower)
+        var finalExpSec = expSec
+        var finalFrames = frames
+        var brightNote: String? = null
+        if (ideal < isoFloor) {
+            val minExpSec = maxOf(MIN_BRIGHT_EXPOSURE_SEC, cam.exposureRangeNs.lower / 1e9)
+            val shorter = (expSec * ideal / isoFloor).coerceIn(minOf(minExpSec, expSec), expSec)
+            if (shorter < expSec * 0.9) {
+                finalExpSec = shorter
+                finalFrames = (frames * (expSec / shorter)).toInt().coerceIn(frames, 99)
+                brightNote = "bright sky: ${"%.1f".format(shorter)}s instead of ${"%.1f".format(expSec)}s"
+            }
+        }
+        val finalExposureNs = (finalExpSec * 1e9).toLong()
+        val idealAtFinal = ideal * (expSec / finalExpSec)
+        var iso = ISO_STOPS.minByOrNull { kotlin.math.abs(it - idealAtFinal) } ?: 800
         // Prefer headroom for star cores when the scene allows it.
         if (iso > 1600 && bg > 0.02) iso = 1600
         iso = iso.coerceIn(cam.isoRange.lower, cam.isoRange.upper)
 
         val limitNote = when {
+            brightNote != null -> brightNote
             maxExpSec < trailCapSec -> "device caps exposure at ${"%.1f".format(maxExpSec)}s ×$expScale frames"
             else -> "trail-limited"
         }
-        val reasoning = "${Fmt.exposure(exposureNs)} · ISO $iso · ${frames}× — " +
+        val reasoning = "${Fmt.exposure(finalExposureNs)} · ISO $iso · ${finalFrames}× — " +
             "sky ${"%.1f".format(probe.bgFrac * 100)}%→${(TARGET_BG * 100).toInt()}%, " +
             "${probe.starCount} stars, $limitNote"
-        return Decision(exposureNs, iso, frames, reasoning)
+        return Decision(finalExposureNs, iso, finalFrames, reasoning)
     }
 }

@@ -286,14 +286,20 @@ void apply_ccm_inplace(ImageF& rgb, const float ccm[9]) {
     });
 }
 
-// METEOR: lighten-blend each cls==0 streak's demosaiced region (warped into reference
-// geometry) onto the linear stack. Returns the number of candidates blended.
+// METEOR: lighten-blend each cls==0 streak, warped into reference geometry, onto the linear
+// stack - along the streak only: a feathered band around its line, not the whole bounding box,
+// which brought back one frame's noise and brightened every ordinary star inside the box.
+// Returns the number of candidates blended.
 // outFrameIndices (nullable): receives the deduplicated frameIndex of each blended candidate.
 int blend_meteors(const std::vector<Streak>& streaks, const std::vector<FrameRecord>& frames,
                   int refPos, const SensorInfo& si, const Image16& masterDark,
-                  const float* darkPedestal,
-                  const std::vector<uint32_t>& hotIdx, bool hotFix, ImageF& stack,
-                  std::vector<int>* outFrameIndices) {
+                  const float* darkPedestal, const float* darkBlack,
+                  const std::vector<uint32_t>& hotIdx, bool hotFix, const ShadingMap* shading,
+                  ImageF& stack, std::vector<int>* outFrameIndices) {
+    // Half-width of the band blended at full strength around the streak's centre line, and the
+    // width over which it fades out (RAW pixels). The region below is padded by 24.
+    constexpr double kCore = 8.0;
+    constexpr double kFeather = 12.0;
     int count = 0;
     std::vector<uint16_t> region;
     for (const Streak& s : streaks) {
@@ -305,6 +311,8 @@ int blend_meteors(const std::vector<Streak>& streaks, const std::vector<FrameRec
         if (pos < 0) continue;
         const FrameRecord& fr = frames[pos];
         if (fr.srawPath.empty()) continue;
+        // A frame left out of the stack (bumped, trailed, unaligned) is left out here too.
+        if (fr.rejected) continue;
         if (!fr.aligned && pos != refPos) continue;  // cannot warp an unaligned frame
         SrawReader r;
         if (!r.open(fr.srawPath)) continue;
@@ -321,20 +329,27 @@ int blend_meteors(const std::vector<Streak>& streaks, const std::vector<FrameRec
         by1 = clampi(by1, by0 + 1, H - 1);
         const int rw = bx1 - bx0 + 1, rh = by1 - by0 + 1;
         copy_region_u16(r.data(), W, H, bx0, by0, rw, rh, &region);
+        if (region.size() < (size_t)rw * (size_t)rh) continue;  // out of memory
         // Per-frame dynamic black, matching stack.cpp — otherwise the blended region gets a
         // different black offset than the surrounding stack (visible brightness step).
         SensorInfo siK = si;
         for (int b = 0; b < 4; ++b) siK.blackLevel[b] = r.header().blackLevel[b];
         if (!masterDark.empty() && masterDark.w == W && masterDark.h == H)
             subtract_dark_region(region, rw, rh, bx0, by0, masterDark, siK.blackLevel,
-                                 darkPedestal);
+                                 darkPedestal, darkBlack);
         if (hotFix && !hotIdx.empty() && W == si.width && H == si.height)
             fix_hot_pixels_region(region, rw, rh, bx0, by0, W, H, hotIdx);
         ImageF rgb;
         demosaic_region_malvar(region.data(), rw, rh, siK, r.header().wbGain, &rgb);
-        if (rgb.empty()) continue;
+        if (rgb.w != rw || rgb.h != rh || rgb.empty()) continue;
+        // The same vignetting correction the stack under it had.
+        if (shading != nullptr) apply_shading_region(rgb, bx0, by0, W, H, *shading);
         const float* ccm = r.header().ccm;
-        Transform Traw = fr.T.scaledTranslation(2.0);  // ref raw -> frame raw
+        // The streak's centre line in this frame's RAW coordinates (luma u -> RAW 2u + 0.5).
+        const double ax = 2.0 * s.x0 + 0.5, ay = 2.0 * s.y0 + 0.5;
+        const double vx = 2.0 * (s.x1 - s.x0), vy = 2.0 * (s.y1 - s.y0);
+        const double vv = vx * vx + vy * vy;
+        Transform Traw = fr.T.lumaToRaw();  // ref raw -> frame raw
         Transform inv = Traw.inverse();
         // Bounding box of the region in reference coords.
         double cx[4] = {(double)bx0, (double)bx1, (double)bx0, (double)bx1};
@@ -357,6 +372,17 @@ int blend_meteors(const std::vector<Streak>& streaks, const std::vector<FrameRec
                 const double lx = sx - bx0, ly = sy - by0;
                 if (!(lx >= 0.0 && ly >= 0.0 && lx <= (double)(rw - 1) && ly <= (double)(rh - 1)))
                     continue;  // outside the region, or not finite
+                // Distance from the streak's line segment decides how much of this frame shows.
+                double t = vv > 0.0 ? ((sx - ax) * vx + (sy - ay) * vy) / vv : 0.0;
+                t = std::min(1.0, std::max(0.0, t));
+                const double ddx = sx - (ax + t * vx), ddy = sy - (ay + t * vy);
+                const double dist = std::sqrt(ddx * ddx + ddy * ddy);
+                if (!(dist < kCore + kFeather)) continue;
+                float wgt = 1.0f;
+                if (dist > kCore) {
+                    const float f = (float)((dist - kCore) / kFeather);
+                    wgt = 1.0f - f * f * (3.0f - 2.0f * f);  // smoothstep falloff
+                }
                 int x0 = (int)lx, y0 = (int)ly;
                 int x1 = std::min(x0 + 1, rw - 1), y1 = std::min(y0 + 1, rh - 1);
                 float fx = (float)(lx - x0), fy = (float)(ly - y0);
@@ -371,9 +397,9 @@ int blend_meteors(const std::vector<Streak>& streaks, const std::vector<FrameRec
                 float out1 = std::max(0.0f, ccm[3] * smp[0] + ccm[4] * smp[1] + ccm[5] * smp[2]);
                 float out2 = std::max(0.0f, ccm[6] * smp[0] + ccm[7] * smp[1] + ccm[8] * smp[2]);
                 float* dp = stack.px(px, py);
-                if (out0 > dp[0]) dp[0] = out0;
-                if (out1 > dp[1]) dp[1] = out1;
-                if (out2 > dp[2]) dp[2] = out2;
+                dp[0] += wgt * std::max(0.0f, out0 - dp[0]);
+                dp[1] += wgt * std::max(0.0f, out1 - dp[1]);
+                dp[2] += wgt * std::max(0.0f, out2 - dp[2]);
             }
         }
         if (outFrameIndices != nullptr &&
@@ -557,7 +583,6 @@ std::string EngineSession::addFrame(const uint16_t* bayer, int w, int h, int str
 
 std::string EngineSession::addDark(const uint16_t* bayer, int w, int h, int strideElems,
                                    const FrameMeta& meta) {
-    (void)meta;
     try {
         std::lock_guard<std::mutex> lk(mu_);
         const int idx = darkCounter_++;
@@ -576,6 +601,11 @@ std::string EngineSession::addDark(const uint16_t* bayer, int w, int h, int stri
                     }
                 }
                 mean = total / ((double)w * (double)h);
+                // The dark's own (dynamic) black when the capture side sent it, like a light's.
+                for (int i = 0; i < 4; ++i) {
+                    darkBlackSum_[i] +=
+                        meta.hasBlackLevel ? meta.blackLevel[i] : cfg_.sensor.blackLevel[i];
+                }
                 darkCount_++;
             }
         } else {
@@ -599,6 +629,7 @@ void EngineSession::discardDarks() {
     darkSum_.clear();
     darkSum_.shrink_to_fit();
     darkCount_ = 0;
+    for (double& b : darkBlackSum_) b = 0.0;
 }
 
 void EngineSession::rejectFrame(int index, const std::string& reason) {
@@ -723,6 +754,9 @@ std::string EngineSession::finalizeStack(const std::string& optionsJson,
         Image16 masterDark;
         std::vector<Streak> streaks;
         int darkFrames = 0;
+        // The black level the master dark was shot at (raster order).
+        float darkBlack[4] = {cfg_.sensor.blackLevel[0], cfg_.sensor.blackLevel[1],
+                              cfg_.sensor.blackLevel[2], cfg_.sensor.blackLevel[3]};
         {
             std::lock_guard<std::mutex> lk(mu_);
             frames = frames_;
@@ -737,6 +771,7 @@ std::string EngineSession::finalizeStack(const std::string& optionsJson,
                     masterDark.d[i] =
                         (uint16_t)clampi((int)std::lround(darkSum_[i] * invC), 0, 65535);
                 }
+                for (int i = 0; i < 4; ++i) darkBlack[i] = (float)(darkBlackSum_[i] * invC);
             }
             if (cfg_.mode == SessionMode::METEOR) streaks = meteor_.finalizeClassification();
         }
@@ -755,6 +790,7 @@ std::string EngineSession::finalizeStack(const std::string& optionsJson,
                     masterDark.init(cfg_.sensor.width, cfg_.sensor.height);
                     std::memcpy(masterDark.d.data(), dr.data(),
                                 masterDark.d.size() * sizeof(uint16_t));
+                    for (int i = 0; i < 4; ++i) darkBlack[i] = dh.blackLevel[i];
                     darkReused = true;
                     SLOG("finalize: reusing master dark from %s", inPath.c_str());
                 } else {
@@ -775,7 +811,9 @@ std::string EngineSession::finalizeStack(const std::string& optionsJson,
             dh.height = (uint32_t)masterDark.h;
             dh.cfa = cfg_.sensor.cfa;
             dh.whiteLevel = cfg_.sensor.whiteLevel;
-            for (int i = 0; i < 4; ++i) dh.blackLevel[i] = cfg_.sensor.blackLevel[i];
+            // Its own baseline, so a re-stack or a later session using it as a library dark
+            // subtracts it relative to the black it was actually shot at.
+            for (int i = 0; i < 4; ++i) dh.blackLevel[i] = darkBlack[i];
             const std::string darkPath = cfg_.sessionDir + "/cache/master_dark.sraw";
             if (sraw_write(darkPath, dh, masterDark.d.data(), masterDark.w)) {
                 SLOG("finalize: master dark (%d frames) saved to %s", darkFrames,
@@ -832,6 +870,12 @@ std::string EngineSession::finalizeStack(const std::string& optionsJson,
                  darkPed[2], darkPed[3]);
         }
         sp.darkPedestal = darkPedPtr;
+        const float* darkBlackPtr = masterDark.empty() ? nullptr : darkBlack;
+        sp.darkBlack = darkBlackPtr;
+        if (darkBlackPtr != nullptr) {
+            SLOG("finalize: master dark black %.1f %.1f %.1f %.1f", darkBlack[0], darkBlack[1],
+                 darkBlack[2], darkBlack[3]);
+        }
         // Off unless the Kotlin side both wrote a map and left the toggle on.
         const ShadingMap shading =
             opt.boolean("lensShading", true) ? load_shading_map(cfg_.sessionDir) : ShadingMap();
@@ -994,17 +1038,23 @@ std::string EngineSession::finalizeStack(const std::string& optionsJson,
                 const int W = (int)r.header().width, H = (int)r.header().height;
                 if (W < 4 || H < 4) continue;
                 copy_region_u16(r.data(), W, H, 0, 0, W, H, &region);
+                // Both stages clear their output when memory runs out; an empty image must not
+                // reach the accumulator.
+                if (region.size() < (size_t)W * (size_t)H)
+                    return error_json("out of memory while compositing trails");
                 // Per-frame dynamic black, matching stack.cpp: the black point drifts upward as
                 // the sensor warms across a long trails session.
                 SensorInfo siK = cfg_.sensor;
                 for (int b = 0; b < 4; ++b) siK.blackLevel[b] = r.header().blackLevel[b];
                 if (!masterDark.empty() && masterDark.w == W && masterDark.h == H)
                     subtract_dark_region(region, W, H, 0, 0, masterDark, siK.blackLevel,
-                                         darkPedPtr);
+                                         darkPedPtr, darkBlackPtr);
                 if (sp.hotPixelFix && !hotIdx.empty() && W == cfg_.sensor.width &&
                     H == cfg_.sensor.height)
                     fix_hot_pixels_region(region, W, H, 0, 0, W, H, hotIdx);
                 demosaic_region_malvar(region.data(), W, H, siK, r.header().wbGain, &rgb);
+                if (rgb.w != W || rgb.h != H || rgb.empty())
+                    return error_json("out of memory while compositing trails");
                 // Same correction the stacking path applies, so a trails composite is not the one
                 // output that keeps the lens falloff.
                 if (sp.shading != nullptr) apply_shading_region(rgb, 0, 0, W, H, *sp.shading);
@@ -1031,8 +1081,8 @@ std::string EngineSession::finalizeStack(const std::string& optionsJson,
             fwhmStack = measure_stack_fwhm(stackRGB);
             if (mode == SessionMode::METEOR) {
                 meteorCount = blend_meteors(streaks, frames, refPos, cfg_.sensor, masterDark,
-                                            darkPedPtr, hotIdx, sp.hotPixelFix, stackRGB,
-                                            &meteorFrameIdx);
+                                            darkPedPtr, darkBlackPtr, hotIdx, sp.hotPixelFix,
+                                            sp.shading, stackRGB, &meteorFrameIdx);
                 SLOG("finalize: %d meteor candidate(s) composited", meteorCount);
             }
         }

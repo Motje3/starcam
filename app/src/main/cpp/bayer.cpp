@@ -2,7 +2,8 @@
 // See bayer.h for contracts and PLAN.md §6.1 / §6.4 for context.
 //
 // Normalization (applied everywhere a value leaves the raw domain), per 2x2 raster position `pos`:
-//   v = max(0, raw - blackLevel[pos]) * wbGain[pos] / (whiteLevel - blackLevel[pos]),  clamped to [0, 4].
+//   v = (raw - blackLevel[pos]) * wbGain[pos] / (whiteLevel - blackLevel[pos]),  clamped to [-1, 4].
+// Below-black values stay negative until frames are combined (see bayer.h).
 
 #include "bayer.h"
 
@@ -10,11 +11,14 @@ namespace starcam {
 
 namespace {
 
-// Precomputed per-position normalization: v = max(0, raw - black[pos]) * scale[pos], clamp [0,4].
+// Precomputed per-position normalization: v = (raw - black[pos]) * scale[pos], clamp [-1,4].
 struct NormCtx {
     float black[4];
     float scale[4];
 };
+
+constexpr float kNormLo = -1.0f;
+constexpr float kNormHi = 4.0f;
 
 NormCtx make_norm(const SensorInfo& si, const float wbGain[4]) {
     NormCtx c;
@@ -29,10 +33,8 @@ NormCtx make_norm(const SensorInfo& si, const float wbGain[4]) {
 }
 
 inline float norm_px(uint16_t raw, int pos, const NormCtx& c) {
-    float v = (float)raw - c.black[pos];
-    if (v < 0.0f) v = 0.0f;
-    v *= c.scale[pos];
-    return v > 4.0f ? 4.0f : v;
+    const float v = ((float)raw - c.black[pos]) * c.scale[pos];
+    return v < kNormLo ? kNormLo : (v > kNormHi ? kNormHi : v);
 }
 
 // Sanitize a possibly-out-of-range CFA value before indexing cfaColorAt's table.
@@ -183,7 +185,7 @@ void copy_region_u16(const uint16_t* bayer, int w, int h, int x0, int y0, int rw
 // ---------------------------------------------------------------------------
 void subtract_dark_region(std::vector<uint16_t>& region, int rw, int rh, int x0, int y0,
                           const Image16& masterDark, const float blackLevel[4],
-                          const float* darkPedestal) {
+                          const float* darkPedestal, const float* darkBlack) {
     if (rw <= 0 || rh <= 0) return;
     if (region.size() < (size_t)rw * rh) {
         SLOGE("subtract_dark_region: region buffer too small (%zu < %d x %d)", region.size(), rw, rh);
@@ -205,11 +207,11 @@ void subtract_dark_region(std::vector<uint16_t>& region, int rw, int rh, int x0,
             int fx = x0 + x;                   // FULL-frame column
             int pos = posRow | (fx & 1);
             int cx = clampi(fx, 0, mw - 1);
-            float bl = blackLevel[pos];
-            float lo = clampf(bl, 0.0f, 65535.0f);
-            float ref = darkPedestal != nullptr ? darkPedestal[pos] : bl;
+            const float ref = darkPedestal != nullptr ? darkPedestal[pos]
+                              : darkBlack != nullptr  ? darkBlack[pos]
+                                                      : blackLevel[pos];
             float v = (float)rrow[x] - ((float)drow[cx] - ref);
-            v = clampf(v, lo, 65535.0f);
+            v = clampf(v, 0.0f, 65535.0f);
             rrow[x] = (uint16_t)(v + 0.5f);
         }
     }
@@ -353,9 +355,9 @@ void demosaic_region_malvar(const uint16_t* region, int rw, int rh, const Sensor
             }
 
             float* o = od + ((size_t)y * rw + x) * 3;
-            o[0] = clampf(r, 0.0f, 4.0f);
-            o[1] = clampf(g, 0.0f, 4.0f);
-            o[2] = clampf(b, 0.0f, 4.0f);
+            o[0] = clampf(r, kNormLo, kNormHi);
+            o[1] = clampf(g, kNormLo, kNormHi);
+            o[2] = clampf(b, kNormLo, kNormHi);
         }
     }
 }

@@ -34,7 +34,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.Executor
-import kotlin.coroutines.resume
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resumeWithException
 
 /** The preview surface died before we could use it — expected, not an error worth showing. */
@@ -69,7 +69,10 @@ data class WbLock(
     val transform: ColorSpaceTransform?,
 )
 
-/** One completed RAW capture: the sensor image + its metadata. Close [image] when done. */
+/**
+ * One completed RAW capture: the sensor image + its metadata. Release it with [close], not by
+ * closing [image] directly: the controller keeps the image's reader open until it comes back.
+ */
 class CapturedRaw(
     val image: Image,
     val result: TotalCaptureResult,
@@ -77,7 +80,17 @@ class CapturedRaw(
     val seq: Int = 0,
     /** Request submitted -> image in hand. */
     val elapsedMs: Long = 0L,
-)
+    private val onRelease: () -> Unit = {},
+) : AutoCloseable {
+    private val released = AtomicBoolean(false)
+
+    override fun close() {
+        if (released.compareAndSet(false, true)) {
+            runCatching { image.close() }
+            onRelease()
+        }
+    }
+}
 
 /**
  * Thin Camera2 wrapper: owns the camera thread, device, session, RAW ImageReader. All suspend
@@ -112,10 +125,25 @@ class CameraController(private val context: Context, val cam: CamInfo) {
     @Volatile var sessionHasPreview = false
         private set
 
+    /**
+     * An image as it arrived, with the properties read at that moment: once published, a consumer
+     * may close it at any time, and reading a closed Image throws.
+     */
+    private class Arrived(val image: Image, val reader: ImageReader, val ts: Long, val w: Int, val h: Int)
+
     // Images arrive here from the reader; captureRaw matches them to results by timestamp.
-    private val pendingImages = ArrayDeque<Image>()
+    private val pendingImages = ArrayDeque<Arrived>()
     @Volatile
     private var imageWaiter: CompletableDeferred<Unit>? = null
+
+    /**
+     * Images handed to callers and not yet released, per reader. The native ingest reads an
+     * Image's buffer directly, and closing its ImageReader frees that buffer under the read - a
+     * camera taken away mid-ingest, or the app torn down, could crash the process. A reader with
+     * images out is retired instead, and closed when the last of them comes back.
+     */
+    private val leases = HashMap<ImageReader, Int>()
+    private val retiredReaders = HashSet<ImageReader>()
 
     var currentRawSize: Size? = null
         private set
@@ -223,6 +251,7 @@ class CameraController(private val context: Context, val cam: CamInfo) {
     @Volatile private var availabilityRegistered = false
 
     @SuppressLint("MissingPermission")  // permission is checked by MainActivity before use
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     suspend fun open() {
         if (closed) throw CameraLostException("the camera controller was closed")
         if (device != null) return
@@ -240,7 +269,11 @@ class CameraController(private val context: Context, val cam: CamInfo) {
                                 // onOpened must find this as the current device, or lost() would
                                 // dismiss it as a stale one and nobody would hear of it.
                                 device = d
-                                cont.resume(d)
+                                // Cancelled before the caller takes it: closed, not leaked.
+                                cont.resume(d) {
+                                    if (device === d) device = null
+                                    runCatching { d.close() }
+                                }
                             } else {
                                 runCatching { d.close() }
                             }
@@ -260,7 +293,13 @@ class CameraController(private val context: Context, val cam: CamInfo) {
             AppLog.e(TAG, "camera ${cam.cameraId} did not open within ${OPEN_TIMEOUT_MS}ms")
             throw CameraLostException("the camera did not open within ${OPEN_TIMEOUT_MS / 1000}s")
         }
-        device = opened
+        // A disconnect handled between onOpened and here has already dropped the device and told
+        // the owner. Taking it back as the open camera would advertise a closed handle as ready.
+        if (device !== opened) {
+            runCatching { opened.close() }
+            AppLog.e(TAG, "camera ${cam.cameraId} was taken away while it was opening")
+            throw CameraLostException("the camera was taken away while it was opening")
+        }
         deviceClosed = closedSignal
         openedAtMs = SystemClock.elapsedRealtime()
         if (!availabilityRegistered) {
@@ -308,10 +347,43 @@ class CameraController(private val context: Context, val cam: CamInfo) {
         runCatching { session?.close() }
         session = null
         sessionHasPreview = false
-        runCatching { rawReader?.close() }
+        // Queued images first: closing the reader invalidates them, and the drain used to read
+        // their timestamps afterwards - an exception that, from a device-loss callback on the
+        // camera thread, took the whole app down.
+        drainPendingImages("session teardown")
+        rawReader?.let { retireReader(it) }
         rawReader = null
         currentRawSize = null
-        drainPendingImages("session teardown")
+    }
+
+    /** Closes [reader] now, or as soon as the last image handed out from it is released. */
+    private fun retireReader(reader: ImageReader) {
+        val inUse = synchronized(leases) {
+            val n = leases[reader] ?: 0
+            if (n > 0) retiredReaders += reader
+            n
+        }
+        if (inUse > 0) {
+            AppLog.w(TAG, "RAW reader retired with $inUse image(s) still being read — closing it when they are released")
+        } else {
+            runCatching { reader.close() }
+        }
+    }
+
+    private fun lease(reader: ImageReader) = synchronized(leases) {
+        leases[reader] = (leases[reader] ?: 0) + 1
+    }
+
+    private fun release(reader: ImageReader) {
+        val closeNow = synchronized(leases) {
+            val n = (leases[reader] ?: 1) - 1
+            if (n <= 0) leases.remove(reader) else leases[reader] = n
+            n <= 0 && retiredReaders.remove(reader)
+        }
+        if (closeNow) {
+            runCatching { reader.close() }
+            AppLog.d(TAG, "retired RAW reader closed: its last image was released")
+        }
     }
 
     /**
@@ -355,6 +427,7 @@ class CameraController(private val context: Context, val cam: CamInfo) {
         buildSession(surf, rawSize, if (wantPreview) "capture" else "capture, raw-only")
     }
 
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     private suspend fun buildSession(preview: Surface?, rawSize: Size, why: String) {
         if (closed) throw CameraLostException("the camera controller was closed")
         val dev = device ?: throw CameraLostException("camera not open")
@@ -380,7 +453,9 @@ class CameraController(private val context: Context, val cam: CamInfo) {
                         object : CameraCaptureSession.StateCallback() {
                             override fun onConfigured(s: CameraCaptureSession) {
                                 AppLog.i(TAG, "session #$id configured in ${SystemClock.elapsedRealtime() - t0}ms")
-                                if (cont.isActive) cont.resume(s) else runCatching { s.close() }
+                                // Cancelled before the caller takes it: closed, not leaked.
+                                if (cont.isActive) cont.resume(s) { runCatching { s.close() } }
+                                else runCatching { s.close() }
                             }
                             override fun onConfigureFailed(s: CameraCaptureSession) {
                                 AppLog.e(TAG, "session #$id configure FAILED")
@@ -628,10 +703,11 @@ class CameraController(private val context: Context, val cam: CamInfo) {
 
         // The image usually lands right after the result; wait for a matching timestamp.
         val tResult = since()
-        val image = awaitImage(wantedTs, seq)
+        val arrived = awaitImage(wantedTs, seq)
         val total = since()
         AppLog.i(TAG, "#$seq $label done in ${total}ms (image +${total - tResult}ms after result)")
-        return CapturedRaw(image, result, seq, total)
+        // Leased by awaitImage: its reader stays open until the caller releases the image.
+        return CapturedRaw(arrived.image, result, seq, total) { release(arrived.reader) }
     }
 
     private fun onImageAvailable(r: ImageReader) {
@@ -642,45 +718,55 @@ class CameraController(private val context: Context, val cam: CamInfo) {
             AppLog.e(TAG, "acquireNextImage failed (holding ${pendingImages.size} pending) — ${t.message}")
             null
         } ?: return
+        // Read before publishing: once queued, a consumer may claim and close it at once.
+        val arrived = runCatching { Arrived(img, r, img.timestamp, img.width, img.height) }
+            .getOrElse {
+                AppLog.e(TAG, "image arrived already invalid — ${it.message}")
+                runCatching { img.close() }
+                return
+            }
         val dropped = ArrayList<Long>()
         val pending: Int
         synchronized(pendingImages) {
-            pendingImages.addLast(img)
+            pendingImages.addLast(arrived)
             // Reader has maxImages=3; drop oldest if a consumer is lagging badly.
             while (pendingImages.size > 2) {
                 val old = pendingImages.removeFirst()
-                dropped += old.timestamp
-                runCatching { old.close() }
+                dropped += old.ts
+                runCatching { old.image.close() }
             }
             pending = pendingImages.size
         }
-        AppLog.d(TAG, "image ts=${img.timestamp} ${img.width}x${img.height} queued (pending $pending)" +
+        AppLog.d(TAG, "image ts=${arrived.ts} ${arrived.w}x${arrived.h} queued (pending $pending)" +
             if (dropped.isNotEmpty()) " — DROPPED unclaimed $dropped" else "")
         imageWaiter?.complete(Unit)
     }
 
-    private suspend fun awaitImage(wantedTs: Long, seq: Int): Image {
+    private suspend fun awaitImage(wantedTs: Long, seq: Int): Arrived {
         val deadline = System.currentTimeMillis() + 10_000L
         while (true) {
             // Arm the waiter BEFORE scanning so an image arriving mid-scan still wakes us.
             val waiter = CompletableDeferred<Unit>()
             imageWaiter = waiter
-            var found: Image? = null
+            var found: Arrived? = null
             val stale = ArrayList<Long>()
             synchronized(pendingImages) {
                 val it = pendingImages.iterator()
                 while (it.hasNext()) {
                     val img = it.next()
-                    if (wantedTs == -1L || img.timestamp == wantedTs) {
+                    if (wantedTs == -1L || img.ts == wantedTs) {
                         it.remove()
+                        // Leased under the same lock the teardown drains under, so a reader
+                        // retired in between always knows this image is still out.
+                        lease(img.reader)
                         found = img
                         break
                     }
-                    if (img.timestamp < wantedTs) {
+                    if (img.ts < wantedTs) {
                         // stale image from an earlier/aborted capture
                         it.remove()
-                        stale += img.timestamp
-                        img.close()
+                        stale += img.ts
+                        runCatching { img.image.close() }
                     }
                 }
             }
@@ -702,7 +788,7 @@ class CameraController(private val context: Context, val cam: CamInfo) {
     private fun drainPendingImages(why: String) {
         val closed = ArrayList<Long>()
         synchronized(pendingImages) {
-            pendingImages.forEach { closed += it.timestamp; runCatching { it.close() } }
+            pendingImages.forEach { closed += it.ts; runCatching { it.image.close() } }
             pendingImages.clear()
         }
         if (closed.isNotEmpty()) AppLog.w(TAG, "closed ${closed.size} unclaimed image(s) ($why): $closed")
@@ -768,7 +854,7 @@ class CameraController(private val context: Context, val cam: CamInfo) {
 
     /** One line of everything worth knowing about the camera's state, for failure logs. */
     fun dumpState(): String {
-        val pending = synchronized(pendingImages) { pendingImages.map { it.timestamp } }
+        val pending = synchronized(pendingImages) { pendingImages.map { it.ts } }
         return "state[device=${device?.id ?: "none"} session=${if (session != null) "#$sessionId" else "none"} " +
             "preview=${when {
                 !sessionHasPreview -> "not in session"

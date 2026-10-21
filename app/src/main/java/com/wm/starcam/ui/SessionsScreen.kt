@@ -23,7 +23,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -138,9 +137,13 @@ private fun SessionTile(s: SessionSummary, onClick: () -> Unit) {
     val c = Sc.colors
     ScCard(Modifier.fillMaxWidth(), padding = PaddingValues(0.dp), onClick = onClick) {
         Box(Modifier.fillMaxWidth().aspectRatio(4f / 3f).background(c.sunken)) {
-            val thumb by produceState<ImageBitmap?>(null, s.finalJpg?.absolutePath) {
-                value = s.finalJpg?.let { f ->
-                    withContext(Dispatchers.IO) { decodeDownsampled(f.absolutePath, 400)?.asImageBitmap() }
+            // A plain state + effect: with produceState, lint's check reported the assignment as
+            // missing (a false "never assigns value" error that failed the lint task).
+            val path = s.finalJpg?.absolutePath
+            var thumb by remember(path) { mutableStateOf<ImageBitmap?>(null) }
+            LaunchedEffect(path) {
+                thumb = path?.let { p ->
+                    withContext(Dispatchers.IO) { decodeDownsampled(p, 400)?.asImageBitmap() }
                 }
             }
             val t = thumb

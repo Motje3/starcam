@@ -1,5 +1,7 @@
 // Bayer-domain operations: superpixel extraction, Malvar-He-Cutler demosaic, dark/hot-pixel repair.
 // All outputs are LINEAR, black-subtracted, WB-gain-applied, normalized so whiteLevel-black -> 1.0.
+// Values below black stay negative: read noise around a faint signal has both signs, and clipping
+// it at zero before frames are averaged left a positive floor. Clip only after combining.
 #pragma once
 
 #include "common.h"
@@ -21,15 +23,18 @@ void superpixel_rgb(const uint16_t* bayer, int w, int h, int strideElems, const 
 void copy_region_u16(const uint16_t* bayer, int w, int h, int x0, int y0, int rw, int rh,
                      std::vector<uint16_t>* out);
 
-// In-place on a copied region: subtract the master dark's excess over black level.
+// In-place on a copied region: subtract the master dark's excess over its own baseline.
 // region pixel (x,y) corresponds to full-frame (x0+x, y0+y). masterDark is full-res.
-// result = clamp(pixel - (dark - ref), blackAtPosition, 65535), where ref is darkPedestal[pos]
-// when given, else blackAtPosition. A pedestal (the dark's own per-position median) subtracts only
-// the dark's structure - hot pixels, amp glow - for a dark shot on another night, whose black
-// point differs from tonight's and would otherwise shift the whole sky down and clip its noise.
+// result = clamp(pixel - (dark - ref), 0, 65535): values below the light's black are kept (they
+// become the negative half of the noise). ref is, in order of preference:
+//  - darkPedestal[pos], the dark's own per-position median: subtracts only its structure (hot
+//    pixels, amp glow) for a dark from another night, whose level is not tonight's;
+//  - darkBlack[pos], the black level the darks were shot at, so (light - its black) minus
+//    (dark - its black) is the signal even when the two baselines differ;
+//  - blackLevel[pos], the light's own black (older callers; right when both baselines agree).
 void subtract_dark_region(std::vector<uint16_t>& region, int rw, int rh, int x0, int y0,
                           const Image16& masterDark, const float blackLevel[4],
-                          const float* darkPedestal = nullptr);
+                          const float* darkPedestal = nullptr, const float* darkBlack = nullptr);
 
 // Per-CFA-position (raster order) median of a master dark, from a strided sample.
 void dark_pedestal(const Image16& dark, float out[4]);
@@ -50,7 +55,8 @@ void apply_shading_region(ImageF& rgb, int x0, int y0, int fullW, int fullH, con
 
 // Malvar-He-Cutler 5x5 linear demosaic of a packed region buffer (as produced by copy_region_u16
 // with even x0/y0, so the region's CFA phase equals si.cfa). Output (rw, rh, 3) linear sensor RGB,
-// black-subtracted, WB-applied, normalized to [0, ~1]. Border pixels use clamped taps.
+// black-subtracted, WB-applied, normalized to [~0, ~1] (slightly negative below black, see top).
+// Border pixels use clamped taps.
 void demosaic_region_malvar(const uint16_t* region, int rw, int rh, const SensorInfo& si,
                             const float wbGain[4], ImageF* outRgb);
 

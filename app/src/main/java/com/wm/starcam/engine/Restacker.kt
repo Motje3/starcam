@@ -154,6 +154,8 @@ object Restacker {
             put("wbGains", JSONArray(listOf(1.0, 1.0, 1.0, 1.0)))
             put("ccm", JSONArray(listOf(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)))
             put("gyroRms", 0.0)
+            // The black level it was shot at, which the session stored in its header.
+            put("blackLevel", JSONArray(info.blackLevel.map { it.toDouble() }))
         }.toString()
         NativeEngine.addDarkFrame(handle, buffer, info.width, info.height, info.width * 2, metaJson)
     }

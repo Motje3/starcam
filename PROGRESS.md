@@ -1,5 +1,76 @@
 # StarCam build progress (PLAN.md §10)
 
+## Fixes from the second (GPT) review, 0.3.2 (2026-10-21)
+
+`gpt review.md` (written against 5ed0d77) was checked finding by finding against the current
+code. Already fixed by 0.3.1: #5 re-stack rewriting its source and forgetting rejections, #20
+Cancel during the stillness wait, finish-now still asking for darks, re-stack lifetime. True and
+fixed now:
+
+- **Camera buffers outlive their reader (#1, #16).** Native ingest reads an Image's buffer
+  directly. App teardown waited only for "active" jobs (a cancelled one is not, while its native
+  call runs on), and a camera taken away mid-ingest closed the ImageReader at once - both could
+  free the buffer under the read. Images handed out are now leased: a reader with an image out
+  is retired and closed when the image comes back. The teardown also drained queued images after
+  closing the reader, reading invalidated Images on the camera thread (a crash from the
+  device-loss callback); the order is reversed and image properties are read before an image is
+  published.
+- **Camera open and setup races (#18, #19).** A disconnect handled between onOpened and the open
+  returning no longer gets its closed device reinstated as ready. Devices and sessions delivered
+  to a coroutine that is cancelled before it takes them are closed, not leaked; controllers whose
+  open failed are closed with their camera thread. A lens switch turns the shutter off at the tap
+  and re-checks camera ownership under its lock.
+- **Dark frames against their own black level (#2).** Darks now carry their dynamic black level,
+  the master dark is subtracted relative to it (not the light's), and the level is stored in
+  master_dark.sraw for re-stacks and the dark library. On this phone the two differ by at most
+  0.1 ADU, so photos are unchanged; on a sensor whose baselines differ, faint sky is no longer
+  clipped away.
+- **Signed calibration (#3).** Values below black stay negative through normalization, demosaic
+  and the warp, and are clipped only after frames are combined. Clipping read noise at zero first
+  left a positive floor in faint backgrounds. Backgrounds well above black are unaffected.
+- **Two-frame "median" (#4).** For an even number of samples the stack returned the upper middle
+  value, so two-frame stacks and thinly covered borders were maximum composites. The two middle
+  values are now averaged.
+- **Allocation failures (#11).** A failed region copy or demosaic left an empty image that the
+  stacking tile then read (a native crash). The stack now fails with an error instead; trails and
+  meteor blending check too.
+- **Session manifest (#6).** session.json is written atomically (AtomicFile), and a manifest that
+  does not parse is set aside instead of being replaced by an empty one.
+- **Saving (#7).** The engine no longer deletes the frames at the end of the stack: they go only
+  after the JPEG is on disk (and only when working files are not kept). A failed JPEG gets the
+  failure buzz, not the success one; a missing TIFF is recorded.
+- **Storage (#14, #15).** No more forcing 4 frames the disk cannot hold; a session that cannot fit
+  two frames says so before it starts. Space is re-checked before every frame, keeping room for
+  the outputs; a frame that could not be saved ends the burst instead of being counted. DNG
+  failures are reported. A session whose cache is its only copy (no photo, no DNGs) is never pruned.
+- **Gyro per attempt (#12).** The bump window restarts for every capture attempt, so a knock
+  during a failed attempt or a camera repair no longer rejects the retry; frames with no gyro
+  readings are logged as unjudged.
+- **Focus sweep (#9).** A short settle frame moves the lens before each 2 s measurement, and a
+  measurement still reported as moving is taken again.
+- **Exposure (#10).** The decision scales from the probe's actual exposure and ISO. A sky too
+  bright for the full exposure even at ISO 200 now gets a shorter one (down to 1 s) with more
+  frames, instead of the full exposure with the background far over target.
+- **Duration modes (#8, partly).** TRAILS and METEOR shrink their frame count once the real frame
+  period is known, so 20 minutes means 20 minutes. Overlapping capture with processing is not done.
+- **Meteors (#13).** Blended along a feathered band around the streak instead of its whole bounding
+  box, with the stack's vignetting correction, and never from a frame the stack rejected.
+- **Smaller.** 16 KB page alignment for the native library (#17); green white-balance gains by row
+  parity (they were swapped on BGGR sensors like this phone's, harmless while both are 1.00); the
+  luma-to-RAW transform includes the superpixel centre; the camera test reports FAIL or INCOMPLETE
+  when its ingest/DNG workload failed or did not run (#24); logs prune while running, cap session
+  logs, pause under 200 MB free and bound their queue (#25); the lint error is gone.
+
+**Not done, and why.** #21 (staged thermal response beyond ending the burst at CRITICAL) and the
+service-owned session (#1's long-term part) are larger changes. #22 (the 16-bit TIFF clips values
+above 1 after white balance) needs a decision: a 32-bit float TIFF keeps them but is twice the
+size and not every editor opens it. #23 (gradient removal fitting the landscape) and the chroma
+denoise star check change how photos look and need real night shots to judge.
+
+**Tested.** Engine self-test PASS on the emulator; emulator flows (cold start, Back, Cancel,
+kill mid-session, re-stack error path) unchanged; lint passes; the library's LOAD segments are
+16 KB aligned (llvm-readelf).
+
 ## Review fixes, 0.3.1 (2026-10-21)
 
 A review of the whole app after the redesign; every finding was checked against the code before

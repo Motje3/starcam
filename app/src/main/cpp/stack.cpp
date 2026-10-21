@@ -1,8 +1,8 @@
 // StarCam native engine — tile-based warp-on-the-fly sigma-clip stacking. PLAN.md §6.4.
 //
 // Contract (stack.h): stacks all frames with rejected==false into outRGB at RAW resolution.
-// frames[i].T maps reference LUMA coords -> frame i LUMA coords; scaled x2 to RAW coords via
-// Transform::scaledTranslation(2.0). Tiles are processed in batches via parallel_for; `progress`
+// frames[i].T maps reference LUMA coords -> frame i LUMA coords; converted to RAW coords via
+// Transform::lumaToRaw(). Tiles are processed in batches via parallel_for; `progress`
 // is invoked ONLY from the calling thread between batches. abortFlag is checked between batches
 // and inside the tile lambda. Returns false on abort or if no active frames.
 
@@ -21,6 +21,20 @@ struct MeanSd {
     double mean = 0.0;
     double sd = 0.0;
 };
+
+// Median with the two middle values averaged for an even count. median_of (common.h) returns the
+// upper of the two, which for a two-sample pixel is simply the brighter frame: two-frame stacks and
+// thinly covered borders came out as maximum composites, brighter and noisier than the data.
+float median_mid(std::vector<float>& v) {
+    const size_t n = v.size();
+    if (n == 0) return 0.0f;
+    const size_t m = n / 2;
+    std::nth_element(v.begin(), v.begin() + m, v.end());
+    const float hi = v[m];
+    if (n & 1) return hi;
+    const float lo = *std::max_element(v.begin(), v.begin() + m);
+    return 0.5f * (lo + hi);
+}
 
 MeanSd mean_sd(const std::vector<float>& v) {
     MeanSd r;
@@ -202,7 +216,7 @@ bool stack_frames_impl(const std::vector<FrameRecord>& frames, const SensorInfo&
     // Precompute per-frame transforms at RAW scale: reference RAW coords -> frame RAW coords.
     std::vector<Transform> tf((size_t)nAct);
     for (int k = 0; k < nAct; ++k) {
-        tf[k] = p.identityTransforms ? Transform{} : frames[act[k]].T.scaledTranslation(2.0);
+        tf[k] = p.identityTransforms ? Transform{} : frames[act[k]].T.lumaToRaw();
     }
 
     // Per-frame stacking weights, normalized so the best frame is 1.0. The floor keeps every
@@ -324,19 +338,33 @@ bool stack_frames_impl(const std::vector<FrameRecord>& frames, const SensorInfo&
             }
 
             copy_region_u16(readers[k]->data(), fw, fh, rx0, ry0, rw, rh, &regionU16);
+            // Both stages clear their output when an allocation fails; carrying on would read
+            // an empty image below (a native crash no catch can stop). The stack fails instead.
+            if (regionU16.size() < (size_t)rw * (size_t)rh) {
+                SLOGE("stack_frames: tile %d frame %d: region copy failed (out of memory?)",
+                      tIdx, act[k]);
+                hadError.store(true);
+                return;
+            }
             // Per-frame black level: the sraw header carries the frame's own (dynamic) black,
             // which drifts upward as the sensor warms across a session.
             SensorInfo siK = si;
             for (int b = 0; b < 4; ++b) siK.blackLevel[b] = readers[k]->header().blackLevel[b];
             if (useDark) {
                 subtract_dark_region(regionU16, rw, rh, rx0, ry0, masterDark, siK.blackLevel,
-                                     p.darkPedestal);
+                                     p.darkPedestal, p.darkBlack);
             }
             if (useHot) {
                 fix_hot_pixels_region(regionU16, rw, rh, rx0, ry0, fw, fh, hotIdx);
             }
             demosaic_region_malvar(regionU16.data(), rw, rh, siK, readers[k]->header().wbGain,
                                    &regionRGB);
+            if (regionRGB.w != rw || regionRGB.h != rh || regionRGB.d.size() < (size_t)rw * rh * 3) {
+                SLOGE("stack_frames: tile %d frame %d: demosaic failed (out of memory?)",
+                      tIdx, act[k]);
+                hadError.store(true);
+                return;
+            }
             // Vignetting lives in frame coordinates, so it has to come off before the warp.
             if (p.shading != nullptr) {
                 apply_shading_region(regionRGB, rx0, ry0, fw, fh, *p.shading);
@@ -453,10 +481,10 @@ bool stack_frames_impl(const std::vector<FrameRecord>& frames, const SensorInfo&
                     continue;
                 }
                 if (n < 5) {
-                    // Too few samples for meaningful statistics: plain median (robust, unbiased
-                    // enough at n<=4, and rejection would be guesswork anyway).
+                    // Too few samples for meaningful statistics: plain median (robust at n<=4, and
+                    // rejection would be guesswork anyway); with two samples, their mean.
                     scratch = vals;
-                    outPx[c] = median_of(scratch);
+                    outPx[c] = median_mid(scratch);
                     continue;
                 }
                 const WinsorStats ws = winsorized_stats(vals, scratch);
@@ -478,7 +506,7 @@ bool stack_frames_impl(const std::vector<FrameRecord>& frames, const SensorInfo&
                 } else {
                     // Everything (or nearly) rejected: the statistics collapsed, trust the median.
                     scratch = vals;
-                    outPx[c] = median_of(scratch);
+                    outPx[c] = median_mid(scratch);
                 }
             }
         }

@@ -1098,8 +1098,8 @@ private fun DoneStep(
                 } else if (jpegSaved == false) {
                     ScNotice(
                         "Stacking worked, but the JPEG could not be written - the phone may be out of " +
-                            "storage. If working files are kept (the default), re-process the session " +
-                            "from Sessions once there is room.",
+                            "storage. The frames are kept: re-process the session from Sessions once " +
+                            "there is room.",
                         tone = Tone.Warning, icon = ScIcons.Warning, title = "Photo not saved",
                     )
                 } else if (st.galleryUri != null) {
