@@ -54,17 +54,20 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.BaselineShift
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.wm.starcam.StarCamViewModel
 import com.wm.starcam.camera.CamInfo
 import com.wm.starcam.camera.CaptureState
@@ -562,9 +565,19 @@ private fun modeIcon(m: Mode) = when (m) {
     Mode.PRO -> ScIcons.ProMode
 }
 
+/** Tab widths follow the label lengths, so METEOR β gets the room PRO does not need. */
+private fun modeWeight(m: Mode) = when (m) {
+    Mode.ASTRO -> 1f
+    Mode.TRAILS -> 1.05f
+    Mode.METEOR -> 1.25f
+    Mode.PRO -> 0.8f
+}
+
 @Composable
 private fun ModeTabs(mode: Mode, onSelect: (Mode) -> Unit) {
     val c = Sc.colors
+    // With a large system font the labels alone fill the tabs; the icons go first.
+    val showIcons = LocalDensity.current.fontScale <= 1.2f
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 12.dp).height(44.dp)
             .clip(ScShapes.chip).background(c.sunken).border(1.dp, c.hairline, ScShapes.chip)
@@ -575,7 +588,7 @@ private fun ModeTabs(mode: Mode, onSelect: (Mode) -> Unit) {
             val sel = m == mode
             val tint = if (sel) c.onSelected else c.text2
             Row(
-                Modifier.weight(1f).fillMaxHeight().clip(ScShapes.segmentItem)
+                Modifier.weight(modeWeight(m)).fillMaxHeight().clip(ScShapes.segmentItem)
                     .then(
                         if (sel) Modifier.background(c.selectedFill).border(1.dp, c.selectedBorder, ScShapes.segmentItem)
                         else Modifier
@@ -584,13 +597,21 @@ private fun ModeTabs(mode: Mode, onSelect: (Mode) -> Unit) {
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(modeIcon(m), null, Modifier.size(15.dp), tint = if (sel) c.accent else c.text3)
-                Spacer(Modifier.width(4.dp))
-                Text(m.name, style = ScType.label, color = tint, maxLines = 1, softWrap = false)
-                if (m == Mode.METEOR) {
-                    Text("β", style = ScType.caption, color = c.warning,
-                        modifier = Modifier.padding(start = 1.dp).offset(y = (-4).dp))
+                if (showIcons) {
+                    Icon(modeIcon(m), null, Modifier.size(15.dp), tint = if (sel) c.accent else c.text3)
+                    Spacer(Modifier.width(4.dp))
                 }
+                Text(
+                    buildAnnotatedString {
+                        append(m.name)
+                        if (m == Mode.METEOR) {
+                            withStyle(SpanStyle(color = c.warning, baselineShift = BaselineShift.Superscript,
+                                letterSpacing = 0.sp)) { append(" β") }
+                        }
+                    },
+                    style = ScType.label, color = tint, maxLines = 1, softWrap = false,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }

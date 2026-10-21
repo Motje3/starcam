@@ -34,6 +34,26 @@ are untouched; every screen reads the same state and calls the same functions as
 - **First launch**: three intro cards, then the camera permission asked in context.
 - Smaller fixes on the way: photos are decoded downsampled in the session detail (a 50 MP stack
   was decoded at full size); the camera-problem card no longer blocks Sessions and Settings.
+- Checked at the phone's own font size (115 %): mode tabs size to their labels, the step strip
+  says "Shoot" and stops growing past 115 %, the shield sits on the live stack so "Finish & stack
+  now" fits, Pro tiles set units small. Session titles use the local time of capture (the folder
+  name), not today's time zone. A failed stack gets its own error wording.
+
+**Tested on the phone (wireless adb, 2026-10-21).** Installed as an update (sessions and settings
+kept). Camera test 5 × 20 s: PASS, every frame back in 20.0 s, as with 0.2.1. Two real ASTRO FAST
+sessions indoors: 10/10 frames each, no failed attempts, no camera repairs, bumped frames
+detected and reshot. The second ended with the engine's own "no reference frame (too few stars)"
+(no stars indoors) on the new error screen.
+
+**Open: native crash in stacking (pre-existing, engine untouched since 0.2.1).** The first indoor
+session, with the phone moved during capture, crashed at the start of stacking (SIGSEGV in
+`copy_region_u16`, report in `field-logs/crash_20261021_160645/`). A frame got a degenerate
+bootstrap alignment (10 inliers, residual 0.000), `finalize` rebased every transform onto it,
+the inverse blew the mapped tile corners past the int range, and the saturating double → int
+conversion plus an int overflow in `stack_frames` turned that into a small region at
+x ≈ y ≈ 2^31 that passed the area guard. Proposed fix: reject alignments whose scale is not
+≈ 1 (or that are not finite) as alignment failures, and compute the tile source box in doubles,
+skipping the frame for that tile when it does not overlap the frame.
 
 ## Field-debugging pass, 0.2.0 → 0.2.1 (2026-10-21)
 

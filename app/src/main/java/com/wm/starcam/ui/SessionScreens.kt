@@ -5,6 +5,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -56,6 +57,9 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -609,10 +613,11 @@ private fun CapturingStep(
     StepScaffold(
         SessionStep.Capture, completed.toFloat() / st.total.coerceAtLeast(1),
         actions = {
+            // Two buttons only: with a large system font a third pushed "Finish & stack now" into
+            // an ellipsis. The shield sits on the live stack instead.
             ActionRow {
-                ScButton("Cancel", onCancel, Modifier.weight(0.8f), height = 52.dp)
-                ScButton("Finish & stack now", onFinish, Modifier.weight(1.5f), kind = ScButtonKind.Accent, height = 52.dp)
-                ScIconButton(ScIcons.Shield, "Screen shield", onShield, size = 52.dp, iconSize = 22.dp)
+                ScButton("Cancel", onCancel, Modifier.weight(1f), height = 52.dp)
+                ScButton("Finish & stack now", onFinish, Modifier.weight(1.8f), kind = ScButtonKind.Accent, height = 52.dp)
             }
         },
     ) {
@@ -622,6 +627,7 @@ private fun CapturingStep(
             enabled = s.livePreview,
             chip = "Live stack · $kept frame" + if (kept == 1) "" else "s",
             stats = st.lastStats,
+            onShield = onShield,
         )
         NowLine(busy, st)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -784,6 +790,7 @@ private fun LiveStackCard(
     chip: String,
     stats: FrameStats?,
     placeholder: String = "The live stack appears after the first frame.",
+    onShield: (() -> Unit)? = null,
 ) {
     val c = Sc.colors
     var image by remember { mutableStateOf<ImageBitmap?>(null) }
@@ -817,6 +824,16 @@ private fun LiveStackCard(
         ScGlass(Modifier.align(Alignment.TopStart).padding(10.dp)) {
             Icon(ScIcons.Stack, null, Modifier.size(14.dp), tint = c.accent)
             Text(chip.uppercase(), style = ScType.label, color = c.text)
+        }
+        if (onShield != null) {
+            ScGlass(
+                Modifier.align(Alignment.TopEnd).padding(6.dp).heightIn(min = 44.dp)
+                    .clip(ScShapes.pill).clickable(role = Role.Button, onClick = onShield)
+                    .semantics { contentDescription = "Screen shield: black screen until double-tap" },
+            ) {
+                Icon(ScIcons.Shield, null, Modifier.size(16.dp), tint = c.text)
+                Text("Shield", style = ScType.caption.copy(fontWeight = FontWeight.SemiBold), color = c.text)
+            }
         }
         if (stats != null) {
             Row(
@@ -1100,9 +1117,19 @@ private fun ErrorStep(
                 Modifier.size(72.dp).clip(CircleShape).background(c.errorFill).border(1.dp, c.errorBorder, CircleShape),
                 contentAlignment = Alignment.Center,
             ) { Icon(ScIcons.Warning, null, Modifier.size(32.dp), tint = c.error) }
+            // The engine reports a failed stack as "stacking failed: <reason>". Capture itself
+            // went fine then, so the screen says what did fail, in its own words.
+            val stackingFailed = st.message.startsWith("stacking failed")
             StepTitle(
-                if (st.framesCaptured > 0) "Capture stopped" else "Something went wrong",
-                st.message,
+                when {
+                    stackingFailed -> "Couldn't stack the photo"
+                    st.framesCaptured > 0 -> "Capture stopped"
+                    else -> "Something went wrong"
+                },
+                if (stackingFailed) {
+                    st.message.removePrefix("stacking failed").trimStart(':', ' ')
+                        .replaceFirstChar { it.uppercase() }
+                } else st.message,
                 centered = true,
             )
             val dir = st.sessionDir
@@ -1130,8 +1157,14 @@ private fun ErrorStep(
             }
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 ScLabel("What to do next")
-                NextStep(1, "If the phone feels warm, let it cool for a few minutes — out of its case if you can.")
-                NextStep(2, "Start a new capture, or stack the saved frames from Sessions.")
+                if (stackingFailed) {
+                    NextStep(1, "Stacking lines the frames up by their stars. Clouds, a bright sky or a " +
+                        "covered lens leave too few to do that.")
+                    NextStep(2, "The frames are saved: re-stack them from Sessions, or copy the DNGs to a computer.")
+                } else {
+                    NextStep(1, "If the phone feels warm, let it cool for a few minutes — out of its case if you can.")
+                    NextStep(2, "Start a new capture, or stack the saved frames from Sessions.")
+                }
                 NextStep(3, "Keeps happening? Share the log: everything that happened is in it.")
             }
         }

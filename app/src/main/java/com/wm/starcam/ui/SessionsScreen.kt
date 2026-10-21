@@ -152,7 +152,7 @@ private fun SessionTile(s: SessionSummary, onClick: () -> Unit) {
             StatusBadge(s, Modifier.align(Alignment.TopStart).padding(8.dp))
         }
         Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
-            Text(sessionTitle(s.startedAt), style = ScType.headline.copy(fontFeatureSettings = "tnum"),
+            Text(sessionTitle(s.name, s.startedAt), style = ScType.headline.copy(fontFeatureSettings = "tnum"),
                 color = c.text, maxLines = 1)
             val mode = modeOf(s)?.let { modeLabel(it) } ?: s.mode
             Text("$mode · ${s.frameCount} frame${if (s.frameCount == 1) "" else "s"}",

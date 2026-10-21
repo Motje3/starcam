@@ -55,6 +55,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -516,7 +517,8 @@ fun ScSpinner(modifier: Modifier = Modifier, size: Dp = 22.dp, color: Color = Sc
 // --------------------------------------------------------------------- session pipeline
 
 enum class SessionStep(val label: String) {
-    Still("Still"), Sky("Sky"), Focus("Focus"), Capture("Capture"), Darks("Darks"),
+    // Seven labels share one phone width, so each stays at five letters or fewer.
+    Still("Still"), Sky("Sky"), Focus("Focus"), Capture("Shoot"), Darks("Darks"),
     Stack("Stack"), Done("Done"),
 }
 
@@ -531,6 +533,10 @@ fun ScPipeline(
     modifier: Modifier = Modifier,
 ) {
     val c = Sc.colors
+    // The labels follow the system font size up to 115 %, then stop growing: past that seven of
+    // them no longer fit one row, and the step's own title says the same thing in full size.
+    val fontScale = LocalDensity.current.fontScale
+    val labelSize = (11f * minOf(fontScale, 1.15f) / fontScale).sp
     Row(modifier.fillMaxWidth().padding(horizontal = ScreenMargin),
         horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         SessionStep.entries.forEach { step ->
@@ -551,7 +557,7 @@ fun ScPipeline(
                 Text(
                     step.label,
                     style = ScType.caption.copy(
-                        fontSize = 11.sp,
+                        fontSize = labelSize,
                         fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
                     ),
                     color = if (isCurrent) c.text else c.text3,

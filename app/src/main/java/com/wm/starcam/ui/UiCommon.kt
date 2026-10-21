@@ -111,6 +111,18 @@ fun durationShort(totalSec: Long): String {
     }
 }
 
+/**
+ * A session's title in the local time it was shot. The folder name (yyyyMMdd_HHmmss_mode) holds
+ * the phone's wall-clock time then; the start timestamp in session.json is absolute and would be
+ * shown in today's time zone, an hour or more off for a night shot while travelling.
+ */
+fun sessionTitle(dirName: String, fallbackMs: Long): String {
+    val shot = runCatching {
+        SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).apply { isLenient = false }.parse(dirName.take(15))
+    }.getOrNull()
+    return sessionTitle(shot?.time ?: fallbackMs)
+}
+
 /** "Today · 23:14", "Yesterday · 01:42", "Oct 18 · 01:42", "Oct 18 2025 · 01:42". */
 fun sessionTitle(startedAtMs: Long): String {
     if (startedAtMs <= 0L) return "Session"

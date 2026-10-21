@@ -265,7 +265,7 @@ fun SessionDetailScreen(
     val d = data
     ScScreen {
         ScTopBar(
-            title = d?.let { sessionTitle(it.startedAt) } ?: dir.name,
+            title = d?.let { sessionTitle(dir.name, it.startedAt) } ?: dir.name,
             onBack = onBack,
             subtitle = d?.let { "${modeLabel(it.mode)} · ${it.frameCount} frame${if (it.frameCount == 1) "" else "s"}" },
         )

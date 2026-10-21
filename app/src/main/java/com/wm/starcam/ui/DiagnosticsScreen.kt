@@ -347,12 +347,13 @@ private fun CameraTestControls(vm: StarCamViewModel) {
 private fun <T> ChipRow(
     label: String, options: List<T>, selected: T, text: (T) -> String, onSelect: (T) -> Unit,
 ) {
+    // Label above the chips: beside them, a large system font wrapped it and pushed chips off-screen.
+    ScLabel(label, Modifier.padding(top = 10.dp))
     Row(
-        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 8.dp),
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ScLabel(label, Modifier.width(66.dp))
         options.forEach { o ->
             ScChip(text(o), selected = o == selected, onClick = { onSelect(o) }, mono = true, height = 38.dp)
         }

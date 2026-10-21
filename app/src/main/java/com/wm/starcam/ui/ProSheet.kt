@@ -41,7 +41,6 @@ import com.wm.starcam.session.AppSettings
 import com.wm.starcam.session.FocusMode
 import com.wm.starcam.session.Mode
 import com.wm.starcam.ui.components.ScButton
-import com.wm.starcam.ui.components.ScButtonKind
 import com.wm.starcam.ui.components.ScChip
 import com.wm.starcam.ui.components.ScIconButton
 import com.wm.starcam.ui.components.ScLabel
@@ -118,7 +117,8 @@ fun ProSheet(
                         style = ScType.caption, color = c.text3,
                     )
                 }
-                ScButton("All settings", onOpenSettings, kind = ScButtonKind.Text, height = 44.dp)
+                ScIconButton(ScIcons.Settings, "All settings", onOpenSettings, filled = false)
+                Spacer(Modifier.width(4.dp))
                 ScButton("Done", onDismiss, height = 44.dp)
             }
 
@@ -148,15 +148,16 @@ fun ProSheet(
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 // The line under each number says where it comes from.
-                DialTile("Shutter", exposureText(plan.exposureSec),
-                    source = if (manual) "manual" else "from the lens", auto = !manual,
+                DialTile("Shutter", exposureText(plan.exposureSec).removeSuffix(" s"), unit = "s",
+                    source = if (manual) "manual" else "lens limit", auto = !manual,
                     selected = manual && dial == Dial.Shutter, modifier = Modifier.weight(1f)) { dial = Dial.Shutter }
                 DialTile("ISO", plan.iso?.toString() ?: "auto",
                     source = if (manual) "manual" else "test frame", auto = !manual,
                     selected = manual && dial == Dial.Iso, modifier = Modifier.weight(1f)) { dial = Dial.Iso }
                 DialTile(
                     if (longMode) "Duration" else "Frames",
-                    if (longMode) "${plan.minutes} min" else "${plan.frames}",
+                    if (longMode) "${plan.minutes}" else "${plan.frames}",
+                    unit = if (longMode) "min" else "",
                     source = when {
                         longMode -> "${plan.frames} frames"
                         manual -> "manual"
@@ -268,6 +269,7 @@ private fun DialTile(
     auto: Boolean,
     selected: Boolean,
     modifier: Modifier,
+    unit: String = "",
     onClick: () -> Unit,
 ) {
     val c = Sc.colors
@@ -279,7 +281,14 @@ private fun DialTile(
             .padding(horizontal = 12.dp, vertical = 9.dp),
     ) {
         ScLabel(label, color = if (selected) c.accentText else c.text3)
-        Text(value, style = ScType.stat, color = c.text, maxLines = 1, modifier = Modifier.padding(top = 2.dp))
+        // The unit is set small so the number keeps its size in a third of a phone's width.
+        Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.Bottom) {
+            Text(value, style = ScType.stat, color = c.text, maxLines = 1, softWrap = false)
+            if (unit.isNotEmpty()) {
+                Text(" $unit", style = ScType.data, color = c.text3, maxLines = 1, softWrap = false,
+                    modifier = Modifier.padding(bottom = 3.dp))
+            }
+        }
         Text(source, style = ScType.caption, color = if (auto) c.accentText else c.text3, maxLines = 1,
             overflow = TextOverflow.Ellipsis)
     }
