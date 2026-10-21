@@ -97,6 +97,7 @@ FrameMeta parseFrameMeta(const jsonmini::Obj& o) {
         m.hasBlackLevel = true;
         for (int i = 0; i < 4; ++i) m.blackLevel[i] = (float)bl[i];
     }
+    m.sourcePath = o.str("srawPath", "");
     return m;
 }
 
@@ -197,6 +198,18 @@ JNIEXPORT jstring JNICALL Java_com_wm_starcam_engine_NativeEngine_addDarkFrame(
     } catch (...) {
         SLOGE("addDarkFrame: native exception");
         return toJString(env, errJson("native exception in addDarkFrame"));
+    }
+}
+
+// ---------- discardDarks ----------
+
+JNIEXPORT void JNICALL Java_com_wm_starcam_engine_NativeEngine_discardDarks(
+        JNIEnv* /*env*/, jobject /*thiz*/, jlong handle) {
+    try {
+        EngineSession* s = sess(handle);
+        if (s != nullptr) s->discardDarks();
+    } catch (...) {
+        SLOGE("discardDarks: native exception");
     }
 }
 

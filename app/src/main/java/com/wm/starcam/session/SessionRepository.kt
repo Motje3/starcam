@@ -70,7 +70,9 @@ class SessionRepository(private val context: Context) {
      * keepRawCache defaults ON, so every session leaves a full sraw cache behind. Keep the 5
      * newest sessions re-stackable and empty the cache of everything older. master_dark.sraw is
      * spared (small, and needed for dark-calibrated re-stacks); DNGs, outputs and metadata are
-     * never touched.
+     * never touched. A session that never got its photo (cut off, failed to stack) keeps its cache
+     * for a week whatever its position: four retries after a crash used to delete the frames the
+     * crashed session needed to be stacked from.
      */
     private fun pruneOldCaches() {
         runCatching {
@@ -78,9 +80,12 @@ class SessionRepository(private val context: Context) {
                 ?.sortedByDescending { it.name } ?: return
             var files = 0
             var bytes = 0L
+            val weekAgo = System.currentTimeMillis() - 7L * 86_400_000L
             // drop(4): this runs BEFORE the new session dir exists, so 4 kept + the one about to
             // be created = the documented 5 re-stackable sessions.
             for (dir in dirs.drop(4)) {
+                val unstacked = readSessionJson(dir)?.has("result") != true
+                if (unstacked && dir.lastModified() > weekAgo) continue
                 val cached = File(dir, "cache")
                     .listFiles { f -> f.isFile && f.name != "master_dark.sraw" } ?: continue
                 for (f in cached) {
@@ -139,6 +144,9 @@ class SessionRepository(private val context: Context) {
     private fun darkName(cameraId: String, size: Size, exposureNs: Long, iso: Int): String =
         "dark_${cameraId}_${size.width}x${size.height}_${exposureNs}_$iso.sraw"
 
+    /** The library dark's sidecar: the battery temperature it was shot at. */
+    private fun darkInfoFile(dark: File) = File(dark.parentFile, dark.nameWithoutExtension + ".json")
+
     /**
      * Copies a matching library dark into the new session as its master dark, which is where the
      * engine looks. Returns its age in days when one was installed, null when the session should
@@ -151,6 +159,7 @@ class SessionRepository(private val context: Context) {
         exposureNs: Long,
         iso: Int,
         maxAgeDays: Int,
+        tempC: Float?,
     ): Int? = runCatching {
         val src = File(darkLibraryDir(), darkName(cameraId, size, exposureNs, iso))
         if (!src.isFile || src.length() <= 160L) return@runCatching null
@@ -162,8 +171,21 @@ class SessionRepository(private val context: Context) {
             AppLog.d("dark library: ${src.name} is ${ageDays}d old (limit $maxAgeDays) — skipping")
             return@runCatching null
         }
+        // Dark current roughly doubles every 6 °C: a dark shot on a warm evening does not match a
+        // cold night. Darks filed without a temperature (before it was recorded) are not reused.
+        val darkTemp = runCatching {
+            JSONObject(darkInfoFile(src).readText()).getDouble("tempC").toFloat()
+        }.getOrNull()
+        if (darkTemp == null || tempC == null || kotlin.math.abs(darkTemp - tempC) > DARK_REUSE_MAX_TEMP_SHIFT_C) {
+            AppLog.d("dark library: ${src.name} shot at ${darkTemp ?: "?"}°C, phone now at " +
+                "${tempC ?: "?"}°C — shooting fresh darks")
+            return@runCatching null
+        }
         src.copyTo(File(paths.cache, "master_dark.sraw"), overwrite = true)
-        AppLog.d("dark library: reusing ${src.name} (${ageDays}d old)")
+        // Tells the engine this dark is from another night (it then subtracts only the dark's
+        // structure, not its black point), on this stack and on every re-stack.
+        File(paths.cache, "master_dark.library").writeText(src.name)
+        AppLog.d("dark library: reusing ${src.name} (${ageDays}d old, ${darkTemp}°C)")
         ageDays
     }.onFailure { AppLog.e("dark library: install failed", it) }.getOrNull()
 
@@ -177,21 +199,85 @@ class SessionRepository(private val context: Context) {
         size: Size,
         exposureNs: Long,
         iso: Int,
+        tempC: Float?,
         keep: Int = 6,
     ) {
         runCatching {
             val src = File(paths.cache, "master_dark.sraw")
             if (!src.isFile || src.length() <= 160L) return@runCatching
+            // No temperature, no reuse: such a dark could never be matched, so it is not filed.
+            if (tempC == null) return@runCatching
             val dir = darkLibraryDir()
-            src.copyTo(File(dir, darkName(cameraId, size, exposureNs, iso)), overwrite = true)
+            val dst = File(dir, darkName(cameraId, size, exposureNs, iso))
+            src.copyTo(dst, overwrite = true)
+            darkInfoFile(dst).writeText(JSONObject().put("tempC", tempC.toDouble()).toString())
             // Each master dark is a full-resolution frame (~25 MB), and auto exposure produces a
             // new key most nights. Keep only the newest few.
             val files = dir.listFiles { f -> f.isFile && f.name.endsWith(".sraw") }
                 ?.sortedByDescending { it.lastModified() } ?: return@runCatching
             for (old in files.drop(keep)) {
-                if (old.delete()) AppLog.d("dark library: pruned ${old.name}")
+                if (old.delete()) {
+                    darkInfoFile(old).delete()
+                    AppLog.d("dark library: pruned ${old.name}")
+                }
             }
         }.onFailure { AppLog.e("dark library: save failed", it) }
+    }
+
+    // ------------------------------------------------------------------ interrupted sessions
+
+    private fun runningMarker(dir: File) = File(dir, "meta/running")
+
+    /** Marks a session as in progress; [clearRunning] removes it when the session ends at all. */
+    fun markRunning(paths: SessionPaths) {
+        runCatching { runningMarker(paths.dir).writeText(System.currentTimeMillis().toString()) }
+    }
+
+    fun clearRunning(paths: SessionPaths) {
+        runCatching { runningMarker(paths.dir).delete() }
+    }
+
+    /**
+     * Sessions the app was cut off in (a crash, the system killing it): their running marker
+     * outlived the process. Each gets an issue entry saying so, and the marker is removed, so it
+     * is reported exactly once. Call only while no session is running. Newest first.
+     */
+    fun collectInterrupted(): List<SessionSummary> {
+        val found = ArrayList<File>()
+        runCatching {
+            sessionsRoot().listFiles { f -> f.isDirectory }?.forEach { dir ->
+                val marker = runningMarker(dir)
+                if (marker.isFile) {
+                    found += dir
+                    val paths = SessionPaths(dir, File(dir, "lights"), File(dir, "darks"),
+                        File(dir, "cache"), File(dir, "out"), File(dir, "meta"))
+                    writeIssue(paths, "interrupted: the app was closed or crashed before this " +
+                        "session finished")
+                    marker.delete()
+                    AppLog.w("session $dir was interrupted (running marker found at start)")
+                }
+            }
+        }
+        if (found.isEmpty()) return emptyList()
+        return listSessions().filter { s -> found.any { it.absolutePath == s.dir.absolutePath } }
+    }
+
+    /** Deletes a session folder that holds no frames at all (created, then stopped at once). */
+    fun deleteIfEmpty(dir: File) {
+        runCatching {
+            val lights = File(dir, "lights").listFiles()?.isNotEmpty() == true
+            if (!lights && cacheFrames(dir).isEmpty()) {
+                dir.deleteRecursively()
+                AppLog.d("removed empty session folder ${dir.name}")
+            }
+        }
+    }
+
+    /** Records a re-stack's result in session.json, so the session reads as stacked from now on. */
+    fun writeResult(dir: File, result: JSONObject) {
+        val paths = SessionPaths(dir, File(dir, "lights"), File(dir, "darks"),
+            File(dir, "cache"), File(dir, "out"), File(dir, "meta"))
+        writeResult(paths, result)
     }
 
     /** Total bytes across every session's cache/ dir (for the storage readout). */
@@ -302,5 +388,10 @@ class SessionRepository(private val context: Context) {
         runCatching {
             paths.jsonFile.writeText(root.toString(2))
         }.onFailure { AppLog.e("session.json write failed", it) }
+    }
+
+    private companion object {
+        /** A library dark is reused only within this of the battery temperature it was shot at. */
+        const val DARK_REUSE_MAX_TEMP_SHIFT_C = 5f
     }
 }

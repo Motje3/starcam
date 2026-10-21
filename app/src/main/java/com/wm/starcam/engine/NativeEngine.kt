@@ -40,6 +40,9 @@ object NativeEngine {
         metaJson: String
     ): String
 
+    /** Drops every dark frame added so far; the stack then runs without a master dark. */
+    external fun discardDarks(handle: Long)
+
     /** Marks a light frame rejected before stacking (e.g. gyro detected a bump mid-exposure). */
     external fun rejectFrame(handle: Long, index: Int, reason: String)
 

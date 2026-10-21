@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.collectAsState
@@ -49,6 +50,7 @@ import com.wm.starcam.ui.SessionsScreen
 import com.wm.starcam.ui.SettingsScreen
 import com.wm.starcam.ui.SettingsTab
 import com.wm.starcam.ui.UiPrefs
+import com.wm.starcam.ui.theme.LocalNightDim
 import com.wm.starcam.ui.theme.StarCamTheme
 import com.wm.starcam.util.AppLog
 import java.io.File
@@ -245,6 +247,7 @@ private fun App(
     }
 
     StarCamTheme(nightMode = settings.nightMode) {
+      CompositionLocalProvider(LocalNightDim provides if (settings.nightMode) settings.nightDim else 0f) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             // A tiny back stack: Capture is always the root. Each screen's saveable state (scroll
             // position, open tab) is kept while it is in the stack, so coming back from a
@@ -305,7 +308,7 @@ private fun App(
                             )
                             is Screen.SessionDetail -> SessionDetailScreen(
                                 dir = sc.dir,
-                                repo = vm.repo,
+                                vm = vm,
                                 onBack = ::pop,
                             )
                             Screen.Settings -> SettingsScreen(
@@ -339,5 +342,6 @@ private fun App(
                 }
             }
         }
+      }
     }
 }

@@ -11,13 +11,19 @@ import com.wm.starcam.camera.CameraTest
 import com.wm.starcam.camera.CaptureEngine
 import com.wm.starcam.camera.SurfaceGoneException
 import com.wm.starcam.camera.CaptureState
+import com.wm.starcam.engine.Restacker
+import com.wm.starcam.engine.StackConfig
 import com.wm.starcam.sensors.MotionMonitor
 import com.wm.starcam.sensors.ThermalMonitor
+import com.wm.starcam.session.Mode
 import com.wm.starcam.session.SessionRepository
+import com.wm.starcam.session.SessionSummary
 import com.wm.starcam.session.SettingsStore
 import com.wm.starcam.util.AppLog
 import com.wm.starcam.util.DebugBundle
 import com.wm.starcam.util.Fmt
+import com.wm.starcam.util.MediaSaver
+import org.json.JSONObject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -53,8 +59,35 @@ class StarCamViewModel(app: Application) : AndroidViewModel(app) {
 
     var controller: CameraController? = null
         private set
-    var engine: CaptureEngine? = null
-        private set
+
+    /**
+     * The engine for the open camera, replaced on every lens switch or reopen. Observable: the
+     * capture screen read a plain field once, so after a cold start or a lens switch it kept
+     * watching a stand-in (or the old engine) and a running session never showed its screens.
+     */
+    private val _engine = MutableStateFlow<CaptureEngine?>(null)
+    val engineFlow: StateFlow<CaptureEngine?> = _engine
+    var engine: CaptureEngine?
+        get() = _engine.value
+        private set(value) {
+            _engine.value = value
+        }
+
+    /** A session that was cut off by a crash or kill, found at start; null once acknowledged. */
+    private val _interrupted = MutableStateFlow<SessionSummary?>(null)
+    val interrupted: StateFlow<SessionSummary?> = _interrupted
+
+    fun dismissInterrupted() {
+        _interrupted.value = null
+    }
+
+    init {
+        // No session can be running in a fresh view model, so any "running" marker on disk is
+        // from a process that died mid-session.
+        viewModelScope.launch(Dispatchers.IO) {
+            _interrupted.value = repo.collectInterrupted().firstOrNull()
+        }
+    }
 
     private val _ready = MutableStateFlow(false)
     val ready: StateFlow<Boolean> = _ready
@@ -143,6 +176,14 @@ class StarCamViewModel(app: Application) : AndroidViewModel(app) {
     fun attachSurface(surface: Surface) {
         if (!surface.isValid) return
         pendingSurface = surface
+        // Coming back to a camera the system took while the app was in the background (common
+        // after a session that ended with the screen off): reopen it instead of showing "Camera
+        // problem" over the result. openCamera re-attaches this surface when it is done.
+        if (_cameraLost.value && !cameraBusy && controller != null) {
+            AppLog.i(TAG, "preview surface back while the camera is lost — reopening it")
+            reopenCamera()
+            return
+        }
         val ctrl = controller ?: return
         // Reconfiguring for a new preview surface also rebuilds the RAW ImageReader. Doing that
         // mid-session would pull the reader out from under an in-flight exposure, so a screen
@@ -230,12 +271,17 @@ class StarCamViewModel(app: Application) : AndroidViewModel(app) {
                     _ready.value = false
                     runCatching { controller?.close() }
                     controller = null
-                    engine = null
                     _camInfo.value = cam
                     val ctrl = newController(cam)
                     ctrl.open()
                     controller = ctrl
-                    engine = CaptureEngine(app, ctrl, settingsStore, motion, thermal, repo)
+                    // Swapped only now, and carrying over a result on screen (a session that
+                    // finished while the system had the camera): it used to vanish as the camera
+                    // came back underneath it. Until then the shutter is off (not ready).
+                    val previous = engine
+                    engine = CaptureEngine(app, ctrl, settingsStore, motion, thermal, repo).also { e ->
+                        previous?.let { e.adoptResult(it) }
+                    }
                     _ready.value = true
                     _cameraError.value = null
                     _cameraLost.value = false
@@ -265,8 +311,17 @@ class StarCamViewModel(app: Application) : AndroidViewModel(app) {
 
     fun startSession() {
         val e = engine ?: return
+        // While the camera is (re)opening, the engine is still the previous one, whose camera
+        // is closed.
+        if (!_ready.value) {
+            AppLog.w(TAG, "start ignored: the camera is not ready")
+            return
+        }
         // A second tap would otherwise wire a second notifier loop onto the same session.
         if (cameraBusy) return
+        // Two full-resolution stacks at once can run the phone out of memory; the re-stack is
+        // a minute at most and the screen says so.
+        if (_restack.value?.running == true) return
         val app = getApplication<Application>()
         val job = e.start(viewModelScope) ?: return
         val generation = ++serviceGeneration
@@ -304,6 +359,103 @@ class StarCamViewModel(app: Application) : AndroidViewModel(app) {
      */
     private fun restorePreview() {
         pendingSurface?.let { if (it.isValid) attachSurface(it) }
+    }
+
+    // ------------------------------------------------------------------ re-stack
+
+    /** The one re-stack that may run at a time (null: none this launch). */
+    data class Restack(
+        val dir: File,
+        val stage: String = "starting",
+        val percent: Int = 0,
+        val finished: Boolean = false,
+        val error: String? = null,
+        /** Finished, but the gallery copy could not be made. */
+        val galleryFailed: Boolean = false,
+    ) {
+        val running: Boolean get() = !finished
+    }
+
+    private val _restack = MutableStateFlow<Restack?>(null)
+    val restack: StateFlow<Restack?> = _restack
+
+    /** Forgets a finished re-stack of [dir] once its screen is left, so it is reported once. */
+    fun clearRestack(dir: File) {
+        val r = _restack.value
+        if (r != null && r.finished && r.dir == dir) _restack.compareAndSet(r, null)
+    }
+
+    /**
+     * Re-stacks [dir] from its kept frames with [adjust] applied to the options it was shot with,
+     * saves the new photo (JPEG + gallery) and records the result in session.json. Runs here and
+     * not in the screen: leaving the screen used to throw the finished stack away and let a second
+     * re-stack start on the same files. Refused while a re-stack, a session or a camera test runs.
+     */
+    fun startRestack(dir: File, adjust: (StackConfig) -> StackConfig, recipe: String): Boolean {
+        if (_restack.value?.running == true || cameraBusy) return false
+        _restack.value = Restack(dir)
+        viewModelScope.launch(Dispatchers.Default) {
+            val outcome = runCatching {
+                val header = repo.readSessionJson(dir)?.optJSONObject("header")
+                val mode = runCatching { Mode.valueOf(header?.optString("mode") ?: "") }
+                    .getOrDefault(Mode.ASTRO)
+                // Start from what the session was stacked with; sessions from before that was
+                // recorded fall back to today's settings, without a foreground blend.
+                val base = header?.optJSONObject("stackConfig")?.let { StackConfig.fromJson(it) }
+                    ?: settingsStore.settings.value.stackConfig().copy(foregroundComposite = false)
+                // The live stack left out the frames the gyro saw bumped (TRAILS keeps them).
+                val bumped = HashSet<Int>()
+                if (mode != Mode.TRAILS) {
+                    repo.readSessionJson(dir)?.optJSONArray("frames")?.let { frames ->
+                        for (k in 0 until frames.length()) {
+                            val f = frames.optJSONObject(k) ?: continue
+                            if (f.optBoolean("bumped")) bumped += f.optInt("index", -1)
+                        }
+                    }
+                }
+                val cfg = adjust(base)
+                AppLog.i(TAG, "re-stack ${dir.name}: ${repo.cacheFrames(dir).size} frames, " +
+                    "${bumped.size} bumped left out, options ${cfg.toJson()}")
+                val result = Restacker.restack(dir, repo.cacheFrames(dir), cfg, mode.ordinal, bumped) {
+                    stage, percent -> _restack.value = _restack.value?.copy(stage = stage, percent = percent)
+                }
+                if (!result.ok) error(result.error.ifEmpty { "re-stack failed" })
+                _restack.value = _restack.value?.copy(stage = "saving", percent = 99)
+                withContext(Dispatchers.IO) {
+                    val out = File(dir, "out")
+                    val jpg = out.listFiles { f -> f.extension == "jpg" }?.firstOrNull()
+                        ?: File(out, "starcam_${dir.name}.jpg")
+                    val hdr = repo.cacheFrames(dir).firstOrNull()?.let { Restacker.readHeader(it) }
+                    val saved = MediaSaver.saveFinal(
+                        context = getApplication(),
+                        rgbFile = File(result.finalRgbPath),
+                        width = result.width,
+                        height = result.height,
+                        jpegOut = jpg,
+                        totalExposureSec = result.framesUsed * ((hdr?.exposureNs ?: 0L) / 1e9),
+                        iso = hdr?.iso ?: 0,
+                        focalMm = 0f,
+                        fNumber = 0f,
+                        recipe = recipe,
+                    )
+                    if (!saved.jpegWritten) error("the photo could not be written - the phone may be out of storage")
+                    // With the options it was made with: the screen shows them, and they are
+                    // where the next re-stack starts.
+                    repo.writeResult(dir, JSONObject(result.json).put("stackConfig", JSONObject(cfg.toJson())))
+                    saved.galleryUri == null
+                }
+            }
+            _restack.value = outcome.fold(
+                onSuccess = { galleryFailed ->
+                    Restack(dir, stage = "done", percent = 100, finished = true, galleryFailed = galleryFailed)
+                },
+                onFailure = { t ->
+                    AppLog.e(TAG, "re-stack of ${dir.name} failed", t)
+                    Restack(dir, finished = true, error = t.message ?: "re-stack failed")
+                },
+            )
+        }
+        return true
     }
 
     // ------------------------------------------------------------------ camera test

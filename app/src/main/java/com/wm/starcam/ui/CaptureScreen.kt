@@ -58,6 +58,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -81,8 +83,10 @@ import com.wm.starcam.ui.components.ScGlass
 import com.wm.starcam.ui.components.ScIconButton
 import com.wm.starcam.ui.components.ScShutter
 import com.wm.starcam.ui.components.ScSlider
+import com.wm.starcam.ui.components.ScSpinner
 import com.wm.starcam.ui.components.ScStatusPill
 import com.wm.starcam.ui.components.Tone
+import com.wm.starcam.ui.theme.NightPreviewTint
 import com.wm.starcam.ui.theme.Sc
 import com.wm.starcam.ui.theme.ScIcons
 import com.wm.starcam.ui.theme.ScShapes
@@ -116,8 +120,10 @@ fun CaptureScreen(
 ) {
     val c = Sc.colors
     val settings by vm.settingsStore.settings.collectAsState()
-    // The engine only exists once the camera has opened; until then its flows read as idle.
-    val engine = vm.engine
+    // The engine only exists once the camera has opened, and is replaced on every lens switch;
+    // until then its flows read as idle. Observed, not read once: a plain read kept the screen
+    // on a stand-in, and a session then ran without ever showing its screens.
+    val engine by vm.engineFlow.collectAsState()
     val state by engine?.state.collectOr(CaptureState.Idle)
     val cameraError by vm.cameraError.collectAsState()
     val camInfo by vm.camInfo.collectAsState()
@@ -149,25 +155,30 @@ fun CaptureScreen(
             },
             onOpenPro = { showPro = true },
             onOpenSessions = onOpenSessions,
+            onOpenSession = onOpenSession,
             onOpenSettings = onOpenSettings,
         )
 
-        if (state !is CaptureState.Idle) {
+        // Not composed while the shield covers it: drawn underneath, its clocks and rings kept
+        // the display busy for hours behind a black screen.
+        if (state !is CaptureState.Idle && !(shieldOn && shieldEligible)) {
             SessionFlow(
                 vm = vm,
+                engine = engine,
                 state = state,
                 settings = settings,
                 onShield = { shieldOn = true },
                 onOpenSession = { dir ->
-                    vm.engine?.dismissResult()
+                    engine?.dismissResult()
                     onOpenSession(dir)
                 },
             )
         }
 
         // ---- Camera unavailable. A failed session's own Error screen names its folder, so once
-        // there is one it wins; this card would otherwise cover it.
-        if (state !is CaptureState.Error) {
+        // there is one it wins; this card would otherwise cover it. Nor over a finished photo:
+        // the camera is reopened when the viewfinder comes back.
+        if (state !is CaptureState.Error && state !is CaptureState.Done) {
             cameraError?.let { msg ->
                 val sessionRunning = state !is CaptureState.Idle && state !is CaptureState.Done
                 CameraProblemCard(
@@ -223,11 +234,14 @@ private fun IdleLayout(
     onBoostChange: (Boolean) -> Unit,
     onOpenPro: () -> Unit,
     onOpenSessions: () -> Unit,
+    onOpenSession: (File) -> Unit,
     onOpenSettings: () -> Unit,
 ) {
     val camInfo by vm.camInfo.collectAsState()
     val ready by vm.ready.collectAsState()
     val cameraError by vm.cameraError.collectAsState()
+    val restack by vm.restack.collectAsState()
+    val restacking = restack?.running == true
     val plan = remember(settings, camInfo) { planFor(settings, camInfo) }
 
     Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
@@ -238,8 +252,10 @@ private fun IdleLayout(
             camInfo = camInfo,
             plan = plan,
             framingBoost = framingBoost,
+            restacking = restacking,
             onBoostOff = { onBoostChange(false) },
             onOpenPro = onOpenPro,
+            onOpenSession = onOpenSession,
             modifier = Modifier.weight(1f),
         )
         Spacer(Modifier.height(10.dp))
@@ -250,7 +266,7 @@ private fun IdleLayout(
             vm = vm,
             settings = settings,
             idle = idle,
-            canShoot = ready && cameraError == null,
+            canShoot = ready && cameraError == null && !restacking,
             onOpenPro = onOpenPro,
             onOpenSessions = onOpenSessions,
             onOpenSettings = onOpenSettings,
@@ -319,8 +335,6 @@ private fun LensSwitch(lenses: List<CamInfo>, current: CamInfo?, onSwitch: (Stri
 
 // ------------------------------------------------------------------------------- viewfinder
 
-/** Night vision cannot recolour the camera's own surface, so it is dimmed and pulled to red. */
-private val NightPreviewTint = Color(0xB02A0604)
 
 @Composable
 private fun Viewfinder(
@@ -329,12 +343,15 @@ private fun Viewfinder(
     camInfo: CamInfo?,
     plan: Plan,
     framingBoost: Boolean,
+    restacking: Boolean,
     onBoostOff: () -> Unit,
     onOpenPro: () -> Unit,
+    onOpenSession: (File) -> Unit,
     modifier: Modifier,
 ) {
     val c = Sc.colors
     val lenses by vm.lenses.collectAsState()
+    val interrupted by vm.interrupted.collectAsState()
     val context = LocalContext.current
     val uiPrefs = remember { UiPrefs(context) }
     var tipDismissed by remember { mutableStateOf(uiPrefs.lensTipDismissed) }
@@ -350,6 +367,38 @@ private fun Viewfinder(
                 Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(10.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                // After a crash or a kill the app used to come back to a plain viewfinder, with
+                // the cut-off session's frames sitting unannounced in Sessions.
+                interrupted?.let { s ->
+                    ViewfinderTip(
+                        icon = ScIcons.Warning,
+                        tint = c.warning,
+                        text = buildAnnotatedString {
+                            withStyle(SpanStyle(color = c.text, fontWeight = FontWeight.SemiBold)) {
+                                append("Last session was cut off. ")
+                            }
+                            append(
+                                when {
+                                    s.frameCount >= 2 -> "${s.frameCount} frames saved - tap to stack them."
+                                    s.frameCount == 1 -> "1 frame saved - tap to see it."
+                                    else -> "No frames were saved."
+                                }
+                            )
+                        },
+                        onClick = if (s.frameCount > 0) ({
+                            vm.dismissInterrupted()
+                            onOpenSession(s.dir)
+                        }) else null,
+                        onDismiss = { vm.dismissInterrupted() },
+                    )
+                }
+                if (restacking) {
+                    ScGlass(Modifier.align(Alignment.CenterHorizontally)) {
+                        ScSpinner(size = 14.dp, strokeWidth = 2.dp)
+                        Text("Re-stacking a session · the shutter is back when it's done",
+                            style = ScType.caption, color = c.text)
+                    }
+                }
                 if (!tipDismissed) {
                     WiderLensTip(
                         lenses = lenses,
@@ -483,25 +532,41 @@ private fun WiderLensTip(
     if (widestLimit < currentLimit * 1.5) return
     val c = Sc.colors
     val label = lensLabel(lenses, widest)
+    ViewfinderTip(
+        icon = ScIcons.Astro,
+        tint = c.accent,
+        text = buildAnnotatedString {
+            withStyle(SpanStyle(color = c.accentText, fontWeight = FontWeight.SemiBold)) { append(label) }
+            append(" holds stars for ${widestLimit.toInt()} s vs ${currentLimit.toInt()} s. Tap to switch.")
+        },
+        onClick = { onSwitch(widest.cameraId) },
+        onDismiss = onDismiss,
+    )
+}
+
+/** A tappable note on the viewfinder with its own dismiss button. */
+@Composable
+private fun ViewfinderTip(
+    icon: ImageVector,
+    tint: Color,
+    text: AnnotatedString,
+    onClick: (() -> Unit)?,
+    onDismiss: () -> Unit,
+) {
+    val c = Sc.colors
     Row(
         Modifier.fillMaxWidth().clip(ScShapes.button).background(c.glass)
-            .border(1.dp, c.selectedBorder, ScShapes.button)
-            .clickable(role = Role.Button) { onSwitch(widest.cameraId) }
+            .border(1.dp, if (tint == c.warning) c.warningBorder else c.selectedBorder, ScShapes.button)
+            .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
             .padding(start = 12.dp, top = 8.dp, bottom = 8.dp, end = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(ScIcons.Astro, null, Modifier.size(16.dp), tint = c.accent)
+        Icon(icon, null, Modifier.size(16.dp), tint = tint)
         Spacer(Modifier.width(8.dp))
-        Text(
-            buildAnnotatedString {
-                withStyle(SpanStyle(color = c.accentText, fontWeight = FontWeight.SemiBold)) { append(label) }
-                append(" holds stars for ${widestLimit.toInt()} s vs ${currentLimit.toInt()} s. Tap to switch.")
-            },
-            style = ScType.bodySmall, color = c.text, modifier = Modifier.weight(1f),
-        )
+        Text(text, style = ScType.bodySmall, color = c.text, modifier = Modifier.weight(1f))
         Box(
-            Modifier.size(40.dp).clip(CircleShape).clickable(onClick = onDismiss, role = Role.Button)
-                .semantics { contentDescription = "Dismiss tip" },
+            Modifier.size(44.dp).clip(CircleShape).clickable(onClick = onDismiss, role = Role.Button)
+                .semantics { contentDescription = "Dismiss" },
             contentAlignment = Alignment.Center,
         ) { Icon(ScIcons.Close, null, Modifier.size(16.dp), tint = c.text3) }
     }

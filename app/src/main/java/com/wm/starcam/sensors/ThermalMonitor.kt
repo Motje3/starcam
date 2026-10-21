@@ -37,6 +37,10 @@ class ThermalMonitor(context: Context) {
     val needsCooldown: Boolean
         get() = _status.value >= PowerManager.THERMAL_STATUS_SEVERE
 
+    /** The system is about to throttle hard or shut apps down. */
+    val isCritical: Boolean
+        get() = _status.value >= PowerManager.THERMAL_STATUS_CRITICAL
+
     fun label(): String = when (_status.value) {
         PowerManager.THERMAL_STATUS_NONE -> "cool"
         PowerManager.THERMAL_STATUS_LIGHT -> "warm"

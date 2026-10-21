@@ -21,12 +21,17 @@ object Restacker {
         val exposureNs: Long, val iso: Int, val timestampNs: Long,
     )
 
-    /** Blocking; call on a background dispatcher. Returns the engine result. */
+    /**
+     * Blocking; call on a background dispatcher. Returns the engine result. [rejectIndices] are
+     * capture indices to exclude again, e.g. the frames the gyro flagged as bumped during capture
+     * (the live stack left them out, so a re-stack must too).
+     */
     fun restack(
         sessionDir: File,
         cacheFiles: List<File>,
         options: StackConfig,
         modeOrdinal: Int,
+        rejectIndices: Set<Int> = emptySet(),
         onProgress: (stage: String, percent: Int) -> Unit,
     ): EngineResult {
         // Callers should already exclude it, but never let the master dark stack as a light frame.
@@ -66,8 +71,13 @@ object Restacker {
                     continue
                 }
                 buffer.rewind()
+                // The capture index is in the file name (frame_0007.sraw); the list position
+                // drifts from it as soon as one cache file is missing.
+                val index = f.name.removePrefix("frame_").removeSuffix(".sraw").toIntOrNull() ?: i
                 val metaJson = JSONObject().apply {
-                    put("index", i)
+                    put("index", index)
+                    // Use this file as it is: the engine no longer rewrites a re-fed frame.
+                    put("srawPath", f.absolutePath)
                     put("exposureNs", info.exposureNs)
                     put("iso", info.iso)
                     put("timestampNs", info.timestampNs)
@@ -80,6 +90,9 @@ object Restacker {
                     put("blackLevel", JSONArray(info.blackLevel.map { it.toDouble() }))
                 }.toString()
                 NativeEngine.addFrame(handle, buffer, info.width, info.height, info.width * 2, metaJson)
+                if (index in rejectIndices) {
+                    NativeEngine.rejectFrame(handle, index, "gyro bump (recorded at capture)")
+                }
                 progressFn("reload", (i + 1) * 100 / lights.size)
             }
             addMasterDark(handle, sessionDir, first, pixelBytes, buffer)

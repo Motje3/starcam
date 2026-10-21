@@ -25,7 +25,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -54,6 +53,7 @@ import com.wm.starcam.ui.components.ScButton
 import com.wm.starcam.ui.components.ScCard
 import com.wm.starcam.ui.components.ScChip
 import com.wm.starcam.ui.components.ScConfirmDialog
+import com.wm.starcam.ui.components.ScDialog
 import com.wm.starcam.ui.components.ScLabel
 import com.wm.starcam.ui.components.ScScreen
 import com.wm.starcam.ui.components.ScSegmented
@@ -902,19 +902,21 @@ private fun LicencesDialog(onDismiss: () -> Unit) {
             }.getOrDefault("Licence text unavailable.")
         }
     }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = c.surface,
-        shape = ScShapes.card,
-        title = { Text("Open-source licences", style = ScType.titleSmall, color = c.text) },
-        text = {
-            Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+    ScDialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier.fillMaxWidth().background(c.surface)
+                .border(1.dp, c.hairline, ScShapes.card).padding(20.dp),
+        ) {
+            Text("Open-source licences", style = ScType.titleSmall, color = c.text)
+            Column(Modifier.padding(top = 12.dp).heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
                 Text("Geist and Geist Mono", style = ScType.headline, color = c.text)
                 Text("Copyright 2024 The Geist Project Authors (github.com/vercel/geist-font)",
                     style = ScType.caption, color = c.text3, modifier = Modifier.padding(bottom = 10.dp))
                 Text(text, style = ScType.data, color = c.text2)
             }
-        },
-        confirmButton = { ScButton("Close", onDismiss, height = 44.dp) },
-    )
+            Box(Modifier.fillMaxWidth().padding(top = 16.dp), contentAlignment = Alignment.CenterEnd) {
+                ScButton("Close", onDismiss, height = 44.dp)
+            }
+        }
+    }
 }

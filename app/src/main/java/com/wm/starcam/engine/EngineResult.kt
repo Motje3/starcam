@@ -22,11 +22,14 @@ data class EngineResult(
     val meteorFrames: String,
     /** Foreground composite outcome: "applied (sky NN%)", "skipped (reason)", or "" (not attempted). */
     val foreground: String,
+    /** The engine's result JSON as returned, for session.json. */
+    val json: String = "",
 ) {
     companion object {
         fun fromJson(json: String): EngineResult {
             val o = runCatching { JSONObject(json) }.getOrElse { JSONObject() }
             return EngineResult(
+                json = json,
                 ok = o.optBoolean("ok", false),
                 error = o.optString("error", "unparseable engine result"),
                 width = o.optInt("width", 0),

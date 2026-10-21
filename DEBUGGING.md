@@ -119,6 +119,24 @@ then the message. Tags:
 Each frame also gets a condition snapshot: battery, temperature, thermal status, free RAM, heap,
 native memory, free storage, screen on/off, and whether the app was in the foreground.
 
+## What else a session leaves behind (0.3.1)
+
+- `meta/running` exists while a session runs. One still there at the next app start means the app
+  was killed mid-session: the app adds `interrupted: ...` to the session's `issues` and says so on
+  the viewfinder.
+- Dark frames are checked before use. A lit one logs `dark 2/4 is lit: background 3.10% of white,
+  limit 0.70% (sky 2.00%) ... not used` and adds an issue. Fewer than two usable darks: `only 1
+  usable dark frame(s) - stacking without darks`.
+- Library darks (`StarCam/darks/*.sraw`) have a `.json` beside them with the battery temperature
+  they were shot at; `dark library: ... shooting fresh darks` says why one was not reused. A
+  session that used one has `cache/master_dark.library`, and the engine logs `finalize: library
+  dark, pedestal ...`.
+- Stop requests are logged where they are made (`cancel requested (state: ...)`,
+  `finish-early requested`), so the time to the session's end shows how long the frame in
+  progress took.
+- `not reusing focus: the phone's temperature moved 6.2°C since it was found`, and the issue
+  `the final JPEG could not be written (storage full?)`, are what they say.
+
 ## The October 2026 field failure (root cause found)
 
 **Symptom.** Every session on 2026-10-18 (four attempts in seven minutes, 22.5 s at ISO 1600)

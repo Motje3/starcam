@@ -152,6 +152,8 @@ struct FrameMeta {
     // characteristics value when present.
     bool hasBlackLevel = false;
     float blackLevel[4] = {0, 0, 0, 0};
+    // Re-stack only: the frame's existing cache file, used as is instead of writing a new one.
+    std::string sourcePath;
 };
 
 struct FrameRecord {
@@ -221,12 +223,21 @@ inline void parallel_for(int begin, int end, const std::function<void(int)>& fn)
     std::atomic<int> next(begin);
     std::vector<std::thread> ts;
     ts.reserve(nt);
+    auto worker = [&next, end, &fn] {
+        int i;
+        while ((i = next.fetch_add(1)) < end) fn(i);
+    };
     for (unsigned t = 0; t < nt; ++t) {
-        ts.emplace_back([&next, end, &fn] {
-            int i;
-            while ((i = next.fetch_add(1)) < end) fn(i);
-        });
+        // Under memory pressure (50 MP stacks) a thread may fail to start. Destroying the vector
+        // with joinable threads in it would std::terminate the app; the threads that did start
+        // take all the work from the shared counter instead.
+        try {
+            ts.emplace_back(worker);
+        } catch (...) {
+            break;
+        }
     }
+    if (ts.empty()) worker();
     for (auto& th : ts) th.join();
 }
 

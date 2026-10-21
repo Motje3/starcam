@@ -30,16 +30,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -56,6 +57,12 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
+import androidx.core.view.WindowCompat
+import android.view.WindowManager
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -66,6 +73,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.wm.starcam.ui.theme.GeistMono
+import com.wm.starcam.ui.theme.LocalNightDim
 import com.wm.starcam.ui.theme.Sc
 import com.wm.starcam.ui.theme.ScIcons
 import com.wm.starcam.ui.theme.ScShapes
@@ -434,7 +442,7 @@ fun ScSlider(
 @Composable
 fun ScInfoButton(expanded: Boolean, onClick: () -> Unit, contentDescription: String) {
     Box(
-        Modifier.size(40.dp).clip(CircleShape)
+        Modifier.size(44.dp).clip(CircleShape)
             .clickable(onClick = onClick, role = Role.Button)
             .semantics { this.contentDescription = contentDescription },
         contentAlignment = Alignment.Center,
@@ -475,9 +483,13 @@ fun ScRing(
     trackColor: Color = Sc.colors.raised,
     // A hard-edged translucent band reads as a second ring rather than a glow; off by default.
     glow: Boolean = false,
+    // Off for rings a clock drives several times a second: a new 400 ms tween every 200 ms never
+    // settles, which kept the display redrawing at full rate for a whole session.
+    animate: Boolean = true,
     content: @Composable BoxScope.() -> Unit = {},
 ) {
-    val p by animateFloatAsState(progress.coerceIn(0f, 1f), tween(400), label = "ring")
+    val target = progress.coerceIn(0f, 1f)
+    val p = if (animate) animateFloatAsState(target, tween(400), label = "ring").value else target
     Box(modifier, contentAlignment = Alignment.Center) {
         Canvas(Modifier.fillMaxSize()) {
             val sw = strokeWidth.toPx()
@@ -803,7 +815,66 @@ fun ScSettingRow(
     }
 }
 
-/** Confirmation dialog in the design's style. */
+/**
+ * Dialogs and sheets get their own window, above the activity's night-vision dim and with its own
+ * status-bar appearance (white icons on a dark app). Called inside one, this applies night vision
+ * there too: dark bar icons, and the same dim drawn over [content].
+ */
+@Composable
+fun NightWindow(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    val c = Sc.colors
+    val dim = LocalNightDim.current
+    val view = LocalView.current
+    LaunchedEffect(c.night) {
+        val window = (view.parent as? DialogWindowProvider)?.window ?: return@LaunchedEffect
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = c.night
+            isAppearanceLightNavigationBars = c.night
+        }
+    }
+    // [modifier] clips: a card's rounded corners must not get the dim's square ones.
+    Box(modifier) {
+        content()
+        if (c.night && dim > 0f) {
+            Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = dim)))
+        }
+    }
+}
+
+/**
+ * A dialog card in the design's style, dimming the screen behind it itself. Android turns the
+ * status-bar icons white under any window that dims what is behind it, whatever that window asks
+ * for - in night vision, bright icons over the red screen - so the window's own dim is switched
+ * off and drawn here instead. Tapping outside the card dismisses, as before.
+ */
+@Composable
+fun ScDialog(onDismissRequest: () -> Unit, content: @Composable () -> Unit) {
+    Dialog(
+        onDismissRequest = onDismissRequest,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    ) {
+        val view = LocalView.current
+        LaunchedEffect(Unit) {
+            (view.parent as? DialogWindowProvider)?.window
+                ?.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+        }
+        Box(
+            Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f))
+                .clickable(remember { MutableInteractionSource() }, indication = null, onClick = onDismissRequest)
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .padding(horizontal = 24.dp, vertical = 16.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            NightWindow(
+                Modifier.widthIn(max = 520.dp).clip(ScShapes.card)
+                    // A tap on the card is not a tap outside it.
+                    .clickable(remember { MutableInteractionSource() }, indication = null) {},
+            ) { content() }
+        }
+    }
+}
+
+/** Confirmation dialog in the design's style (and night vision's, see [NightWindow]). */
 @Composable
 fun ScConfirmDialog(
     title: String,
@@ -814,18 +885,24 @@ fun ScConfirmDialog(
     dismissText: String = "Cancel",
     danger: Boolean = false,
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = Sc.colors.surface,
-        shape = ScShapes.card,
-        title = { Text(title, style = ScType.titleSmall, color = Sc.colors.text) },
-        text = { Text(text, style = ScType.body, color = Sc.colors.text2) },
-        confirmButton = {
-            ScButton(confirmText, onConfirm,
-                kind = if (danger) ScButtonKind.Danger else ScButtonKind.Primary, height = 44.dp)
-        },
-        dismissButton = { ScButton(dismissText, onDismiss, height = 44.dp) },
-    )
+    val c = Sc.colors
+    ScDialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier.fillMaxWidth().background(c.surface)
+                .border(1.dp, c.hairline, ScShapes.card).padding(20.dp),
+        ) {
+            Text(title, style = ScType.titleSmall, color = c.text)
+            Text(text, style = ScType.body, color = c.text2, modifier = Modifier.padding(top = 10.dp))
+            Row(
+                Modifier.fillMaxWidth().padding(top = 20.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End),
+            ) {
+                ScButton(dismissText, onDismiss, height = 44.dp)
+                ScButton(confirmText, onConfirm,
+                    kind = if (danger) ScButtonKind.Danger else ScButtonKind.Primary, height = 44.dp)
+            }
+        }
+    }
 }
 
 /** Mono readout with a smaller unit: 22.5 s, 1600, 14.0 / 22.5 s. */

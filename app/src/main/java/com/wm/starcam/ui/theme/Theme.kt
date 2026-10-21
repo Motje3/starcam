@@ -150,6 +150,18 @@ val NightColors = ScColors(
 
 val LocalScColors = staticCompositionLocalOf { DarkColors }
 
+/**
+ * Night vision's extra dimming (0 = none). The activity draws it over its own window; dialogs and
+ * sheets are separate windows above that, so they read this and draw it themselves.
+ */
+val LocalNightDim = staticCompositionLocalOf { 0f }
+
+/**
+ * Night vision over a live camera preview, which Compose cannot recolour (the camera draws into
+ * its own surface): a dark red veil that lets only about a fifth of the scene's own colour through.
+ */
+val NightPreviewTint = Color(0xCC2A0604)
+
 /** Design-system access point: `Sc.colors.text`, `Sc.type.body`, `Sc.shapes.card`. */
 object Sc {
     val colors: ScColors

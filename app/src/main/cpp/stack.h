@@ -16,6 +16,9 @@ struct StackParams {
     // Optional lens-shading (vignetting) correction, applied per frame after demosaic and before
     // warping. nullptr or an empty map = off, which must behave exactly as before it existed.
     const ShadingMap* shading = nullptr;
+    // Optional per-CFA-position pedestal of the master dark (see subtract_dark_region). nullptr =
+    // subtract the dark's excess over each light frame's own black level.
+    const float* darkPedestal = nullptr;
 };
 
 // Stacks all frames with rejected==false into `outRGB` (RAW resolution, 3ch, linear, [0,1]-ish).

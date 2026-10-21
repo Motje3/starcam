@@ -129,22 +129,28 @@ class SettingsStore(context: Context) {
     private val prefs: SharedPreferences =
         context.getSharedPreferences("starcam_settings", Context.MODE_PRIVATE)
 
+    /** A remembered star-autofocus result; [tempC] is the battery temperature when it was found. */
+    data class SavedFocus(val diopters: Float, val ageMs: Long, val tempC: Float?)
+
     /** Last successful star-autofocus result (state, not a setting — no recompose needed). */
-    fun saveLastFocus(diopters: Float, cameraId: String) {
+    fun saveLastFocus(diopters: Float, cameraId: String, tempC: Float?) {
         prefs.edit().putFloat("lastFocusDiopters", diopters)
             .putString("lastFocusCameraId", cameraId)
-            .putLong("lastFocusAtMs", System.currentTimeMillis()).apply()
+            .putLong("lastFocusAtMs", System.currentTimeMillis())
+            .putFloat("lastFocusTempC", tempC ?: Float.NaN).apply()
     }
 
     /**
-     * (diopters, ageMs) of the last good focus FOR THIS LENS, or null. Keyed by camera id: a
-     * focus position swept on one lens is meaningless (and session-ruining) on another.
+     * The last good focus FOR THIS LENS, or null. Keyed by camera id: a focus position swept on
+     * one lens is meaningless (and session-ruining) on another.
      */
-    fun lastFocus(cameraId: String): Pair<Float, Long>? {
+    fun lastFocus(cameraId: String): SavedFocus? {
         if (prefs.getString("lastFocusCameraId", "") != cameraId) return null
         val d = prefs.getFloat("lastFocusDiopters", -1f)
         if (d < 0f) return null
-        return d to (System.currentTimeMillis() - prefs.getLong("lastFocusAtMs", 0L))
+        val t = prefs.getFloat("lastFocusTempC", Float.NaN)
+        return SavedFocus(d, System.currentTimeMillis() - prefs.getLong("lastFocusAtMs", 0L),
+            t.takeUnless { it.isNaN() })
     }
 
     private val _settings = MutableStateFlow(load())

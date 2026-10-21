@@ -182,7 +182,8 @@ void copy_region_u16(const uint16_t* bayer, int w, int h, int x0, int y0, int rw
 // subtract_dark_region
 // ---------------------------------------------------------------------------
 void subtract_dark_region(std::vector<uint16_t>& region, int rw, int rh, int x0, int y0,
-                          const Image16& masterDark, const float blackLevel[4]) {
+                          const Image16& masterDark, const float blackLevel[4],
+                          const float* darkPedestal) {
     if (rw <= 0 || rh <= 0) return;
     if (region.size() < (size_t)rw * rh) {
         SLOGE("subtract_dark_region: region buffer too small (%zu < %d x %d)", region.size(), rw, rh);
@@ -206,11 +207,31 @@ void subtract_dark_region(std::vector<uint16_t>& region, int rw, int rh, int x0,
             int cx = clampi(fx, 0, mw - 1);
             float bl = blackLevel[pos];
             float lo = clampf(bl, 0.0f, 65535.0f);
-            float v = (float)rrow[x] - ((float)drow[cx] - bl);
+            float ref = darkPedestal != nullptr ? darkPedestal[pos] : bl;
+            float v = (float)rrow[x] - ((float)drow[cx] - ref);
             v = clampf(v, lo, 65535.0f);
             rrow[x] = (uint16_t)(v + 0.5f);
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// dark_pedestal
+// ---------------------------------------------------------------------------
+void dark_pedestal(const Image16& dark, float out[4]) {
+    for (int i = 0; i < 4; ++i) out[i] = 0.0f;
+    if (dark.empty() || dark.w < 2 || dark.h < 2) return;
+    // Every 4th 2x2 tile in both directions: ~200 k samples per position on a 12.6 MP frame.
+    std::vector<float> s[4];
+    for (int y = 0; y + 1 < dark.h; y += 8) {
+        for (int x = 0; x + 1 < dark.w; x += 8) {
+            for (int dy = 0; dy < 2; ++dy) {
+                const uint16_t* row = dark.d.data() + (size_t)(y + dy) * dark.w;
+                for (int dx = 0; dx < 2; ++dx) s[dy * 2 + dx].push_back((float)row[x + dx]);
+            }
+        }
+    }
+    for (int i = 0; i < 4; ++i) out[i] = median_of(s[i]);
 }
 
 // ---------------------------------------------------------------------------

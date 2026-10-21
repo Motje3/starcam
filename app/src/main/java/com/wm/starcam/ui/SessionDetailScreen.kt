@@ -24,7 +24,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -46,7 +48,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import com.wm.starcam.engine.Restacker
+import com.wm.starcam.StarCamViewModel
 import com.wm.starcam.engine.StackConfig
 import com.wm.starcam.session.Mode
 import com.wm.starcam.session.SessionRepository
@@ -69,7 +71,6 @@ import com.wm.starcam.ui.theme.ScIcons
 import com.wm.starcam.ui.theme.ScType
 import com.wm.starcam.ui.theme.ScreenMargin
 import com.wm.starcam.ui.theme.scImageFilter
-import com.wm.starcam.util.MediaSaver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -102,7 +103,59 @@ private data class DetailData(
     val dngCount: Int,
     val dngBytes: Long,
     val cacheBytes: Long,
+    /** What the photo was stacked with: a re-stack's own options, else the capture's. Null for old sessions. */
+    val config: StackConfig?,
 )
+
+/** Blocking; reads session.json, the photo and the file sizes. */
+private fun loadDetail(dir: File, repo: SessionRepository): DetailData {
+    val json = repo.readSessionJson(dir)
+    val jpg = File(dir, "out").listFiles { f -> f.extension == "jpg" }?.firstOrNull()
+    // Downsampled: a full-res stack is up to 50 MP, ~200 MB as one ARGB bitmap.
+    val bmp = jpg?.let { decodeDownsampled(it.absolutePath, 2048) }
+    val frames = json?.optJSONArray("frames")
+    var bumped = 0
+    if (frames != null) {
+        for (i in 0 until frames.length()) {
+            if (frames.optJSONObject(i)?.optBoolean("bumped") == true) bumped++
+        }
+    }
+    val header = json?.optJSONObject("header")
+    val resultObj = json?.optJSONObject("result")
+    val modeName = header?.optString("mode") ?: ""
+    val dngs = File(dir, "lights").listFiles { f -> f.extension == "dng" } ?: emptyArray()
+    val cache = repo.cacheFrames(dir)
+    return DetailData(
+        stats = resultObj?.let { r ->
+            StackStats(
+                framesUsed = r.optInt("framesUsed", 0),
+                framesTotal = r.optInt("framesTotal", 0),
+                rejectionPct = r.optDouble("rejectionPct", 0.0).toFloat(),
+                fwhmRef = r.optDouble("fwhmRef", 0.0).toFloat(),
+                fwhmStack = r.optDouble("fwhmStack", 0.0).toFloat(),
+                elapsedMs = r.optLong("elapsedMs", 0L),
+            )
+        },
+        frameCount = frames?.length() ?: 0,
+        bumpedCount = bumped,
+        jpgFile = jpg,
+        image = bmp?.asImageBitmap(),
+        cacheCount = cache.size,
+        mode = runCatching { Mode.valueOf(modeName) }.getOrDefault(Mode.ASTRO),
+        startedAt = header?.optLong("startedAt") ?: dir.lastModified(),
+        exposureNs = header?.optLong("exposureNs") ?: 0L,
+        iso = header?.optInt("iso") ?: 0,
+        dngCount = dngs.size,
+        dngBytes = dngs.sumOf { it.length() },
+        cacheBytes = cache.sumOf { it.length() },
+        config = (resultObj?.optJSONObject("stackConfig") ?: header?.optJSONObject("stackConfig"))
+            ?.let { StackConfig.fromJson(it) },
+    )
+}
+
+/** The option closest to [v]: sessions can carry values these few choices don't list. */
+private fun List<Float>.nearestIndex(v: Float): Int =
+    indices.minByOrNull { kotlin.math.abs(this[it] - v) } ?: 0
 
 private val StretchLabels = listOf("Subtle", "Normal", "Strong")
 private val SaturationLabels = listOf("1.0×", "1.25×", "1.5×")
@@ -119,147 +172,85 @@ private val StyleLabels = listOf("Natural", "Nightfall")  // StackConfig.style
 @Composable
 fun SessionDetailScreen(
     dir: File,
-    repo: SessionRepository,
+    vm: StarCamViewModel,
     onBack: () -> Unit,
 ) {
     val c = Sc.colors
+    val repo = vm.repo
     var data by remember { mutableStateOf<DetailData?>(null) }
-    var stats by remember { mutableStateOf<StackStats?>(null) }
-    var jpgFile by remember { mutableStateOf<File?>(null) }
-    var image by remember { mutableStateOf<ImageBitmap?>(null) }
+    var loadKey by remember { mutableIntStateOf(0) }
 
-    // Re-stack options + progress.
+    // Re-stack options, set from what the photo was made with once that is known.
     var stretchIndex by remember { mutableIntStateOf(1) }
     var satIndex by remember { mutableIntStateOf(1) }
     var rejectionIndex by remember { mutableIntStateOf(1) }
     var styleIndex by remember { mutableIntStateOf(0) }
     var gradientRemoval by remember { mutableStateOf(true) }
     var starSharpen by remember { mutableStateOf(false) }
-    var restacking by remember { mutableStateOf(false) }
-    var progressStage by remember { mutableStateOf("") }
-    var progressPct by remember { mutableIntStateOf(0) }
-    var restackError by remember { mutableStateOf<String?>(null) }
-    var restackDone by remember { mutableStateOf(false) }
+    var optionsLoaded by remember { mutableStateOf(false) }
+
+    // The re-stack itself runs in the view model: it carries on when this screen is left, and
+    // coming back cannot start a second one on the same files.
+    val restack by vm.restack.collectAsState()
+    val mine = restack?.takeIf { it.dir == dir }
+    val restacking = mine?.running == true
+    val busyElsewhere = restack?.running == true && !restacking
+    var refused by remember { mutableStateOf(false) }
 
     var showDeleteDialog by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
-    LaunchedEffect(dir) {
-        val d = withContext(Dispatchers.IO) {
-            val json = repo.readSessionJson(dir)
-            val jpg = File(dir, "out").listFiles { f -> f.extension == "jpg" }?.firstOrNull()
-            // Downsampled: a full-res stack is up to 50 MP, ~200 MB as one ARGB bitmap.
-            val bmp = jpg?.let { decodeDownsampled(it.absolutePath, 2048) }
-            val frames = json?.optJSONArray("frames")
-            var bumped = 0
-            if (frames != null) {
-                for (i in 0 until frames.length()) {
-                    if (frames.optJSONObject(i)?.optBoolean("bumped") == true) bumped++
-                }
-            }
-            val header = json?.optJSONObject("header")
-            val resultObj = json?.optJSONObject("result")
-            val modeName = header?.optString("mode") ?: ""
-            val dngs = File(dir, "lights").listFiles { f -> f.extension == "dng" } ?: emptyArray()
-            val cache = repo.cacheFrames(dir)
-            DetailData(
-                stats = resultObj?.let { r ->
-                    StackStats(
-                        framesUsed = r.optInt("framesUsed", 0),
-                        framesTotal = r.optInt("framesTotal", 0),
-                        rejectionPct = r.optDouble("rejectionPct", 0.0).toFloat(),
-                        fwhmRef = r.optDouble("fwhmRef", 0.0).toFloat(),
-                        fwhmStack = r.optDouble("fwhmStack", 0.0).toFloat(),
-                        elapsedMs = r.optLong("elapsedMs", 0L),
-                    )
-                },
-                frameCount = frames?.length() ?: 0,
-                bumpedCount = bumped,
-                jpgFile = jpg,
-                image = bmp?.asImageBitmap(),
-                cacheCount = cache.size,
-                mode = runCatching { Mode.valueOf(modeName) }.getOrDefault(Mode.ASTRO),
-                startedAt = header?.optLong("startedAt") ?: dir.lastModified(),
-                exposureNs = header?.optLong("exposureNs") ?: 0L,
-                iso = header?.optInt("iso") ?: 0,
-                dngCount = dngs.size,
-                dngBytes = dngs.sumOf { it.length() },
-                cacheBytes = cache.sumOf { it.length() },
-            )
-        }
+    LaunchedEffect(dir, loadKey) {
+        val d = withContext(Dispatchers.IO) { loadDetail(dir, repo) }
         data = d
-        stats = d.stats
-        jpgFile = d.jpgFile
-        image = d.image
+        if (!optionsLoaded) {
+            optionsLoaded = true
+            d.config?.let { cfg ->
+                stretchIndex = cfg.stretchStrength.coerceIn(0, StretchLabels.lastIndex)
+                styleIndex = cfg.style.coerceIn(0, StyleLabels.lastIndex)
+                satIndex = SaturationValues.nearestIndex(cfg.saturation)
+                rejectionIndex = RejectionValues.nearestIndex(cfg.sigmaFinal)
+                gradientRemoval = cfg.gradientRemoval
+                starSharpen = cfg.starSharpen
+            }
+        }
     }
 
-    fun runRestack(d: DetailData) {
-        if (restacking) return
-        val cfg = StackConfig(
-            sigmaFinal = RejectionValues[rejectionIndex],
-            gradientRemoval = gradientRemoval,
-            stretchStrength = stretchIndex,
-            saturation = SaturationValues[satIndex],
-            starSharpen = starSharpen,
-            style = styleIndex,
-        )
+    // A re-stack that finishes while the screen is open brings in its photo and numbers.
+    var watching by remember { mutableStateOf(false) }
+    LaunchedEffect(restacking) {
+        if (restacking) {
+            watching = true
+        } else if (watching) {
+            watching = false
+            loadKey++
+        }
+    }
+    // Its outcome is said once: leaving the screen forgets a finished re-stack.
+    DisposableEffect(dir) { onDispose { vm.clearRestack(dir) } }
+
+    fun runRestack() {
         val recipe = "StarCam re-stack: stretch ${StretchLabels[stretchIndex]}, " +
             String.format(Locale.US, "sigma %.1f", RejectionValues[rejectionIndex]) +
             if (styleIndex == 1) ", nightfall" else ""
-        val targetJpg = jpgFile ?: File(File(dir, "out"), "starcam_${dir.name}.jpg")
-        scope.launch {
-            restacking = true
-            restackError = null
-            restackDone = false
-            progressStage = "starting"
-            progressPct = 0
-            val result = withContext(Dispatchers.Default) {
-                Restacker.restack(
-                    dir, repo.cacheFrames(dir), cfg, d.mode.ordinal
-                ) { stage, percent ->
-                    progressStage = stage
-                    progressPct = percent
-                }
-            }
-            if (result.ok) {
-                // Engine rewrote out/final_rgb.raw — save through MediaSaver so the new jpg gets
-                // EXIF and a gallery copy, then refresh the preview from the saved file.
-                val newImage = withContext(Dispatchers.IO) {
-                    val hdr = repo.cacheFrames(dir).firstOrNull()?.let { Restacker.readHeader(it) }
-                    MediaSaver.saveFinal(
-                        context = context,
-                        rgbFile = File(result.finalRgbPath),
-                        width = result.width,
-                        height = result.height,
-                        jpegOut = targetJpg,
-                        totalExposureSec = result.framesUsed * ((hdr?.exposureNs ?: 0L) / 1e9),
-                        iso = hdr?.iso ?: 0,
-                        focalMm = 0f,
-                        fNumber = 0f,
-                        recipe = recipe,
-                    )
-                    decodeDownsampled(targetJpg.absolutePath, 2048)?.asImageBitmap()
-                }
-                if (newImage != null) {
-                    image = newImage
-                    jpgFile = targetJpg
-                }
-                stats = StackStats(
-                    framesUsed = result.framesUsed,
-                    framesTotal = result.framesTotal,
-                    rejectionPct = result.rejectionPct,
-                    fwhmRef = result.fwhmRef,
-                    fwhmStack = result.fwhmStack,
-                    elapsedMs = result.elapsedMs,
+        val stretch = stretchIndex
+        val saturation = SaturationValues[satIndex]
+        val sigma = RejectionValues[rejectionIndex]
+        val style = styleIndex
+        val gradient = gradientRemoval
+        val sharpen = starSharpen
+        refused = !vm.startRestack(
+            dir,
+            adjust = {
+                it.copy(
+                    sigmaFinal = sigma, gradientRemoval = gradient, stretchStrength = stretch,
+                    saturation = saturation, starSharpen = sharpen, style = style,
                 )
-                restackDone = true
-            } else {
-                restackError = result.error
-            }
-            restacking = false
-        }
+            },
+            recipe = recipe,
+        )
     }
 
     val d = data
@@ -274,13 +265,13 @@ fun SessionDetailScreen(
             return@ScScreen
         }
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-            ZoomableImage(image)
+            ZoomableImage(d.image)
             Column(
                 Modifier.padding(horizontal = ScreenMargin, vertical = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 // ---- What went into it
-                val st = stats
+                val st = d.stats
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ScStatTile(
                         if (st != null) "${st.framesUsed}/${st.framesTotal}" else "${d.frameCount}",
@@ -315,7 +306,8 @@ fun SessionDetailScreen(
 
                 // ---- Re-process
                 ScCard(Modifier.fillMaxWidth()) {
-                    Text("Re-process with different settings", style = ScType.headline, color = c.text)
+                    Text(if (st != null || d.cacheCount == 0) "Re-process with different settings" else "Stack this session",
+                        style = ScType.headline, color = c.text)
                     if (d.cacheCount == 0) {
                         Text(
                             "The working files were not kept for this session, so it cannot be " +
@@ -324,7 +316,13 @@ fun SessionDetailScreen(
                         )
                     } else {
                         Text(
-                            "Re-stacks from the ${d.cacheCount} kept frames and replaces this photo.",
+                            if (st != null) {
+                                "Re-stacks from the ${d.cacheCount} kept frames, starting from the options " +
+                                    "this photo was made with. The new photo replaces it here and is added " +
+                                    "to the gallery."
+                            } else {
+                                "Stacks the ${d.cacheCount} kept frames into a photo, saved here and to the gallery."
+                            },
                             style = ScType.bodySmall, color = c.text2, modifier = Modifier.padding(top = 4.dp),
                         )
                         Spacer(Modifier.height(8.dp))
@@ -335,28 +333,43 @@ fun SessionDetailScreen(
                         SwitchRow("Remove light pollution gradient", gradientRemoval, !restacking) { gradientRemoval = it }
                         SwitchRow("Sharpen stars", starSharpen, !restacking) { starSharpen = it }
                         Spacer(Modifier.height(10.dp))
-                        if (restacking) {
+                        if (mine != null && restacking) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 ScSpinner(size = 20.dp)
                                 Spacer(Modifier.width(10.dp))
-                                Text("${progressStage.replaceFirstChar { it.uppercase() }} · $progressPct%",
+                                Text("${mine.stage.replaceFirstChar { it.uppercase() }} · ${mine.percent}%",
                                     style = ScType.bodySmall, color = c.text2, modifier = Modifier.weight(1f))
                             }
                             Box(Modifier.fillMaxWidth().padding(top = 8.dp).height(6.dp).clip(CircleShape).background(c.raised)) {
-                                Box(Modifier.fillMaxWidth((progressPct / 100f).coerceIn(0f, 1f)).height(6.dp)
+                                Box(Modifier.fillMaxWidth((mine.percent / 100f).coerceIn(0f, 1f)).height(6.dp)
                                     .clip(CircleShape).background(c.accent))
                             }
+                            Text("Carries on if you leave this screen.", style = ScType.caption, color = c.text3,
+                                modifier = Modifier.padding(top = 6.dp))
                         } else {
-                            ScButton("Re-stack", { runRestack(d) }, Modifier.fillMaxWidth(),
-                                kind = ScButtonKind.Primary, icon = ScIcons.Refresh, height = 52.dp)
+                            ScButton(if (st != null) "Re-stack" else "Stack", ::runRestack, Modifier.fillMaxWidth(),
+                                kind = ScButtonKind.Primary, icon = ScIcons.Refresh, enabled = !busyElsewhere,
+                                height = 52.dp)
+                            if (busyElsewhere) {
+                                Text("Another session is being re-stacked; this one can start when it is done.",
+                                    style = ScType.caption, color = c.text3, modifier = Modifier.padding(top = 6.dp))
+                            }
                         }
-                        restackError?.let {
-                            Text("Re-stack failed: $it", style = ScType.bodySmall, color = c.error,
-                                modifier = Modifier.padding(top = 8.dp))
+                        if (refused && !restacking) {
+                            Text("Not now: the camera is busy with a capture or a test.",
+                                style = ScType.bodySmall, color = c.warning, modifier = Modifier.padding(top = 8.dp))
                         }
-                        if (restackDone && !restacking) {
-                            Text("Done — the photo above and the gallery copy are updated.",
-                                style = ScType.bodySmall, color = c.accentText, modifier = Modifier.padding(top = 8.dp))
+                        mine?.error?.let {
+                            Text("${if (st != null) "Re-stack" else "Stacking"} failed: $it",
+                                style = ScType.bodySmall, color = c.error, modifier = Modifier.padding(top = 8.dp))
+                        }
+                        if (mine != null && mine.finished && mine.error == null) {
+                            Text(
+                                if (mine.galleryFailed) "Done: the photo above is updated, but the gallery copy failed."
+                                else "Done: the photo above is updated, and the new version is in the gallery.",
+                                style = ScType.bodySmall, color = if (mine.galleryFailed) c.warning else c.accentText,
+                                modifier = Modifier.padding(top = 8.dp),
+                            )
                         }
                     }
                 }
@@ -365,7 +378,7 @@ fun SessionDetailScreen(
                 ScCard(Modifier.fillMaxWidth()) {
                     Text("Files", style = ScType.headline, color = c.text)
                     Spacer(Modifier.height(6.dp))
-                    jpgFile?.let { FileRow("Photo · JPEG", bytesText(it.length())) }
+                    d.jpgFile?.let { FileRow("Photo · JPEG", bytesText(it.length())) }
                     if (d.dngCount > 0) FileRow("RAW · ${d.dngCount} DNG", bytesText(d.dngBytes))
                     if (d.cacheCount > 0) FileRow("Working files · ${d.cacheCount}", bytesText(d.cacheBytes))
                     Text(
@@ -376,7 +389,7 @@ fun SessionDetailScreen(
                         "Over USB, copy this folder to a computer for desktop stacking — the DNGs are in lights/.",
                         style = ScType.caption, color = c.text3, modifier = Modifier.padding(top = 4.dp),
                     )
-                    val jpg = jpgFile
+                    val jpg = d.jpgFile
                     if (jpg != null) {
                         Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             ScButton("Share photo", { photoUri(context, jpg)?.let { sharePhoto(context, it) } },

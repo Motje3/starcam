@@ -329,7 +329,8 @@ bool stack_frames_impl(const std::vector<FrameRecord>& frames, const SensorInfo&
             SensorInfo siK = si;
             for (int b = 0; b < 4; ++b) siK.blackLevel[b] = readers[k]->header().blackLevel[b];
             if (useDark) {
-                subtract_dark_region(regionU16, rw, rh, rx0, ry0, masterDark, siK.blackLevel);
+                subtract_dark_region(regionU16, rw, rh, rx0, ry0, masterDark, siK.blackLevel,
+                                     p.darkPedestal);
             }
             if (useHot) {
                 fix_hot_pixels_region(regionU16, rw, rh, rx0, ry0, fw, fh, hotIdx);

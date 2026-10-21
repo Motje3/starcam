@@ -327,6 +327,21 @@ object Diagnostics {
         }.onFailure { AppLog.w(TAG, "could not register for system events", it) }
     }
 
+    // ------------------------------------------------------------------ battery
+
+    /** Battery temperature in °C - the only temperature an app can read - or null if unknown. */
+    fun batteryTempC(context: Context): Float? = runCatching {
+        val sticky = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val t = sticky?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE) ?: Int.MIN_VALUE
+        if (t == Int.MIN_VALUE) null else t / 10f
+    }.getOrNull()
+
+    /** Whether the phone is on a charger or power bank. */
+    fun isPlugged(context: Context): Boolean = runCatching {
+        val sticky = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        (sticky?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) ?: 0) != 0
+    }.getOrDefault(false)
+
     // ------------------------------------------------------------------ snapshot
 
     /**

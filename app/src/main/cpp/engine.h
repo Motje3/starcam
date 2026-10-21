@@ -41,6 +41,10 @@ public:
     // Returns {"index":i,"darkCount":n,"meanLevel":f}
     std::string addDark(const uint16_t* bayer, int w, int h, int strideElems, const FrameMeta& meta);
 
+    // Drops every dark added so far: the stack then runs without a master dark, exactly as if
+    // none had been shot (too few usable darks are worse than none - they add their own noise).
+    void discardDarks();
+
     // Marks a frame rejected before finalize (e.g. Kotlin's gyro said the exposure was bumped).
     void rejectFrame(int index, const std::string& reason);
 

@@ -171,18 +171,14 @@ class CaptureService : Service() {
             Intent(this, CaptureService::class.java).setAction(ACTION_FINISH),
             PendingIntent.FLAG_IMMUTABLE,
         )
-        val cancel = PendingIntent.getService(
-            this, 2,
-            Intent(this, CaptureService::class.java).setAction(ACTION_CANCEL),
-            PendingIntent.FLAG_IMMUTABLE,
-        )
+        // No "Cancel" here: one tap in the shade threw the session's stack away, where the app
+        // asks first. Stopping without a photo is done in the app (tapping this opens it).
         val b = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_star_vector)
             .setContentTitle(status?.title ?: "StarCam")
             .setContentText(status?.text ?: "capturing")
             .setContentIntent(open)
-            .addAction(0, "Finish now", finish)
-            .addAction(0, "Cancel", cancel)
+            .addAction(0, "Finish & stack", finish)
             .setOngoing(true)
             .setSilent(true)
             .setShowWhen(false)

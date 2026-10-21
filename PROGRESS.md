@@ -1,5 +1,67 @@
 # StarCam build progress (PLAN.md §10)
 
+## Review fixes, 0.3.1 (2026-10-21)
+
+A review of the whole app after the redesign; every finding was checked against the code before
+anything changed. Photos come out of the stacker exactly as before, except where a dark frame was
+not dark (now left out) or came from the dark library (now subtracted as structure only).
+
+- **Session screens after a cold start.** The capture screen read the engine once, but the engine
+  only exists once the camera is open and is replaced on every lens switch or reopen: a session
+  started from a fresh launch could run while the screen kept showing the viewfinder. The view
+  model now exposes the engine as a flow.
+- **Dark frames.** Each dark is checked before it is used. One whose background is above 35 % of
+  the night's sky, or 0.5 % of white, saw light (a lens not fully covered): it is left out, logged
+  and recorded in the session's issues, and the result says so. Fewer than two usable darks are
+  dropped (one dark adds its own noise to every frame). A 3 s pause after "Lens covered" lets the
+  hand or cap settle. A set with any lit frame is never filed in the dark library; library darks
+  are reused only within 5 °C of the battery temperature they were shot at (older ones have no
+  temperature and are not reused), and are subtracted as structure only - hot pixels, amp glow -
+  around their own median, since their black point is another night's. Darks shot in the session
+  are subtracted as before. "Finish & stack now" no longer asks for darks afterwards.
+- **Stopping.** Cancel during "Hold still" was only seen once the phone was still - never, with
+  the phone in hand - or after two minutes; it now stops at once, and Cancel or Finish during the
+  probe and the focus sweep stop there too. Once tapped, the buttons say "Stopping…" or
+  "Finishing…" until the current exposure is in. Back does what the step's Cancel or Stop does
+  (asking first during capture) and closes the result screens. The notification keeps only
+  "Finish & stack": its "Cancel" threw a session away with one tap, without the app's question.
+- **Finish before two frames.** Tapped during the first exposure, it ended on "Couldn't stack the
+  photo"; the frame is now kept as a RAW and the screen says why. Before any frame, the empty
+  session folder is removed.
+- **Re-stack** runs in the view model, not the screen: leaving the screen no longer throws the
+  result away or lets a second re-stack start on the same files. It starts from the options the
+  session was stacked with (now recorded in the session header), leaves out the frames the gyro
+  flagged as bumped (as the live stack did), opens on the options the current photo was made with,
+  and keeps the shutter off while it runs (with a note on the viewfinder). The engine no longer
+  rewrites a re-fed frame's cache file.
+- **Interrupted sessions.** A session the app was killed in is announced at the next launch
+  ("Last session was cut off. 6 frames saved - tap to stack them.") and recorded in its issues;
+  its frames are kept for a week even when newer sessions would prune them.
+- **Camera back after the screen was off.** When the system took the camera while the app was in
+  the background, the app now reopens it as the viewfinder returns instead of showing "Camera
+  problem", and a result on screen stays there.
+- **Battery and heat.** The 12 % battery floor no longer applies on a charger or power bank (it
+  cut such sessions to 4 frames). At thermal CRITICAL the burst ends and what was shot is stacked,
+  with a note.
+- **Focus reuse** is refused when the battery temperature moved more than 5 °C since the focus was
+  found: the lens's infinity position moves with temperature.
+- **Saving.** The JPEG is written beside its target and moved into place, so a full disk can no
+  longer leave a truncated photo (or truncate the old one on a re-stack); the gallery copy stays
+  hidden until complete and is removed if the copy fails. When no JPEG could be written, the
+  result screen says so instead of spinning on a preview that never comes.
+- **Night vision** reaches dialogs and the Pro sheet, which are windows above the activity's dim:
+  they are dimmed the same, and the status-bar icons stay dark (the system's dim behind a dialog
+  turned them white). The viewfinder tint is stronger and Diagnostics' preview is tinted too.
+- **Smaller.** Session screens are not drawn behind the shield (their clocks kept the display busy
+  all session); rings driven by a clock no longer animate (a new tween every 200 ms never
+  settled); the frame counter fits three digits beside the ring (sessions run to 900 frames);
+  `parallel_for` survives a thread that cannot start under memory pressure (it terminated the app).
+
+**Tested.** On the emulator: cold start into a session, Back during capture (asks), Cancel while
+reading the sky ("Stopping…", then idle), a kill mid-session (notice at relaunch, issue recorded,
+marker cleared, tap opens the session), a re-stack started and left (error path: the emulator's
+frames are saturated), night vision on the Pro sheet and a dialog.
+
 ## UI redesign, 0.3.0 (2026-10-21)
 
 The whole interface was rebuilt on the design handoff in `design/handoff/` (24 boards, tokens,

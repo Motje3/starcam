@@ -1,6 +1,7 @@
 package com.wm.starcam.ui
 
 import android.graphics.Bitmap
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -64,11 +65,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.wm.starcam.StarCamViewModel
 import com.wm.starcam.camera.AutoExposure
 import com.wm.starcam.camera.Busy
+import com.wm.starcam.camera.CaptureEngine
 import com.wm.starcam.camera.CaptureState
 import com.wm.starcam.camera.FocusSweep
+import com.wm.starcam.camera.StopRequest
 import com.wm.starcam.engine.FrameStats
 import com.wm.starcam.session.AppSettings
 import com.wm.starcam.ui.components.ScButton
@@ -114,49 +118,61 @@ import kotlin.math.sqrt
 @Composable
 fun SessionFlow(
     vm: StarCamViewModel,
+    engine: CaptureEngine?,
     state: CaptureState,
     settings: AppSettings,
     onShield: () -> Unit,
     onOpenSession: (File) -> Unit,
 ) {
-    val engine = vm.engine
     val busy by engine?.busy.collectOr(null)
     val decision by engine?.decision.collectOr(null)
     val focus by engine?.focus.collectOr(null)
     val calibration by engine?.calibration.collectOr(null)
     val sessionStart by engine?.sessionStartedAtMs.collectOr(0L)
+    val pending by engine?.stopRequest.collectOr(null)
     var confirmStop by remember { mutableStateOf(false) }
-    val cancelNow = { vm.engine?.cancel(); Unit }
+    val cancelNow = { engine?.cancel(); Unit }
     val askStop = { confirmStop = true }
 
     Box(Modifier.fillMaxSize().background(Sc.colors.background).blockTouches()) {
         when (state) {
-            is CaptureState.WaitingStill -> HoldStillStep(vm, state, busy, settings, cancelNow)
-            CaptureState.Probing -> ReadingSkyStep(vm, busy, settings, cancelNow)
-            is CaptureState.Focusing -> StarFocusStep(state, busy, cancelNow)
+            is CaptureState.WaitingStill -> HoldStillStep(vm, state, busy, settings, pending, cancelNow)
+            CaptureState.Probing -> ReadingSkyStep(vm, busy, settings, pending, cancelNow)
+            is CaptureState.Focusing -> StarFocusStep(state, busy, pending, cancelNow)
             is CaptureState.CapturingLights -> CapturingStep(
-                vm, state, busy, decision, focus, calibration, sessionStart, settings,
-                onCancel = askStop, onFinish = { vm.engine?.finishEarly() }, onShield = onShield,
+                vm, state, busy, decision, focus, calibration, sessionStart, settings, pending,
+                onCancel = askStop, onFinish = { engine?.finishEarly() }, onShield = onShield,
             )
             is CaptureState.AwaitingDarkCover -> CoverLensStep(
-                state, settings,
-                onCovered = { vm.engine?.confirmDarksReady() },
-                onSkip = { vm.engine?.skipDarks() },
+                state, settings, pending,
+                onCovered = { engine?.confirmDarksReady() },
+                onSkip = { engine?.skipDarks() },
                 onCancel = askStop,
             )
-            is CaptureState.CapturingDarks -> DarksStep(state, busy, onCancel = askStop, onShield = onShield)
-            is CaptureState.Stacking -> StackingStep(vm, state, busy, settings, onStop = askStop)
+            is CaptureState.CapturingDarks -> DarksStep(state, busy, pending, onCancel = askStop, onShield = onShield)
+            is CaptureState.Stacking -> StackingStep(vm, state, busy, settings, pending, onStop = askStop)
             is CaptureState.Done -> DoneStep(
                 state, decision,
-                onClose = { vm.engine?.dismissResult() },
+                onClose = { engine?.dismissResult() },
                 onOpenSession = onOpenSession,
             )
             is CaptureState.Error -> ErrorStep(
                 vm, state,
-                onOk = { vm.engine?.dismissResult() },
+                onOk = { engine?.dismissResult() },
                 onOpenSession = onOpenSession,
             )
             CaptureState.Idle -> Unit
+        }
+    }
+
+    // Back closes a result, and otherwise does what the step's own Cancel or Stop does. Left to
+    // the system it sent the app to the background mid-session and closed nothing.
+    BackHandler {
+        when (state) {
+            is CaptureState.Done, is CaptureState.Error -> engine?.dismissResult()
+            is CaptureState.WaitingStill, CaptureState.Probing, is CaptureState.Focusing -> cancelNow()
+            CaptureState.Idle -> Unit
+            else -> if (pending != StopRequest.Cancel) askStop()
         }
     }
 
@@ -165,7 +181,7 @@ fun SessionFlow(
     val cancellable = state is CaptureState.CapturingLights || state is CaptureState.AwaitingDarkCover ||
         state is CaptureState.CapturingDarks || state is CaptureState.Stacking
     LaunchedEffect(cancellable) { if (!cancellable) confirmStop = false }
-    if (confirmStop && cancellable) {
+    if (confirmStop && cancellable && pending != StopRequest.Cancel) {
         ScConfirmDialog(
             title = if (state is CaptureState.Stacking) "Stop stacking?" else "Stop this capture?",
             text = when (state) {
@@ -186,7 +202,7 @@ fun SessionFlow(
             danger = true,
             onConfirm = {
                 confirmStop = false
-                vm.engine?.cancel()
+                engine?.cancel()
             },
             onDismiss = { confirmStop = false },
         )
@@ -241,6 +257,19 @@ private fun ActionRow(content: @Composable RowScope.() -> Unit) {
     )
 }
 
+/** A step's Cancel or Stop. Once pressed it says so, until the session gets there. */
+@Composable
+private fun StopButton(
+    label: String,
+    pending: StopRequest?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    height: Dp = 52.dp,
+) {
+    val stopping = pending == StopRequest.Cancel
+    ScButton(if (stopping) "Stopping…" else label, onClick, modifier, enabled = !stopping, height = height)
+}
+
 /**
  * What the engine is doing right now, with a clock that always moves: a known-length step counts
  * down; an unknown one spins and counts up; a known step that overruns says so rather than
@@ -257,7 +286,7 @@ private fun BusyLine(busy: Busy?, modifier: Modifier = Modifier) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (expected > 0L && !overrun) {
                 ScRing((elapsed.toFloat() / expected).coerceIn(0f, 1f), Modifier.size(18.dp),
-                    strokeWidth = 2.5.dp, glow = false)
+                    strokeWidth = 2.5.dp, glow = false, animate = false)
             } else {
                 ScSpinner(size = 18.dp, color = if (overrun) c.warning else c.accent)
             }
@@ -291,7 +320,8 @@ private fun BusyRing(
     val known = expected > 0L && elapsed <= expected + 3_000L
     Box(Modifier.size(size), contentAlignment = Alignment.Center) {
         if (known) {
-            ScRing((elapsed.toFloat() / expected).coerceIn(0f, 1f), Modifier.fillMaxSize(), strokeWidth = stroke)
+            ScRing((elapsed.toFloat() / expected).coerceIn(0f, 1f), Modifier.fillMaxSize(), strokeWidth = stroke,
+                animate = false)
         } else {
             ScSpinner(Modifier.padding(stroke), size = size - stroke * 2, strokeWidth = stroke, color = c.accent)
         }
@@ -320,6 +350,7 @@ private fun HoldStillStep(
     st: CaptureState.WaitingStill,
     busy: Busy?,
     s: AppSettings,
+    pending: StopRequest?,
     onCancel: () -> Unit,
 ) {
     val c = Sc.colors
@@ -327,7 +358,7 @@ private fun HoldStillStep(
         (s.startDelaySec - st.delayRemaining).toFloat() / s.startDelaySec else 0.6f
     StepScaffold(
         SessionStep.Still, progress, centered = true,
-        actions = { ScButton("Cancel", onCancel, Modifier.fillMaxWidth(), height = 52.dp) },
+        actions = { StopButton("Cancel", pending, onCancel, Modifier.fillMaxWidth()) },
     ) {
         BusyRing(busy, 188.dp) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -422,7 +453,13 @@ private fun StillnessCard(vm: StarCamViewModel) {
 private enum class RowState { Done, Active, Pending }
 
 @Composable
-private fun ReadingSkyStep(vm: StarCamViewModel, busy: Busy?, s: AppSettings, onCancel: () -> Unit) {
+private fun ReadingSkyStep(
+    vm: StarCamViewModel,
+    busy: Busy?,
+    s: AppSettings,
+    pending: StopRequest?,
+    onCancel: () -> Unit,
+) {
     val c = Sc.colors
     val camInfo by vm.camInfo.collectAsState()
     val lenses by vm.lenses.collectAsState()
@@ -431,7 +468,7 @@ private fun ReadingSkyStep(vm: StarCamViewModel, busy: Busy?, s: AppSettings, on
     val measuring = label.startsWith("measuring")
     StepScaffold(
         SessionStep.Sky, if (measuring) 0.7f else 0.35f,
-        actions = { ScButton("Cancel", onCancel, Modifier.fillMaxWidth(), height = 52.dp) },
+        actions = { StopButton("Cancel", pending, onCancel, Modifier.fillMaxWidth()) },
     ) {
         Spacer(Modifier.height(6.dp))
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -502,11 +539,11 @@ private fun FactRow(label: String, value: String) {
 // ------------------------------------------------------------------------------- star focus
 
 @Composable
-private fun StarFocusStep(st: CaptureState.Focusing, busy: Busy?, onCancel: () -> Unit) {
+private fun StarFocusStep(st: CaptureState.Focusing, busy: Busy?, pending: StopRequest?, onCancel: () -> Unit) {
     val c = Sc.colors
     StepScaffold(
         SessionStep.Focus, st.step.toFloat() / st.total.coerceAtLeast(1),
-        actions = { ScButton("Cancel", onCancel, Modifier.fillMaxWidth(), height = 52.dp) },
+        actions = { StopButton("Cancel", pending, onCancel, Modifier.fillMaxWidth()) },
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
             Column(Modifier.weight(1f)) {
@@ -592,6 +629,7 @@ private fun CapturingStep(
     calibration: String?,
     sessionStart: Long,
     s: AppSettings,
+    pending: StopRequest?,
     onCancel: () -> Unit,
     onFinish: () -> Unit,
     onShield: () -> Unit,
@@ -616,8 +654,11 @@ private fun CapturingStep(
             // Two buttons only: with a large system font a third pushed "Finish & stack now" into
             // an ellipsis. The shield sits on the live stack instead.
             ActionRow {
-                ScButton("Cancel", onCancel, Modifier.weight(1f), height = 52.dp)
-                ScButton("Finish & stack now", onFinish, Modifier.weight(1.8f), kind = ScButtonKind.Accent, height = 52.dp)
+                StopButton("Cancel", pending, onCancel, Modifier.weight(1f))
+                ScButton(
+                    if (pending == StopRequest.Finish) "Finishing…" else "Finish & stack now", onFinish,
+                    Modifier.weight(1.8f), kind = ScButtonKind.Accent, enabled = pending == null, height = 52.dp,
+                )
             }
         },
     ) {
@@ -629,13 +670,17 @@ private fun CapturingStep(
             stats = st.lastStats,
             onShield = onShield,
         )
-        NowLine(busy, st)
+        NowLine(busy, st, pending)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 ScLabel("Frame")
+                // Up to 900 frames: three digits at full size no longer fit beside the ring.
                 Row(verticalAlignment = Alignment.Bottom) {
-                    Text("${st.current}", style = ScType.display, color = c.text)
-                    Text(" / ${st.total}", style = ScType.stat, color = c.text3, modifier = Modifier.padding(bottom = 8.dp))
+                    Text("${st.current}", color = c.text, maxLines = 1, softWrap = false,
+                        style = if (st.total >= 100) ScType.display.copy(fontSize = 44.sp, lineHeight = 44.sp)
+                        else ScType.display)
+                    Text(" / ${st.total}", style = ScType.stat, color = c.text3, maxLines = 1, softWrap = false,
+                        modifier = Modifier.padding(bottom = if (st.total >= 100) 4.dp else 8.dp))
                 }
                 Spacer(Modifier.height(8.dp))
                 ScLabel("Time left")
@@ -668,10 +713,12 @@ private fun CapturingStep(
 
 /** The one sentence that says what is happening now. */
 @Composable
-private fun NowLine(busy: Busy?, st: CaptureState.CapturingLights) {
+private fun NowLine(busy: Busy?, st: CaptureState.CapturingLights, pending: StopRequest?) {
     val c = Sc.colors
     val label = busy?.label ?: ""
     val (text, warn) = when {
+        pending == StopRequest.Cancel -> "Stopping once this frame is in" to false
+        pending == StopRequest.Finish -> "Stacking once this frame is in" to false
         label.startsWith("exposing") -> "Exposing frame ${st.current} — hands off the tripod" to false
         label.startsWith("aligning") -> "Aligning and stacking frame ${st.current}" to false
         label.startsWith("writing DNG") -> "Saving the RAW file" to false
@@ -860,6 +907,7 @@ private fun LiveStackCard(
 private fun CoverLensStep(
     st: CaptureState.AwaitingDarkCover,
     s: AppSettings,
+    pending: StopRequest?,
     onCovered: () -> Unit,
     onSkip: () -> Unit,
     onCancel: () -> Unit,
@@ -869,10 +917,10 @@ private fun CoverLensStep(
         SessionStep.Darks, 0.1f, centered = true,
         actions = {
             ScButton("Lens covered", onCovered, Modifier.fillMaxWidth(), kind = ScButtonKind.Primary,
-                icon = ScIcons.Check, height = 52.dp)
+                icon = ScIcons.Check, enabled = pending == null, height = 52.dp)
             ActionRow {
-                ScButton("Cancel", onCancel, Modifier.weight(1f), height = 48.dp)
-                ScButton("Skip dark frames", onSkip, Modifier.weight(1.4f), height = 48.dp)
+                StopButton("Cancel", pending, onCancel, Modifier.weight(1f), height = 48.dp)
+                ScButton("Skip dark frames", onSkip, Modifier.weight(1.4f), enabled = pending == null, height = 48.dp)
             }
         },
     ) {
@@ -903,6 +951,7 @@ private fun CoverLensStep(
 private fun DarksStep(
     st: CaptureState.CapturingDarks,
     busy: Busy?,
+    pending: StopRequest?,
     onCancel: () -> Unit,
     onShield: () -> Unit,
 ) {
@@ -911,7 +960,7 @@ private fun DarksStep(
         SessionStep.Darks, st.current.toFloat() / st.total.coerceAtLeast(1), centered = true,
         actions = {
             ActionRow {
-                ScButton("Cancel", onCancel, Modifier.weight(1f), height = 52.dp)
+                StopButton("Cancel", pending, onCancel, Modifier.weight(1f))
                 ScIconButton(ScIcons.Shield, "Screen shield", onShield, size = 52.dp, iconSize = 22.dp)
             }
         },
@@ -942,6 +991,7 @@ private fun StackingStep(
     st: CaptureState.Stacking,
     busy: Busy?,
     s: AppSettings,
+    pending: StopRequest?,
     onStop: () -> Unit,
 ) {
     val c = Sc.colors
@@ -957,7 +1007,7 @@ private fun StackingStep(
     val idx = StageOrder.indexOf(st.stage).coerceAtLeast(0)
     StepScaffold(
         SessionStep.Stack, st.percent / 100f,
-        actions = { ScButton("Stop", onStop, Modifier.fillMaxWidth(), height = 52.dp) },
+        actions = { StopButton("Stop", pending, onStop, Modifier.fillMaxWidth()) },
     ) {
         LiveStackCard(vm, refreshKey = st.percent, enabled = s.livePreview, chip = "Stacking", stats = null,
             placeholder = "The image appears here as it stacks.")
@@ -999,14 +1049,24 @@ private fun DoneStep(
     val c = Sc.colors
     val context = LocalContext.current
     var image by remember { mutableStateOf<ImageBitmap?>(null) }
+    // Null until the file has been looked at. False when the stack finished but no JPEG was
+    // written (out of storage or memory): the screen used to spin on a preview that never came
+    // and offer to share a file that did not exist.
+    var jpegSaved by remember { mutableStateOf<Boolean?>(null) }
     LaunchedEffect(st.jpegFile) {
-        // Downsampled: a full-res stack is up to 50 MP, ~200 MB as one ARGB bitmap.
-        image = withContext(Dispatchers.IO) {
-            st.jpegFile?.let { decodeDownsampled(it.absolutePath, 1440)?.asImageBitmap() }
+        val file = st.jpegFile
+        val (saved, bitmap) = withContext(Dispatchers.IO) {
+            val saved = file != null && file.isFile && file.length() > 0L
+            // Downsampled: a full-res stack is up to 50 MP, ~200 MB as one ARGB bitmap.
+            saved to if (saved) decodeDownsampled(file!!.absolutePath, 1440)?.asImageBitmap() else null
         }
+        jpegSaved = saved
+        image = bitmap
     }
-    val photo = remember(st) { st.galleryUri ?: st.jpegFile?.let { photoUri(context, it) } }
     val result = st.result
+    val photo = remember(st, jpegSaved) {
+        if (jpegSaved == false) null else st.galleryUri ?: st.jpegFile?.let { photoUri(context, it) }
+    }
 
     Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
@@ -1018,7 +1078,7 @@ private fun DoneStep(
                 } else {
                     Box(Modifier.fillMaxWidth().height(if (result == null) 200.dp else 260.dp).background(c.sunken),
                         contentAlignment = Alignment.Center) {
-                        if (result != null) ScSpinner(size = 28.dp)
+                        if (result != null && jpegSaved == null) ScSpinner(size = 28.dp)
                         else Icon(ScIcons.Stack, null, Modifier.size(44.dp), tint = c.text3)
                     }
                 }
@@ -1031,13 +1091,21 @@ private fun DoneStep(
                 if (result == null) {
                     StepTitle(
                         "RAWs saved",
-                        "${st.framesCaptured} frames in ${st.sessionDir.name}. Stack them later from " +
-                            "Sessions, or copy the folder to a computer.",
+                        if (st.framesCaptured == 1) "1 frame in ${st.sessionDir.name}."
+                        else "${st.framesCaptured} frames in ${st.sessionDir.name}. Stack them later " +
+                            "from Sessions, or copy the folder to a computer.",
+                    )
+                } else if (jpegSaved == false) {
+                    ScNotice(
+                        "Stacking worked, but the JPEG could not be written - the phone may be out of " +
+                            "storage. If working files are kept (the default), re-process the session " +
+                            "from Sessions once there is room.",
+                        tone = Tone.Warning, icon = ScIcons.Warning, title = "Photo not saved",
                     )
                 } else if (st.galleryUri != null) {
                     ScNotice("Pictures / StarCam", tone = Tone.Accent, icon = ScIcons.CheckCircle,
                         title = "Saved to Gallery")
-                } else {
+                } else if (jpegSaved == true) {
                     ScNotice("Saved in the session folder; the gallery copy failed.", tone = Tone.Warning,
                         icon = ScIcons.Warning)
                 }

@@ -291,6 +291,7 @@ void apply_ccm_inplace(ImageF& rgb, const float ccm[9]) {
 // outFrameIndices (nullable): receives the deduplicated frameIndex of each blended candidate.
 int blend_meteors(const std::vector<Streak>& streaks, const std::vector<FrameRecord>& frames,
                   int refPos, const SensorInfo& si, const Image16& masterDark,
+                  const float* darkPedestal,
                   const std::vector<uint32_t>& hotIdx, bool hotFix, ImageF& stack,
                   std::vector<int>* outFrameIndices) {
     int count = 0;
@@ -325,7 +326,8 @@ int blend_meteors(const std::vector<Streak>& streaks, const std::vector<FrameRec
         SensorInfo siK = si;
         for (int b = 0; b < 4; ++b) siK.blackLevel[b] = r.header().blackLevel[b];
         if (!masterDark.empty() && masterDark.w == W && masterDark.h == H)
-            subtract_dark_region(region, rw, rh, bx0, by0, masterDark, siK.blackLevel);
+            subtract_dark_region(region, rw, rh, bx0, by0, masterDark, siK.blackLevel,
+                                 darkPedestal);
         if (hotFix && !hotIdx.empty() && W == si.width && H == si.height)
             fix_hot_pixels_region(region, rw, rh, bx0, by0, W, H, hotIdx);
         ImageF rgb;
@@ -463,10 +465,20 @@ std::string EngineSession::addFrame(const uint16_t* bayer, int w, int h, int str
         hdr.exposureNs = meta.exposureNs > 0 ? (uint64_t)meta.exposureNs : 0;
         hdr.iso = meta.iso > 0 ? (uint32_t)meta.iso : 0;
         hdr.timestampNs = meta.timestampNs > 0 ? (uint64_t)meta.timestampNs : 0;
-        char name[48];
-        snprintf(name, sizeof(name), "/cache/frame_%04d.sraw", fileNo);
-        const std::string path = cfg_.sessionDir + name;
-        const bool saved = sraw_write(path, hdr, bayer, strideElems);
+        // A re-stack re-feeds frames from their cache files; those are used as they are.
+        // Rewriting them truncated files that another engine (a second re-stack, the session
+        // still finalizing) had mapped (SIGBUS), and a kill mid-write cut a kept frame short.
+        bool saved;
+        std::string path;
+        if (!meta.sourcePath.empty() && sraw_file_exists(meta.sourcePath)) {
+            path = meta.sourcePath;
+            saved = true;
+        } else {
+            char name[48];
+            snprintf(name, sizeof(name), "/cache/frame_%04d.sraw", fileNo);
+            path = cfg_.sessionDir + name;
+            saved = sraw_write(path, hdr, bayer, strideElems);
+        }
         if (saved) {
             rec.srawPath = path;
         } else {
@@ -579,6 +591,14 @@ std::string EngineSession::addDark(const uint16_t* bayer, int w, int h, int stri
         b.add("index", -1).add("darkCount", 0).add("meanLevel", 0.0);
         return b.build();
     }
+}
+
+void EngineSession::discardDarks() {
+    std::lock_guard<std::mutex> lk(mu_);
+    if (darkCount_ > 0) SLOG("discardDarks: dropping %d dark frame(s)", darkCount_);
+    darkSum_.clear();
+    darkSum_.shrink_to_fit();
+    darkCount_ = 0;
 }
 
 void EngineSession::rejectFrame(int index, const std::string& reason) {
@@ -794,6 +814,24 @@ std::string EngineSession::finalizeStack(const std::string& optionsJson,
         pp.style = clampi(opt.numi("style", 0), 0, 1);
 
         const std::vector<uint32_t> hotIdx = find_hot_pixels(masterDark);
+        // A master dark from the dark library comes from another night, with another black
+        // point: subtract only its structure. Kotlin leaves a marker beside the copy it installs
+        // (a session with a library dark shoots none of its own), and a re-stack - which feeds
+        // the same file back as a dark frame - finds it too. Darks shot in the session keep the
+        // original subtraction.
+        struct stat libSb;
+        const bool darkFromLibrary =
+            !masterDark.empty() &&
+            stat((cfg_.sessionDir + "/cache/master_dark.library").c_str(), &libSb) == 0;
+        float darkPed[4] = {0, 0, 0, 0};
+        const float* darkPedPtr = nullptr;
+        if (darkFromLibrary) {
+            dark_pedestal(masterDark, darkPed);
+            darkPedPtr = darkPed;
+            SLOG("finalize: library dark, pedestal %.1f %.1f %.1f %.1f", darkPed[0], darkPed[1],
+                 darkPed[2], darkPed[3]);
+        }
+        sp.darkPedestal = darkPedPtr;
         // Off unless the Kotlin side both wrote a map and left the toggle on.
         const ShadingMap shading =
             opt.boolean("lensShading", true) ? load_shading_map(cfg_.sessionDir) : ShadingMap();
@@ -961,7 +999,8 @@ std::string EngineSession::finalizeStack(const std::string& optionsJson,
                 SensorInfo siK = cfg_.sensor;
                 for (int b = 0; b < 4; ++b) siK.blackLevel[b] = r.header().blackLevel[b];
                 if (!masterDark.empty() && masterDark.w == W && masterDark.h == H)
-                    subtract_dark_region(region, W, H, 0, 0, masterDark, siK.blackLevel);
+                    subtract_dark_region(region, W, H, 0, 0, masterDark, siK.blackLevel,
+                                         darkPedPtr);
                 if (sp.hotPixelFix && !hotIdx.empty() && W == cfg_.sensor.width &&
                     H == cfg_.sensor.height)
                     fix_hot_pixels_region(region, W, H, 0, 0, W, H, hotIdx);
@@ -992,7 +1031,8 @@ std::string EngineSession::finalizeStack(const std::string& optionsJson,
             fwhmStack = measure_stack_fwhm(stackRGB);
             if (mode == SessionMode::METEOR) {
                 meteorCount = blend_meteors(streaks, frames, refPos, cfg_.sensor, masterDark,
-                                            hotIdx, sp.hotPixelFix, stackRGB, &meteorFrameIdx);
+                                            darkPedPtr, hotIdx, sp.hotPixelFix, stackRGB,
+                                            &meteorFrameIdx);
                 SLOG("finalize: %d meteor candidate(s) composited", meteorCount);
             }
         }

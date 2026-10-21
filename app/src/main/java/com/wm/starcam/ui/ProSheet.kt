@@ -32,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -42,12 +43,14 @@ import com.wm.starcam.session.FocusMode
 import com.wm.starcam.session.Mode
 import com.wm.starcam.ui.components.ScButton
 import com.wm.starcam.ui.components.ScChip
+import com.wm.starcam.ui.components.NightWindow
 import com.wm.starcam.ui.components.ScIconButton
 import com.wm.starcam.ui.components.ScLabel
 import com.wm.starcam.ui.components.ScSegmented
 import com.wm.starcam.ui.components.ScSlider
 import com.wm.starcam.ui.components.ScSwitch
 import com.wm.starcam.ui.components.ScToggleTile
+import com.wm.starcam.ui.theme.LocalNightDim
 import com.wm.starcam.ui.theme.Sc
 import com.wm.starcam.ui.theme.ScIcons
 import com.wm.starcam.ui.theme.ScShapes
@@ -87,21 +90,26 @@ fun ProSheet(
     val longMode = s.mode == Mode.TRAILS || s.mode == Mode.METEOR
     var dial by remember { mutableStateOf(Dial.Shutter) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    // The sheet is its own window, above the activity's night dim: the strip around the content
+    // (handle, nav-bar inset) is pre-dimmed here, the content by NightWindow.
+    val dim = if (c.night) LocalNightDim.current else 0f
+    val edge = Color.Black.copy(alpha = dim).compositeOver(c.surface)
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         shape = ScShapes.sheet,
-        containerColor = c.surface,
+        containerColor = edge,
         contentColor = c.text,
         scrimColor = Color.Black.copy(alpha = 0.45f),
         dragHandle = {
             Box(Modifier.padding(top = 10.dp, bottom = 4.dp).size(width = 36.dp, height = 4.dp)
-                .clip(CircleShape).background(c.hairlineStrong))
+                .clip(CircleShape).background(Color.Black.copy(alpha = dim).compositeOver(c.hairlineStrong)))
         },
     ) {
+      NightWindow {
         Column(
-            Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+            Modifier.fillMaxWidth().background(c.surface).verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp).padding(bottom = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -258,6 +266,7 @@ fun ProSheet(
                     { up { it.copy(showLevel = !it.showLevel) } }, Modifier.weight(1f))
             }
         }
+      }
     }
 }
 

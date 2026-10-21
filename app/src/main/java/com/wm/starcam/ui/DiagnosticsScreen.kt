@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -51,6 +52,7 @@ import com.wm.starcam.ui.components.ScLabel
 import com.wm.starcam.ui.components.ScScreen
 import com.wm.starcam.ui.components.ScSwitch
 import com.wm.starcam.ui.components.ScTopBar
+import com.wm.starcam.ui.theme.NightPreviewTint
 import com.wm.starcam.ui.theme.Sc
 import com.wm.starcam.ui.theme.ScIcons
 import com.wm.starcam.ui.theme.ScType
@@ -169,7 +171,11 @@ private fun PreviewStrip(vm: StarCamViewModel) {
     val status by vm.testStatus.collectAsState()
     val settings by vm.settingsStore.settings.collectAsState()
     Row(verticalAlignment = Alignment.CenterVertically) {
-        CameraPreview(vm, Modifier.height(96.dp))
+        Box {
+            CameraPreview(vm, Modifier.height(96.dp))
+            // Red in night vision, like the viewfinder: the sky's own colours spoil dark adaptation.
+            if (c.night) Box(Modifier.matchParentSize().background(NightPreviewTint))
+        }
         Spacer(Modifier.width(12.dp))
         Column {
             Text(

@@ -93,6 +93,13 @@ data class Busy(
 )
 
 /**
+ * A stop the user asked for that the session has not reached yet. An exposure cannot be cut
+ * short, so Finish and Cancel take effect once the current frame is in - up to half a minute in
+ * which the buttons used to look as if the tap had been missed.
+ */
+enum class StopRequest { Finish, Cancel }
+
+/**
  * The session state machine (PLAN.md §3.3): stillness gate → probe → star autofocus → lights →
  * darks → native stack → save. One instance per app; one session at a time.
  *
@@ -137,6 +144,10 @@ class CaptureEngine(
     private val _previewTick = MutableStateFlow(0)
     val previewTick: StateFlow<Int> = _previewTick
 
+    /** See [StopRequest]. Null when nothing is pending or no session is running. */
+    private val _stopRequest = MutableStateFlow<StopRequest?>(null)
+    val stopRequest: StateFlow<StopRequest?> = _stopRequest
+
     private var job: Job? = null
 
     /**
@@ -157,6 +168,9 @@ class CaptureEngine(
     /** Camera repairs run this session (recovery levels 1-3). */
     private var recoveryCount = 0
 
+    /** A session folder created for nothing (stopped before its first frame), removed at the end. */
+    private var discardIfEmpty: File? = null
+
     /** Exposures that failed this session but were retried (with or without a repair). */
     private var failedAttempts = 0
 
@@ -171,6 +185,7 @@ class CaptureEngine(
         if (isRunning) return job
         cancelRequested = false
         finishEarlyRequested = false
+        _stopRequest.value = null
         return scope.launch(Dispatchers.Default) { runSession() }.also { job = it }
     }
 
@@ -182,6 +197,7 @@ class CaptureEngine(
     fun cancel() {
         AppLog.i(TAG, "cancel requested (state: ${describe(_state.value)})")
         cancelRequested = true
+        if (isRunning) _stopRequest.value = StopRequest.Cancel
         darkGate?.complete(false)
         // abortSession only flags the session; the handle stays valid until destroySession, which
         // runs under handleLock in runSession's finally. Never wait long for the lock here — this
@@ -204,10 +220,25 @@ class CaptureEngine(
         if (!isRunning) setState(CaptureState.Idle)
     }
 
+    /**
+     * Carries [previous]'s finished result (Done or Error) over to this engine, which replaces it
+     * when the camera is reopened. Without it the result screen vanished the moment the app,
+     * back from a screen-off session, reopened the camera underneath it.
+     */
+    fun adoptResult(previous: CaptureEngine) {
+        if (isRunning) return
+        val st = previous.state.value
+        if (st is CaptureState.Done || st is CaptureState.Error) {
+            _decision.value = previous.decision.value
+            setState(st)
+        }
+    }
+
     /** Stop capturing and stack what we already have. */
     fun finishEarly() {
         AppLog.i(TAG, "finish-early requested")
         finishEarlyRequested = true
+        if (isRunning && _stopRequest.value == null) _stopRequest.value = StopRequest.Finish
         darkGate?.complete(false)
     }
 
@@ -314,11 +345,13 @@ class CaptureEngine(
         try {
             // ---- Stillness gate ----
             // One clock for the whole delay: re-arming it per second would restart the ring.
+            // Before the first light frame there is nothing to stack, so "Finish now" (from the
+            // notification) means the same as Cancel.
             if (s.startDelaySec > 0) beginBusy("start delay", s.startDelaySec * 1000L)
             for (sec in s.startDelaySec downTo 1) {
                 setState(CaptureState.WaitingStill(sec, waitingForGyro = false))
                 delay(1000)
-                if (cancelRequested) return finishCancelled()
+                if (stopRequested()) return finishCancelled()
             }
             if (motion.hasGyro) {
                 setState(CaptureState.WaitingStill(0, waitingForGyro = true))
@@ -328,10 +361,14 @@ class CaptureEngine(
                 // from a silent two-minute hang into "it starts anyway in 40s".
                 beginBusy("waiting for tripod stillness", STILL_TIMEOUT_MS)
                 val t0 = SystemClock.elapsedRealtime()
-                val still = withTimeoutOrNull(STILL_TIMEOUT_MS) { motion.isStill.first { it } }
+                // Polled, not awaited: Cancel is pressed with the phone in hand - never still - and
+                // used to sit unanswered for the full two minutes.
+                val still = withTimeoutOrNull(STILL_TIMEOUT_MS) {
+                    while (!motion.isStill.value && !stopRequested()) delay(100)
+                }
+                if (stopRequested()) return finishCancelled()
                 if (still == null) AppLog.w(TAG, "stillness wait timed out; proceeding anyway")
                 else AppLog.i(TAG, "tripod still after ${SystemClock.elapsedRealtime() - t0}ms")
-                if (cancelRequested) return finishCancelled()
             }
 
             // Reconfiguring the capture session for the RAW size takes a visible moment.
@@ -354,7 +391,7 @@ class CaptureEngine(
                 )
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
-                if (cancelRequested) return finishCancelled()
+                if (stopRequested()) return finishCancelled()
                 setState(CaptureState.Error(
                     "The camera could not take the test frame: ${describeFailure(t)}.", null))
                 return
@@ -386,7 +423,7 @@ class CaptureEngine(
                 probeStats.bgFrac * 100, probeStats.starCount, probeStats.medianFwhm, probeStats.noiseSigma,
                 wbLock?.gains?.let { "R%.2f G%.2f/%.2f B%.2f".format(it.red, it.greenEven, it.greenOdd, it.blue) }
                     ?: "none (AWB gave no gains)"))
-            if (cancelRequested) return finishCancelled()
+            if (stopRequested()) return finishCancelled()
 
             // ---- Exposure decision ----
             val decision = if (s.manualExposure || s.mode == Mode.PRO) {
@@ -431,8 +468,20 @@ class CaptureEngine(
                     val skyTooBright = probeStats.bgFrac > 0.15f
                     // A tripod-mounted lens doesn't move between back-to-back sessions; reuse a
                     // recent good focus instead of spending ~30s re-sweeping. 90-minute window:
-                    // beyond that, temperature drift makes the old position untrustworthy.
-                    val last = if (s.reuseLastFocus) settingsStore.lastFocus(cam.cameraId) else null
+                    // beyond that, temperature drift makes the old position untrustworthy - and
+                    // within it too, when the phone has warmed or cooled since (out of a pocket
+                    // into the cold): the lens's infinity position moves with temperature.
+                    val nowTemp = Diagnostics.batteryTempC(context)
+                    val saved = if (s.reuseLastFocus) settingsStore.lastFocus(cam.cameraId) else null
+                    val tempShift = if (saved?.tempC != null && nowTemp != null)
+                        kotlin.math.abs(nowTemp - saved.tempC) else 0f
+                    val last = saved?.takeIf {
+                        it.ageMs < 90 * 60_000L && tempShift <= FOCUS_REUSE_MAX_TEMP_SHIFT_C
+                    }
+                    if (saved != null && last == null && saved.ageMs < 90 * 60_000L) {
+                        AppLog.i(TAG, "not reusing focus: the phone's temperature moved %.1f°C since it was found"
+                            .format(tempShift))
+                    }
                     if (skyTooBright) {
                         focusDistance = 0f
                         _focus.value = FocusSweep.Result(
@@ -440,16 +489,16 @@ class CaptureEngine(
                             "sky too bright for star focus (bg %.0f%%) — using infinity"
                                 .format(probeStats.bgFrac * 100),
                         )
-                    } else if (last != null && last.second < 90 * 60_000L) {
-                        focusDistance = last.first
+                    } else if (last != null) {
+                        focusDistance = last.diopters
                         _focus.value = FocusSweep.Result(
-                            last.first, 0f, 0, true,
+                            last.diopters, 0f, 0, true,
                             "reusing focus %.3f dpt from %dm ago".format(
-                                last.first, last.second / 60_000L),
+                                last.diopters, last.ageMs / 60_000L),
                         )
                     } else {
                         val res = FocusSweep.run(
-                            controller, wbLock, isCancelled = { cancelRequested }
+                            controller, wbLock, isCancelled = { stopRequested() }
                         ) { stepIdx, total, label ->
                             setState(CaptureState.Focusing(stepIdx, total, label))
                             // Each sweep point is a 2 s exposure plus a native measure. Without a
@@ -458,19 +507,26 @@ class CaptureEngine(
                         }
                         _focus.value = res
                         focusDistance = res.diopters
-                        if (res.ok) settingsStore.saveLastFocus(res.diopters, cam.cameraId)
+                        if (res.ok) settingsStore.saveLastFocus(res.diopters, cam.cameraId, nowTemp)
                     }
                     AppLog.i(TAG, "focus: ${_focus.value?.message}")
                 }
             }
-            if (cancelRequested) return finishCancelled()
+            if (stopRequested()) return finishCancelled()
 
             // ---- Session + native engine ----
             paths = repo.newSession(s.mode)
+            // Removed in finally. One still present at the next app start means this session was
+            // cut off (crash, kill) - the app then says so instead of showing a plain viewfinder.
+            repo.markRunning(paths)
             AppLog.attachSessionLog(File(paths.meta, "session.log"), logMark)
             AppLog.i(TAG, "session folder: ${paths.dir.absolutePath}")
             repo.writeHeader(paths, JSONObject().apply {
                 put("mode", s.mode.name)
+                if (s.mode == Mode.ASTRO) put("quality", s.quality.name)
+                // What this session was stacked with, so a later re-stack starts from the same
+                // options (an INSANE foreground blend, a changed hot-pixel setting) and not defaults.
+                put("stackConfig", JSONObject(s.stackConfig().toJson()))
                 put("startedAt", System.currentTimeMillis())
                 put("rawWidth", rawSize.width)
                 put("rawHeight", rawSize.height)
@@ -497,6 +553,7 @@ class CaptureEngine(
                 repo.installLibraryDark(
                     paths, cam.cameraId, rawSize, decision.exposureNs, decision.iso,
                     maxAgeDays = s.darkLibraryDays,
+                    tempC = Diagnostics.batteryTempC(context),
                 )
             else null
             _calibration.value = buildString {
@@ -541,14 +598,29 @@ class CaptureEngine(
             // Set when the camera could not be brought back mid-burst: the frames already on disk
             // are still stacked rather than thrown away with the session.
             var cameraFailure: String? = null
+            // Why the burst ended before its planned count, when the app ended it (not the user).
+            var stoppedEarly: String? = null
+            // Sky background of the kept light frames, to judge the dark frames against.
+            val lightBg = ArrayList<Float>()
             var i = 0
             while (i < planned) {
                 if (cancelRequested || finishEarlyRequested) break
                 // Battery floor: finishing with a stacked image beats dying mid-session. Darks and
-                // stacking still need headroom, so bail out of the burst at 12%.
-                if (batteryPct() <= 12 && captured >= 4) {
+                // stacking still need headroom, so bail out of the burst at 12% - unless the
+                // phone is on a power bank, where the floor only cut every session to 4 frames.
+                if (batteryPct() <= 12 && captured >= 4 && !Diagnostics.isPlugged(context)) {
                     AppLog.e(TAG, "battery at ${batteryPct()}% — finishing early with $captured frames")
                     buzz(longArrayOf(0, 60, 120, 60))
+                    stoppedEarly = "The battery got low, so the session finished early with $captured frames."
+                    finishEarlyRequested = true
+                    break
+                }
+                // Thermal ceiling: at CRITICAL the system is about to throttle hard or shut the
+                // app down. Stacking what is already shot beats losing it.
+                if (thermal.isCritical && captured >= MIN_FRAMES_TO_STACK) {
+                    AppLog.e(TAG, "thermal status ${thermal.label()} — finishing early with $captured frames")
+                    buzz(longArrayOf(0, 60, 120, 60))
+                    stoppedEarly = "The phone got too hot, so the session finished early with $captured frames."
                     finishEarlyRequested = true
                     break
                 }
@@ -648,6 +720,8 @@ class CaptureEngine(
                         planned++
                         reshoots++
                     }
+                } else {
+                    lightBg.add(stats.bgFrac)
                 }
                 repo.appendFrame(paths, stats, decision.exposureNs, decision.iso, peak, bumped, dngName)
                 captured++
@@ -663,10 +737,15 @@ class CaptureEngine(
             // Hard cancel always returns to Idle — frames already on disk stay there, and the
             // separate "Finish & stack now" button is the path for stack-what-we-have.
             if (cancelRequested) return finishCancelled()
+            // "Finish now" landed before a single frame did: nothing to stack, nothing to keep.
+            if (captured == 0 && cameraFailure == null) {
+                discardIfEmpty = paths.dir
+                return finishCancelled()
+            }
 
             // The camera gave up mid-burst. Whatever was captured before it is real data: stack it
             // and say what happened, rather than ending the night with an error and nothing else.
-            var warning: String? = null
+            var warning: String? = stoppedEarly
             if (cameraFailure != null) {
                 val enough = if (s.stackOnDevice) captured >= MIN_FRAMES_TO_STACK else captured >= 1
                 if (!enough) {
@@ -681,15 +760,33 @@ class CaptureEngine(
                 warning = "The camera failed on frame ${captured + 1} ($cameraFailure). " +
                     (if (s.stackOnDevice) "Stacked" else "Kept") + " the $captured frames shot before it."
             } else if (failedAttempts > 0) {
-                warning = "The camera failed $failedAttempts time(s) during this session but recovered" +
+                warning = addSentence(warning, "The camera failed $failedAttempts time(s) during this " +
+                    "session but recovered" +
                     (if (recoveryCount > 0) " after $recoveryCount repair(s)" else "") +
-                    " — details are in the log."
+                    " — details are in the log.")
+            }
+            // "Finish & stack now" during the first exposure leaves one frame, and the stacker
+            // needs two: the frame is kept and that is said plainly, not as a stacking error.
+            if (s.stackOnDevice && captured < MIN_FRAMES_TO_STACK) {
+                AppLog.w(TAG, "only $captured frame(s) — too few to stack")
+                setState(CaptureState.Done(
+                    null, null, null, paths.dir, captured,
+                    elapsedMs = SystemClock.elapsedRealtime() - sessionStart,
+                    warning = addSentence(warning, "Only $captured frame was taken, and stacking needs " +
+                        "at least $MIN_FRAMES_TO_STACK."),
+                ))
+                return
             }
 
             // ---- Darks ----
+            // Not after "Finish & stack now" (the user wants the photo now; the prompt used to
+            // appear anyway), not when the app itself ended the burst for battery or heat, and not
+            // for fewer frames than can be stacked at all.
             val wantDarks = s.darksEnabled && s.stackOnDevice && s.darkCount > 0 &&
-                (s.mode == Mode.ASTRO || s.mode == Mode.PRO) && !cancelRequested &&
-                reusedDarkAgeDays == null && cameraFailure == null
+                (s.mode == Mode.ASTRO || s.mode == Mode.PRO) && !stopRequested() &&
+                reusedDarkAgeDays == null && cameraFailure == null &&
+                captured >= MIN_FRAMES_TO_STACK
+            var darksLit = 0
             if (wantDarks) {
                 buzz(longArrayOf(0, 60, 150, 60))  // attention: the app needs the lens covered
                 // The gate is a user prompt, not work: drop the last step label so it does not
@@ -709,9 +806,18 @@ class CaptureEngine(
                 }
                 darkGate = null
                 AppLog.i(TAG, if (doDarks) "shooting ${s.darkCount} dark frames" else "dark frames skipped")
-                if (doDarks) {
+                if (doDarks && !stopRequested()) {
+                    // The first dark used to start the instant "Lens covered" was tapped, while a
+                    // palm or cloth was still moving into place.
+                    setState(CaptureState.CapturingDarks(1, s.darkCount))
+                    step("keep the lens covered", DARK_SETTLE_MS) { delay(DARK_SETTLE_MS) }
+                    // A dark must be dark. One shot with the lens not quite covered is subtracted
+                    // from every light frame - eating the sky - and was filed for two weeks of
+                    // later sessions. Judged against tonight's sky: real darks sit far below it.
+                    val skyBg = if (lightBg.isEmpty()) 0f else lightBg.sorted()[lightBg.size / 2]
+                    val litAbove = maxOf(DARK_LIT_MIN_FRAC, DARK_LIT_SKY_RATIO * skyBg)
                     for (d in 0 until s.darkCount) {
-                        if (cancelRequested) break
+                        if (stopRequested()) break
                         setState(CaptureState.CapturingDarks(d + 1, s.darkCount))
                         val shot = try {
                             captureFrame(
@@ -728,32 +834,60 @@ class CaptureEngine(
                             repo.writeIssue(paths, "dark ${d + 1} failed: ${describeFailure(t)}")
                             break
                         }
+                        var lit = false
                         try {
                             val plane = shot.image.planes[0]
-                            val metaJson = JSONObject().apply {
-                                put("index", d)
-                                put("exposureNs", decision.exposureNs)
-                                put("iso", decision.iso)
-                                put("timestampNs", shot.image.timestamp)
-                                put("wbGains", JSONArray(wbRaster.map { it.toDouble() }))
-                                put("ccm", JSONArray(ccm.map { it.toDouble() }))
-                                put("gyroRms", 0.0)
-                            }.toString()
-                            beginBusy("ingesting dark frame ${d + 1}")
-                            NativeEngine.addDarkFrame(
-                                engineHandle, plane.buffer, shot.image.width, shot.image.height,
-                                plane.rowStride, metaJson
-                            )
-                            // Counted here, not at the top of the loop: only frames that actually
-                            // reached the accumulator belong in the master dark we file away.
-                            darksCaptured++
-                            if (s.saveDngs) {
-                                DngWriter.write(cam, shot, File(paths.darks, "dark_%04d.dng".format(d)))
+                            beginBusy("checking dark frame ${d + 1}")
+                            val check = AnalyzeStats.fromJson(NativeEngine.analyzeFrame(
+                                plane.buffer, shot.image.width, shot.image.height, plane.rowStride,
+                                analyzeMetaJson(cam, wbLock),
+                            ))
+                            lit = check.bgFrac > litAbove
+                            if (lit) {
+                                darksLit++
+                                AppLog.w(TAG, ("dark ${d + 1}/${s.darkCount} is lit: background %.2f%% " +
+                                    "of white, limit %.2f%% (sky %.2f%%), %d star-like spots — not used")
+                                    .format(check.bgFrac * 100, litAbove * 100, skyBg * 100, check.starCount))
+                                repo.writeIssue(paths, "dark ${d + 1} not used: the lens was not fully " +
+                                    "covered (background %.2f%% of white)".format(check.bgFrac * 100))
+                            } else {
+                                val metaJson = JSONObject().apply {
+                                    put("index", d)
+                                    put("exposureNs", decision.exposureNs)
+                                    put("iso", decision.iso)
+                                    put("timestampNs", shot.image.timestamp)
+                                    put("wbGains", JSONArray(wbRaster.map { it.toDouble() }))
+                                    put("ccm", JSONArray(ccm.map { it.toDouble() }))
+                                    put("gyroRms", 0.0)
+                                }.toString()
+                                beginBusy("ingesting dark frame ${d + 1}")
+                                NativeEngine.addDarkFrame(
+                                    engineHandle, plane.buffer, shot.image.width, shot.image.height,
+                                    plane.rowStride, metaJson
+                                )
+                                // Counted here, not at the top of the loop: only frames that
+                                // actually reached the accumulator belong in the master dark.
+                                darksCaptured++
+                                if (s.saveDngs) {
+                                    DngWriter.write(cam, shot, File(paths.darks, "dark_%04d.dng".format(d)))
+                                }
                             }
                         } finally {
                             shot.image.close()
                         }
-                        AppLog.i(TAG, "dark ${d + 1}/${s.darkCount} ok (${shot.elapsedMs}ms)")
+                        if (!lit) AppLog.i(TAG, "dark ${d + 1}/${s.darkCount} ok (${shot.elapsedMs}ms)")
+                    }
+                    // One dark adds its own noise to every frame; that is worse than none.
+                    if (darksCaptured in 1 until MIN_DARKS) {
+                        AppLog.w(TAG, "only $darksCaptured usable dark frame(s) — stacking without darks")
+                        NativeEngine.discardDarks(engineHandle)
+                        darksCaptured = 0
+                    }
+                    if (darksLit > 0) {
+                        warning = addSentence(warning,
+                            "$darksLit of ${s.darkCount} dark frames were not dark (the lens was not fully " +
+                                "covered), so " + if (darksCaptured > 0) "only the dark ones were used."
+                            else "the photo was stacked without dark frames.")
                     }
                 }
             }
@@ -795,10 +929,13 @@ class CaptureEngine(
             }
             repo.writeResult(paths, JSONObject(resultJson))
             // The engine writes cache/master_dark.sraw during finalize; file it so the next
-            // session at these settings can skip shooting darks altogether.
-            if (darksCaptured > 0) {
+            // session at these settings can skip shooting darks altogether. Only a set in which
+            // every dark was dark: one lit frame says the covering was not trustworthy.
+            if (darksCaptured >= MIN_DARKS && darksLit == 0) {
                 repo.saveLibraryDark(
-                    paths, cam.cameraId, rawSize, decision.exposureNs, decision.iso)
+                    paths, cam.cameraId, rawSize, decision.exposureNs, decision.iso,
+                    tempC = Diagnostics.batteryTempC(context),
+                )
             }
 
             // ---- Save final image ----
@@ -811,17 +948,22 @@ class CaptureEngine(
             // run, which read as a freeze on the finished-looking card.
             setState(CaptureState.Stacking("saving", 99))
             beginBusy("saving JPEG to the gallery")
-            val uri = withContext(Dispatchers.IO) {
+            val saved = withContext(Dispatchers.IO) {
                 MediaSaver.saveFinal(
                     context, File(result.finalRgbPath), result.width, result.height,
                     paths.finalJpg, totalExposure, decision.iso,
                     focalMm = cam.focalLengthMm, fNumber = cam.apertureF, recipe = recipe,
                 )
             }
-            AppLog.i(TAG, "saved ${paths.finalJpg.name} (gallery: ${uri ?: "FAILED"})")
+            if (saved.jpegWritten) {
+                AppLog.i(TAG, "saved ${paths.finalJpg.name} (gallery: ${saved.galleryUri ?: "FAILED"})")
+            } else {
+                AppLog.e(TAG, "the final JPEG could not be written")
+                repo.writeIssue(paths, "the final JPEG could not be written (storage full?)")
+            }
             buzz(longArrayOf(0, 40, 100, 40, 100, 80))  // session complete
             setState(CaptureState.Done(
-                result, paths.finalJpg, uri, paths.dir, captured,
+                result, paths.finalJpg, saved.galleryUri, paths.dir, captured,
                 elapsedMs = SystemClock.elapsedRealtime() - sessionStart,
                 warning = warning,
             ))
@@ -832,6 +974,7 @@ class CaptureEngine(
             _busy.value = null
             _sessionStartedAtMs.value = 0L
             _calibration.value = null
+            _stopRequest.value = null
             // Under handleLock so an in-flight fillPreview/cancel cannot be dereferencing the
             // session while we delete it.
             handleLock.withLock {
@@ -846,8 +989,15 @@ class CaptureEngine(
                 "${describe(_state.value)} · $captured light frame(s) · $failedAttempts failed attempt(s), " +
                 "$recoveryCount camera repair(s) ====")
             AppLog.detachSessionLog()
+            paths?.let { repo.clearRunning(it) }
+            discardIfEmpty?.let { repo.deleteIfEmpty(it) }
+            discardIfEmpty = null
         }
     }
+
+    /** Joins two user-facing sentences, either of which may be absent. */
+    private fun addSentence(text: String?, sentence: String): String =
+        if (text.isNullOrEmpty()) sentence else "$text $sentence"
 
     /**
      * Gets the camera ready for the burst: the RAW stream at [rawSize], the viewfinder's repeating
@@ -1000,5 +1150,22 @@ class CaptureEngine(
 
         /** The native stacker refuses fewer than this many usable frames. */
         private const val MIN_FRAMES_TO_STACK = 2
+
+        /** Fewer usable darks than this are dropped: a single dark adds its own noise to every frame. */
+        private const val MIN_DARKS = 2
+
+        /** Pause between "Lens covered" and the first dark, for the hand or cap to settle. */
+        private const val DARK_SETTLE_MS = 3_000L
+
+        /**
+         * A dark frame whose background is above this share of the night's sky background, or
+         * above [DARK_LIT_MIN_FRAC] of white, saw light. Real dark current at 30 s sits far below
+         * either; a lens not covered, or covered with gaps, does not.
+         */
+        private const val DARK_LIT_SKY_RATIO = 0.35f
+        private const val DARK_LIT_MIN_FRAC = 0.005f
+
+        /** A reused focus is trusted only while the phone stays within this of its temperature then. */
+        private const val FOCUS_REUSE_MAX_TEMP_SHIFT_C = 5f
     }
 }

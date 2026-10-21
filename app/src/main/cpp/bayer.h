@@ -23,9 +23,16 @@ void copy_region_u16(const uint16_t* bayer, int w, int h, int x0, int y0, int rw
 
 // In-place on a copied region: subtract the master dark's excess over black level.
 // region pixel (x,y) corresponds to full-frame (x0+x, y0+y). masterDark is full-res.
-// result = clamp(pixel - (dark - blackAtPosition), blackAtPosition, 65535).
+// result = clamp(pixel - (dark - ref), blackAtPosition, 65535), where ref is darkPedestal[pos]
+// when given, else blackAtPosition. A pedestal (the dark's own per-position median) subtracts only
+// the dark's structure - hot pixels, amp glow - for a dark shot on another night, whose black
+// point differs from tonight's and would otherwise shift the whole sky down and clip its noise.
 void subtract_dark_region(std::vector<uint16_t>& region, int rw, int rh, int x0, int y0,
-                          const Image16& masterDark, const float blackLevel[4]);
+                          const Image16& masterDark, const float blackLevel[4],
+                          const float* darkPedestal = nullptr);
+
+// Per-CFA-position (raster order) median of a master dark, from a strided sample.
+void dark_pedestal(const Image16& dark, float out[4]);
 
 // In-place on a copied region: replace listed hot pixels (full-frame indices y*fullW+x) that fall
 // inside the region with the mean of the nearest same-CFA-position neighbors (±2 px).

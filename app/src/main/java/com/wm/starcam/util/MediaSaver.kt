@@ -12,10 +12,13 @@ import java.nio.ByteBuffer
 /** Converts the engine's final_rgb.raw into a JPEG (session copy + gallery via MediaStore). */
 object MediaSaver {
 
+    /** What [saveFinal] managed: the session's JPEG, and the gallery copy (null when that failed). */
+    data class Saved(val jpegWritten: Boolean, val galleryUri: Uri?)
+
     /**
      * [rgbFile]: width*height*3 bytes, interleaved RGB (engine output). Writes [jpegOut], sets
-     * EXIF, inserts a copy into Pictures/StarCam. Returns the MediaStore Uri (null on failure —
-     * the session copy may still exist).
+     * EXIF, inserts a copy into Pictures/StarCam. A JPEG that cannot be written completely leaves
+     * any earlier [jpegOut] as it was.
      */
     fun saveFinal(
         context: Context,
@@ -28,11 +31,27 @@ object MediaSaver {
         focalMm: Float = 0f,
         fNumber: Float = 0f,
         recipe: String = "",     // e.g. "20x8s ISO800, winsorized sigma-clip stack"
-    ): Uri? {
-        val bitmap = rgbToBitmap(rgbFile, width, height) ?: return null
+    ): Saved {
+        val bitmap = rgbToBitmap(rgbFile, width, height) ?: return Saved(false, null)
+        var jpegWritten = false
         try {
             jpegOut.parentFile?.mkdirs()
-            jpegOut.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 95, it) }
+            // Written beside the target and moved over it only when complete: a full disk used to
+            // leave a truncated photo in the session (over the previous one, on a re-stack).
+            val part = File(jpegOut.parentFile, jpegOut.name + ".part")
+            val encoded = runCatching {
+                part.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 95, it) }
+            }.getOrDefault(false)
+            if (!encoded) {
+                part.delete()
+                error("could not write ${jpegOut.name}")
+            }
+            if (!part.renameTo(jpegOut)) {
+                // A storage layer that will not rename over an existing file.
+                part.copyTo(jpegOut, overwrite = true)
+                part.delete()
+            }
+            jpegWritten = true
             runCatching {
                 val exif = ExifInterface(jpegOut.absolutePath)
                 exif.setAttribute(ExifInterface.TAG_SOFTWARE, "StarCam")
@@ -59,23 +78,30 @@ object MediaSaver {
                 exif.saveAttributes()
             }
             // Gallery copy through MediaStore (no storage permission needed for own inserts).
+            // Pending until the copy is complete: a copy that failed half-way (a full disk) used
+            // to leave a broken photo in the gallery.
+            val resolver = context.contentResolver
             val values = ContentValues().apply {
                 put(MediaStore.Images.Media.DISPLAY_NAME, jpegOut.name)
                 put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
                 put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/StarCam")
+                put(MediaStore.Images.Media.IS_PENDING, 1)
             }
-            val uri = context.contentResolver.insert(
-                MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values
-            )
-            if (uri != null) {
-                context.contentResolver.openOutputStream(uri)?.use { out ->
-                    jpegOut.inputStream().use { it.copyTo(out) }
-                }
+            val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                ?: error("the gallery refused the photo")
+            try {
+                val out = resolver.openOutputStream(uri) ?: error("no output stream for $uri")
+                out.use { o -> jpegOut.inputStream().use { it.copyTo(o) } }
+                resolver.update(uri, ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) },
+                    null, null)
+            } catch (t: Throwable) {
+                runCatching { resolver.delete(uri, null, null) }
+                throw t
             }
-            return uri
+            return Saved(true, uri)
         } catch (t: Throwable) {
             AppLog.e("saveFinal failed", t)
-            return null
+            return Saved(jpegWritten, null)
         } finally {
             bitmap.recycle()
         }

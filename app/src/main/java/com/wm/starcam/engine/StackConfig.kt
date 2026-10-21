@@ -40,4 +40,25 @@ data class StackConfig(
         put("featherPx", featherPx)
         put("style", style)
     }.toString()
+
+    companion object {
+        /** Reads what [toJson] wrote (a session header's "stackConfig"); missing keys keep defaults. */
+        fun fromJson(o: JSONObject): StackConfig {
+            val d = StackConfig()
+            return StackConfig(
+                sigmaFirst = o.optDouble("sigmaFirst", d.sigmaFirst.toDouble()).toFloat(),
+                sigmaFinal = o.optDouble("sigmaFinal", d.sigmaFinal.toDouble()).toFloat(),
+                hotPixelFix = o.optBoolean("hotPixelFix", d.hotPixelFix),
+                lensShading = o.optBoolean("lensShading", d.lensShading),
+                gradientRemoval = o.optBoolean("gradientRemoval", d.gradientRemoval),
+                stretchStrength = o.optInt("stretchStrength", d.stretchStrength),
+                saturation = o.optDouble("saturation", d.saturation.toDouble()).toFloat(),
+                chromaDenoise = o.optBoolean("chromaDenoise", d.chromaDenoise),
+                starSharpen = o.optBoolean("starSharpen", d.starSharpen),
+                foregroundComposite = o.optBoolean("foregroundComposite", d.foregroundComposite),
+                featherPx = o.optDouble("featherPx", d.featherPx.toDouble()).toFloat(),
+                style = o.optInt("style", d.style),
+            )
+        }
+    }
 }
