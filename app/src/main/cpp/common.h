@@ -106,6 +106,8 @@ struct Transform {
     }
     Transform inverse() const {
         double d2 = a * a + b * b;
+        // A degenerate transform has no inverse; identity keeps every caller's math finite.
+        if (!(d2 > 1e-12) || !std::isfinite(d2)) return Transform{};
         Transform r;
         r.a = a / d2;
         r.b = -b / d2;
@@ -174,6 +176,20 @@ struct FrameRecord {
 
 inline int clampi(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
 inline float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
+// floor / ceil of a coordinate, clamped to [lo, hi] BEFORE the int conversion: converting an
+// out-of-range double is undefined (arm64 saturates, and the int math after it can overflow).
+// NaN maps to lo.
+inline int floor_clamp(double v, int lo, int hi) {
+    if (!(v > (double)lo)) return lo;
+    if (v >= (double)hi) return hi;
+    return (int)std::floor(v);
+}
+inline int ceil_clamp(double v, int lo, int hi) {
+    if (!(v > (double)lo)) return lo;
+    if (v >= (double)hi) return hi;
+    return (int)std::ceil(v);
+}
 
 // NOTE: these reorder `v` in place.
 inline float median_of(std::vector<float>& v) {

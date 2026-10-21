@@ -45,15 +45,19 @@ sessions indoors: 10/10 frames each, no failed attempts, no camera repairs, bump
 detected and reshot. The second ended with the engine's own "no reference frame (too few stars)"
 (no stars indoors) on the new error screen.
 
-**Open: native crash in stacking (pre-existing, engine untouched since 0.2.1).** The first indoor
-session, with the phone moved during capture, crashed at the start of stacking (SIGSEGV in
-`copy_region_u16`, report in `field-logs/crash_20261021_160645/`). A frame got a degenerate
-bootstrap alignment (10 inliers, residual 0.000), `finalize` rebased every transform onto it,
-the inverse blew the mapped tile corners past the int range, and the saturating double → int
-conversion plus an int overflow in `stack_frames` turned that into a small region at
-x ≈ y ≈ 2^31 that passed the area guard. Proposed fix: reject alignments whose scale is not
-≈ 1 (or that are not finite) as alignment failures, and compute the tile source box in doubles,
-skipping the frame for that tile when it does not overlap the frame.
+**Fixed: native crash in stacking (pre-existing since before 0.2.1).** The first indoor session,
+with the phone moved during capture, crashed at the start of stacking (SIGSEGV in
+`copy_region_u16`, report in `field-logs/crash_20261021_160645/`). Bootstrap pairing is not
+one-to-one, so several reference stars paired with one current star gave a scale-0 similarity
+that fitted them with zero residual (10 inliers, residual 0.000). `finalize` rebased every
+transform onto that frame, the inverse blew the mapped tile corners past the int range, and the
+saturating double → int conversion plus an int overflow in `stack_frames` became a tiny region
+at x ≈ y ≈ 2^31 that passed the area guard. Fix: RANSAC and the refit only accept similarities
+with a finite transform and a scale within 5 % of 1 (real frames differ by far less than 1 %);
+`Transform::inverse` returns identity for a degenerate transform; tile, meteor-blend and
+live-preview coordinates are clamped before any int conversion and NaN counts as outside.
+Normal frames give bit-identical results. Re-stacking the crashed session now ends cleanly
+("not enough usable frames" - that indoor scene has almost no real stars); self-test PASS.
 
 ## Field-debugging pass, 0.2.0 → 0.2.1 (2026-10-21)
 

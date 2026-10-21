@@ -15,6 +15,9 @@ struct AlignParams {
     float inlierPx = 1.5f;
     int minInliers = 8;
     int bootstrapStars = 25;    // brightest N used for triangle voting
+    // Two frames of the same sky through the same lens differ in scale by far less than 1 %.
+    // A model further than this from scale 1 is a false match and is never accepted.
+    float maxScaleDev = 0.05f;
 };
 
 struct AlignResult {

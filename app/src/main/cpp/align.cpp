@@ -194,8 +194,23 @@ int count_inliers(const std::vector<PPair>& pairs, double a, double b, double tx
     return count;
 }
 
+// Whether a similarity (a, b, tx, ty) can relate two frames of the same sky: finite, and scale
+// sqrt(a^2 + b^2) within maxDev of 1. Pairing does not force one-to-one matches, so several
+// reference stars paired with one current star yield a scale-0 model that fits them with zero
+// residual. Accepted, its inverse later blew every transform past the int range (2026-10-21).
+bool plausible_similarity(double a, double b, double tx, double ty, double maxDev) {
+    if (!std::isfinite(a) || !std::isfinite(b) || !std::isfinite(tx) || !std::isfinite(ty)) {
+        return false;
+    }
+    const double s2 = a * a + b * b;
+    const double lo = 1.0 - maxDev;
+    const double hi = 1.0 + maxDev;
+    return s2 >= lo * lo && s2 <= hi * hi;
+}
+
 // RANSAC (2-point minimal similarity, complex-number formulation) + least-squares refit
-// on the best model's inliers. Shared by align_stars and align_bootstrap.
+// on the best model's inliers. Shared by align_stars and align_bootstrap. Only models with a
+// plausible scale take part, so a false match can neither win nor survive the refit.
 AlignResult ransac_similarity(const std::vector<PPair>& pairs, const AlignParams& p) {
     AlignResult res;
     const size_t n = pairs.size();
@@ -226,6 +241,7 @@ AlignResult ransac_similarity(const std::vector<PPair>& pairs, const AlignParams
         // t = c1 - s*r1
         const double tx = P1.cx - (a * P1.rx - b * P1.ry);
         const double ty = P1.cy - (b * P1.rx + a * P1.ry);
+        if (!plausible_similarity(a, b, tx, ty, p.maxScaleDev)) continue;
         const int count = count_inliers(pairs, a, b, tx, ty, inl2, nullptr, nullptr);
         if (count > bestCount) {
             bestCount = count;
@@ -264,13 +280,15 @@ AlignResult ransac_similarity(const std::vector<PPair>& pairs, const AlignParams
             }
         }
         double sol[4];
-        if (solve4x4(ATA, ATb, sol)) {
+        if (solve4x4(ATA, ATb, sol) &&
+            plausible_similarity(sol[0], sol[1], sol[2], sol[3], p.maxScaleDev)) {
             fA = sol[0];
             fB = sol[1];
             fTx = sol[2];
             fTy = sol[3];
         }
-        // else: keep the RANSAC minimal-sample model (degenerate normal equations)
+        // else: keep the RANSAC minimal-sample model (degenerate normal equations or an
+        // implausible refit; the minimal model passed the scale check)
     }
 
     // Final inlier count + RMS residual under the refit transform.

@@ -296,10 +296,18 @@ bool stack_frames_impl(const std::vector<FrameRecord>& frames, const SensorInfo&
                 minY = std::min(minY, my);
                 maxY = std::max(maxY, my);
             }
-            int sx0 = (int)std::floor(minX) - 8;
-            int sy0 = (int)std::floor(minY) - 8;
-            const int sx1 = (int)std::ceil(maxX) + 8;  // inclusive
-            const int sy1 = (int)std::ceil(maxY) + 8;
+            // Pad 8 px and clamp just outside the frame while still in doubles. Converting a
+            // coordinate past the int range is undefined: a degenerate transform once turned
+            // into a tiny region near x = y = 2^31 that passed the area guard below and read
+            // unmapped memory. A box that misses the frame entirely is skipped here.
+            if (!(maxX + 8.0 >= 0.0) || !(maxY + 8.0 >= 0.0) ||
+                !(minX - 8.0 <= (double)(fw - 1)) || !(minY - 8.0 <= (double)(fh - 1))) {
+                continue;  // frame does not cover this tile (or the transform is not finite)
+            }
+            int sx0 = floor_clamp(minX - 8.0, -2, fw);
+            int sy0 = floor_clamp(minY - 8.0, -2, fh);
+            const int sx1 = ceil_clamp(maxX + 8.0, -2, fw + 1);  // inclusive
+            const int sy1 = ceil_clamp(maxY + 8.0, -2, fh + 1);
             if (sx0 & 1) --sx0;  // snap DOWN to even: CFA phase preserved
             if (sy0 & 1) --sy0;
             const int rx0 = std::max(sx0, 0);          // stays even (0 is even)
@@ -340,12 +348,13 @@ bool stack_frames_impl(const std::vector<FrameRecord>& frames, const SensorInfo&
                 double sx, sy;
                 T.apply((double)ox0, (double)(oy0 + oy), &sx, &sy);
                 for (int ox = 0; ox < tw; ++ox, sx += T.a, sy += T.b) {
-                    if (sx < 0.0 || sy < 0.0 || sx > (double)(fw - 1) || sy > (double)(fh - 1)) {
+                    // Written as "inside" tests so a NaN coordinate counts as outside.
+                    if (!(sx >= 0.0 && sy >= 0.0 && sx <= (double)(fw - 1) && sy <= (double)(fh - 1))) {
                         continue;  // outside frame -> invalid sample
                     }
                     const double fx = sx - rx0;
                     const double fy = sy - ry0;
-                    if (fx < 0.0 || fy < 0.0 || fx > (double)(rw - 1) || fy > (double)(rh - 1)) {
+                    if (!(fx >= 0.0 && fy >= 0.0 && fx <= (double)(rw - 1) && fy <= (double)(rh - 1))) {
                         continue;  // outside fetched region -> invalid sample
                     }
                     int ix = (int)fx;  // fx >= 0, truncation == floor

@@ -251,7 +251,8 @@ void accumulate_live(ImageF& liveSum, ImageF& liveCnt, const ImageF& rgb, const 
         for (int x = 0; x < dw; ++x) {
             double sx, sy;
             T.apply((double)x, (double)y, &sx, &sy);
-            if (sx < 0.0 || sy < 0.0 || sx > (double)(sw - 1) || sy > (double)(sh - 1)) continue;
+            // An "inside" test, so a NaN coordinate counts as outside.
+            if (!(sx >= 0.0 && sy >= 0.0 && sx <= (double)(sw - 1) && sy <= (double)(sh - 1))) continue;
             int x0 = (int)sx, y0 = (int)sy;
             int x1 = std::min(x0 + 1, sw - 1), y1 = std::min(y0 + 1, sh - 1);
             float fx = (float)(sx - x0), fy = (float)(sy - y0);
@@ -343,17 +344,17 @@ int blend_meteors(const std::vector<Streak>& streaks, const std::vector<FrameRec
             minx = std::min(minx, ox); maxx = std::max(maxx, ox);
             miny = std::min(miny, oy); maxy = std::max(maxy, oy);
         }
-        const int px0 = clampi((int)std::floor(minx) - 2, 0, stack.w - 1);
-        const int py0 = clampi((int)std::floor(miny) - 2, 0, stack.h - 1);
-        const int px1 = clampi((int)std::ceil(maxx) + 2, 0, stack.w - 1);
-        const int py1 = clampi((int)std::ceil(maxy) + 2, 0, stack.h - 1);
+        const int px0 = floor_clamp(minx - 2.0, 0, stack.w - 1);
+        const int py0 = floor_clamp(miny - 2.0, 0, stack.h - 1);
+        const int px1 = ceil_clamp(maxx + 2.0, 0, stack.w - 1);
+        const int py1 = ceil_clamp(maxy + 2.0, 0, stack.h - 1);
         for (int py = py0; py <= py1; ++py) {
             for (int px = px0; px <= px1; ++px) {
                 double sx, sy;
                 Traw.apply((double)px, (double)py, &sx, &sy);
                 const double lx = sx - bx0, ly = sy - by0;
-                if (lx < 0.0 || ly < 0.0 || lx > (double)(rw - 1) || ly > (double)(rh - 1))
-                    continue;
+                if (!(lx >= 0.0 && ly >= 0.0 && lx <= (double)(rw - 1) && ly <= (double)(rh - 1)))
+                    continue;  // outside the region, or not finite
                 int x0 = (int)lx, y0 = (int)ly;
                 int x1 = std::min(x0 + 1, rw - 1), y1 = std::min(y0 + 1, rh - 1);
                 float fx = (float)(lx - x0), fy = (float)(ly - y0);
