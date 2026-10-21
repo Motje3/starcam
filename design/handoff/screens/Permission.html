@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>StarCam · Camera permission</title>
+</head>
+<body>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&amp;family=Geist+Mono:wght@300..600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0A0B10}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;margin:0;cursor:pointer}
+.mono{font-family:'Geist Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}
+a{color:#7FB4FF}a:hover{color:#A9CCFF}
+</style>
+<div style="position: relative; width: 390px; height: 866px; overflow: hidden; background: #0A0B10; font-family: 'Geist', system-ui, sans-serif; color: #E8ECF4; font-variant-numeric: tabular-nums">
+
+<div style="position: absolute; top: 10px; left: 20px; height: 52px; display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; letter-spacing: -0.01em">
+<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3C12.8 9 15 11.2 21 12C15 12.8 12.8 15 12 21C11.2 15 9 12.8 3 12C9 11.2 11.2 9 12 3Z" fill="#7FB4FF"></path></svg>
+StarCam
+</div>
+
+<svg width="200" height="200" viewBox="0 0 200 200" aria-hidden="true" style="position: absolute; top: 76px; left: 95px">
+<circle cx="100" cy="100" r="96" fill="#0E1018" stroke="rgba(170,190,230,0.10)" stroke-width="1"></circle>
+<circle cx="100" cy="100" r="70" fill="none" stroke="rgba(170,190,230,0.07)" stroke-width="1"></circle>
+<circle cx="100" cy="100" r="44" fill="rgba(127,180,255,0.08)" stroke="#7FB4FF" stroke-width="2.5"></circle>
+<circle cx="100" cy="100" r="26" fill="#0A0B10" stroke="rgba(127,180,255,0.6)" stroke-width="2"></circle>
+<circle cx="92" cy="92" r="6" fill="rgba(127,180,255,0.35)"></circle>
+<path d="M100 56 V44 M100 156 V144 M56 100 H44 M156 100 H144" stroke="rgba(127,180,255,0.4)" stroke-width="1.5" stroke-linecap="round"></path>
+</svg>
+
+<h1 style="position: absolute; top: 300px; left: 28px; right: 28px; margin: 0; text-align: center; font-size: 28px; font-weight: 600; letter-spacing: -0.02em">Allow camera access</h1>
+<p style="position: absolute; top: 346px; left: 34px; right: 34px; margin: 0; text-align: center; font-size: 15px; line-height: 1.55; color: #AEB6C7">StarCam needs the camera to take long exposures of the sky. Your photos stay on your phone.</p>
+
+<div aria-hidden="true" style="position: absolute; inset: 0; background: rgba(0,0,0,0.55)"></div>
+
+<div role="dialog" aria-modal="true" aria-labelledby="perm-title" style="position: absolute; left: 20px; right: 20px; bottom: 28px; padding: 24px 20px 20px; border-radius: 28px; background: #1D1F27; border: 1px solid rgba(170,190,230,0.10); box-shadow: 0 20px 60px rgba(0,0,0,0.6)">
+<div style="display: flex; justify-content: center">
+<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#A9CCFF" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h1.8l1.4-2h4.6l1.4 2h1.8A2.5 2.5 0 0 1 20 8.5v9a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 17.5z"></path><circle cx="12" cy="13" r="3.5"></circle></svg>
+</div>
+<h2 id="perm-title" style="margin: 14px 0 0; text-align: center; font-size: 19px; font-weight: 500; line-height: 1.35">Allow <span style="font-weight: 700">StarCam</span> to take pictures and record video?</h2>
+<div style="margin-top: 22px; display: flex; flex-direction: column; gap: 8px">
+<button style="height: 52px; border-radius: 26px; background: #2B3550; font-size: 15px; font-weight: 600; color: #CFE2FF">While using the app</button>
+<button style="height: 52px; border-radius: 26px; background: #262935; font-size: 15px; font-weight: 500; color: #DCE3EF">Only this time</button>
+<button style="height: 52px; border-radius: 26px; background: #262935; font-size: 15px; font-weight: 500; color: #DCE3EF">Don’t allow</button>
+</div>
+</div>
+
+</div>
+</body>
+</html>

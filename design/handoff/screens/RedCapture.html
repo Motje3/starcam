@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>StarCam · Night vision capture</title>
+</head>
+<body>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&amp;family=Geist+Mono:wght@300..600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#120404}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;margin:0;cursor:pointer}
+.mono{font-family:'Geist Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}
+a{color:#FF5544}a:hover{color:#FF5544}
+</style>
+<div style="position: relative; width: 390px; height: 866px; overflow: hidden; background: #120404; font-family: 'Geist', system-ui, sans-serif; color: #FF5544; font-variant-numeric: tabular-nums; filter: brightness(1)">
+
+<div style="position: absolute; top: 10px; left: 14px; right: 14px; height: 52px; display: flex; align-items: center; justify-content: space-between">
+<button style="display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 14px; border-radius: 999px; background: #1C0807; border: 1px solid rgba(255,85,68,0.22); font-size: 13px; font-weight: 500; color: #FF5544">
+<span style="width: 8px; height: 8px; border-radius: 50%; background: #FF5544"></span>
+<span>Battery 86% · cool</span>
+</button>
+<div role="group" aria-label="Lens" style="display: flex; gap: 4px; height: 52px; padding: 4px; border-radius: 999px; background: #1C0807; border: 1px solid rgba(255,85,68,0.22)">
+<button class="mono" aria-pressed="false" style="width: 58px; height: 42px; border-radius: 999px; font-size: 14px; font-weight: 600; color: #D9483A; border: 1px solid transparent">1×</button>
+<button class="mono" aria-pressed="true" style="width: 58px; height: 42px; border-radius: 999px; font-size: 14px; font-weight: 600; color: #FF5544; background: rgba(255,85,68,0.16); border: 1px solid rgba(255,85,68,0.55)">0.3×</button>
+</div>
+</div>
+
+<div style="position: absolute; top: 72px; left: 14px; width: 362px; height: 483px; border-radius: 24px; overflow: hidden; border: 1px solid rgba(255,85,68,0.2); background: #0A0202">
+<img src="../assets/sky.svg" alt="Live preview shown in red tones" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; filter: grayscale(1) brightness(0.8) contrast(1.1)">
+<div style="position: absolute; inset: 0; background: #FF3B2A; mix-blend-mode: multiply"></div>
+<div style="position: absolute; top: 14px; left: 14px; width: 18px; height: 18px; border-top: 1.5px solid rgba(255,85,68,0.55); border-left: 1.5px solid rgba(255,85,68,0.55); border-top-left-radius: 6px"></div>
+<div style="position: absolute; top: 14px; right: 14px; width: 18px; height: 18px; border-top: 1.5px solid rgba(255,85,68,0.55); border-right: 1.5px solid rgba(255,85,68,0.55); border-top-right-radius: 6px"></div>
+<div style="position: absolute; bottom: 14px; left: 14px; width: 18px; height: 18px; border-bottom: 1.5px solid rgba(255,85,68,0.55); border-left: 1.5px solid rgba(255,85,68,0.55); border-bottom-left-radius: 6px"></div>
+<div style="position: absolute; bottom: 14px; right: 14px; width: 18px; height: 18px; border-bottom: 1.5px solid rgba(255,85,68,0.55); border-right: 1.5px solid rgba(255,85,68,0.55); border-bottom-right-radius: 6px"></div>
+<div style="position: absolute; top: 12px; left: 50%; transform: translateX(-50%); height: 44px; padding: 0 14px; display: flex; align-items: center; gap: 10px; border-radius: 999px; background: rgba(18,4,4,0.82); border: 1px solid rgba(255,85,68,0.3)">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FF5544" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"></path></svg>
+<div role="slider" aria-label="Screen dimmer" aria-valuemin="10" aria-valuemax="100" aria-valuenow="40" aria-valuetext="40 percent" tabindex="0" style="position: relative; width: 120px; height: 28px">
+<div style="position: absolute; top: 12px; left: 0; right: 0; height: 4px; border-radius: 2px; background: #3A0F0B"><div style="width: 40%; height: 4px; border-radius: 2px; background: #FF5544"></div></div>
+<div style="position: absolute; top: 5px; left: 40%; margin-left: -9px; width: 18px; height: 18px; border-radius: 50%; background: #FF5544"></div>
+</div>
+<span class="mono" style="font-size: 13px; color: #FF5544">40%</span>
+</div>
+</div>
+
+<div role="radiogroup" aria-label="Mode" style="position: absolute; top: 567px; left: 14px; right: 14px; height: 66px; padding: 4px; box-sizing: border-box; border-radius: 22px; background: #1C0807; border: 1px solid rgba(255,85,68,0.18); display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px">
+<button role="radio" aria-checked="true" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; border-radius: 18px; background: rgba(255,85,68,0.16); border: 1px solid rgba(255,85,68,0.5); color: #FF5544; font-size: 12px; font-weight: 600; letter-spacing: 0.08em">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FF5544" stroke-width="1.75" stroke-linejoin="round" aria-hidden="true"><path d="M12 3C12.8 9 15 11.2 21 12C15 12.8 12.8 15 12 21C11.2 15 9 12.8 3 12C9 11.2 11.2 9 12 3Z"></path></svg>
+ASTRO
+</button>
+<button role="radio" aria-checked="false" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; border-radius: 18px; border: 1px solid transparent; color: #D9483A; font-size: 12px; font-weight: 600; letter-spacing: 0.08em">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><path d="M12 4a8 8 0 0 1 8 8"></path><path d="M12 7.5a4.5 4.5 0 0 1 4.5 4.5"></path><path d="M4 12a8 8 0 0 0 8 8"></path><path d="M7.5 12a4.5 4.5 0 0 0 4.5 4.5"></path><circle cx="12" cy="12" r="1.2"></circle></svg>
+TRAILS
+</button>
+<button role="radio" aria-checked="false" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; border-radius: 18px; border: 1px solid transparent; color: #D9483A; font-size: 12px; font-weight: 600; letter-spacing: 0.08em">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><path d="M4 4l9.5 9.5"></path><path d="M8.5 3.5l7 7"></path><path d="M3.5 8.5l7 7"></path><circle cx="16.5" cy="16.5" r="3"></circle></svg>
+METEOR
+</button>
+<button role="radio" aria-checked="false" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; border-radius: 18px; border: 1px solid transparent; color: #D9483A; font-size: 12px; font-weight: 600; letter-spacing: 0.08em">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="13" r="7.5"></circle><path d="M12 13l3.5-3.5"></path><path d="M12 3v1.5M4.2 6.2l1.1 1.1M19.8 6.2l-1.1 1.1"></path></svg>
+PRO
+</button>
+</div>
+
+<div role="radiogroup" aria-label="Quality" style="position: absolute; top: 643px; left: 14px; right: 14px; height: 58px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px">
+<button role="radio" aria-checked="false" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border-radius: 18px; background: #1C0807; border: 1px solid rgba(255,85,68,0.18)">
+<span style="font-size: 13px; font-weight: 600; letter-spacing: 0.08em; color: #FF5544">FAST</span>
+<span style="font-size: 12px; color: #D9483A">8 frames</span>
+</button>
+<button role="radio" aria-checked="true" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border-radius: 18px; background: rgba(255,85,68,0.16); border: 1px solid rgba(255,85,68,0.5)">
+<span style="font-size: 13px; font-weight: 600; letter-spacing: 0.08em; color: #FF5544">BEST</span>
+<span style="font-size: 12px; color: #FF5544">20 + darks</span>
+</button>
+<button role="radio" aria-checked="false" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border-radius: 18px; background: #1C0807; border: 1px solid rgba(255,85,68,0.18)">
+<span style="font-size: 13px; font-weight: 600; letter-spacing: 0.08em; color: #FF5544">INSANE</span>
+<span style="font-size: 12px; color: #D9483A">40 + blend</span>
+</button>
+</div>
+
+<button style="position: absolute; top: 711px; left: 14px; right: 14px; height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 12px 0 14px; box-sizing: border-box; border-radius: 14px; background: #170606; border: 1px solid rgba(255,85,68,0.16); text-align: left">
+<span style="flex: 1; font-size: 13px; color: #FF5544; white-space: nowrap"><span style="font-weight: 600">Auto</span>  ·  22.5 s  ·  ISO 1600  ·  20 frames  ·  ~8 min</span>
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#D9483A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"></path></svg>
+</button>
+
+<div style="position: absolute; top: 766px; left: 0; right: 0; height: 88px; padding: 0 6px; display: grid; grid-template-columns: 1fr 1fr 100px 1fr 1fr; align-items: center; justify-items: center">
+<button style="display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12px; color: #D9483A">
+<span style="position: relative; display: block; width: 52px; height: 52px; border-radius: 50%; overflow: hidden; border: 1px solid rgba(255,85,68,0.3)"><img src="../assets/sky.svg" alt="" style="width: 100%; height: 100%; object-fit: cover; object-position: 45% 35%; filter: grayscale(1) brightness(0.8)"><span style="position: absolute; inset: 0; background: #FF3B2A; mix-blend-mode: multiply"></span></span>
+Gallery
+</button>
+<button aria-pressed="true" style="display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #FF5544">
+<span style="width: 52px; height: 52px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(255,85,68,0.2); border: 1px solid rgba(255,85,68,0.6)"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#FF5544" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"></path><circle cx="12" cy="12" r="2.75"></circle></svg></span>
+Night vision
+</button>
+<button aria-label="Start capture" style="width: 84px; height: 84px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2.5px solid #FF5544; box-shadow: 0 0 0 6px rgba(255,85,68,0.08)">
+<span style="width: 66px; height: 66px; border-radius: 50%; background: radial-gradient(circle at 50% 38%, #C2392B 0%, #8E2418 65%, #6A170E 100%)"></span>
+</button>
+<button style="display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12px; color: #D9483A">
+<span style="width: 52px; height: 52px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: #1C0807; border: 1px solid rgba(255,85,68,0.22); color: #FF5544"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><path d="M6 4v3M6 11v9M12 4v9M12 17v3M18 4v2M18 10v10"></path><circle cx="6" cy="9" r="2"></circle><circle cx="12" cy="15" r="2"></circle><circle cx="18" cy="8" r="2"></circle></svg></span>
+Pro
+</button>
+<button style="display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12px; color: #D9483A">
+<span style="width: 52px; height: 52px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: #1C0807; border: 1px solid rgba(255,85,68,0.22); color: #FF5544"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></span>
+Settings
+</button>
+</div>
+
+</div>
+</body>
+</html>

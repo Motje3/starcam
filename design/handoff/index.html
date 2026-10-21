@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StarCam design</title>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&amp;display=swap" rel="stylesheet">
+<style>
+:root{color-scheme:dark}
+body{margin:0;background:#0A0B10;color:#E8ECF4;font-family:'Geist',system-ui,sans-serif}
+header{padding:40px 40px 8px}
+h1{margin:0;font-size:32px;font-weight:600;letter-spacing:-0.02em}
+header p{margin:6px 0 0;color:#AEB6C7;font-size:15px}
+section{padding:28px 40px}
+h2{margin:0 0 18px;font-size:13px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:#8891A5}
+.row{display:flex;flex-wrap:wrap;gap:28px;align-items:flex-start}
+figure{margin:0}
+figcaption{margin-top:10px;font-size:13px;color:#AEB6C7}
+figcaption a{color:#7FB4FF;text-decoration:none;margin-left:6px}
+figcaption a:hover{color:#A9CCFF}
+.frame{width:234px;height:520px;overflow:hidden;border-radius:18px;border:1px solid rgba(170,190,230,.14);background:#0A0B10}
+.frame iframe{width:390px;height:866px;border:0;transform:scale(.6);transform-origin:0 0}
+.frame.tall{height:888px}.frame.tall iframe{height:1480px}
+.frame.wide{width:768px;height:600px}.frame.wide iframe{width:1280px;height:1000px}
+.frame.wider{width:960px;height:744px}.frame.wider iframe{width:1600px;height:1240px}
+</style>
+</head>
+<body>
+<header>
+<h1>StarCam</h1>
+<p>Design handoff · 24 boards · frames are 390 × 866 dp (1080 × 2400 px). Shown here at 60%.</p>
+</header>
+
+<section>
+<h2>1–2 · Capture</h2>
+<div class="row">
+<figure><div class="frame"><iframe src="screens/Main.html" title="Capture idle" scrolling="no"></iframe></div><figcaption>01 · Capture — idle<a href="screens/Main.html">open</a></figcaption></figure>
+<figure><div class="frame"><iframe src="screens/CapturePro.html" title="Capture with Pro controls" scrolling="no"></iframe></div><figcaption>02 · Pro controls<a href="screens/CapturePro.html">open</a></figcaption></figure>
+</div>
+</section>
+
+<section>
+<h2>3–5 · Session flow, shield, error</h2>
+<div class="row">
+<figure><div class="frame"><iframe src="screens/HoldStill.html" title="Hold still" scrolling="no"></iframe></div><figcaption>03a · Hold still<a href="screens/HoldStill.html">open</a></figcaption></figure>
+<figure><div class="frame"><iframe src="screens/ReadingSky.html" title="Reading the sky" scrolling="no"></iframe></div><figcaption>03b · Reading the sky<a href="screens/ReadingSky.html">open</a></figcaption></figure>
+<figure><div class="frame"><iframe src="screens/StarFocus.html" title="Star focus" scrolling="no"></iframe></div><figcaption>03c · Star focus<a href="screens/StarFocus.html">open</a></figcaption></figure>
+<figure><div class="frame"><iframe src="screens/Capturing.html" title="Capturing" scrolling="no"></iframe></div><figcaption>03d · Capturing<a href="screens/Capturing.html">open</a></figcaption></figure>
+<figure><div class="frame"><iframe src="screens/Shield.html" title="Screen shield" scrolling="no"></iframe></div><figcaption>04 · Screen shield<a href="screens/Shield.html">open</a></figcaption></figure>
+<figure><div class="frame"><iframe src="screens/CoverLens.html" title="Cover the lens" scrolling="no"></iframe></div><figcaption>03e · Cover the lens<a href="screens/CoverLens.html">open</a></figcaption></figure>
+<figure><div class="frame"><iframe src="screens/Stacking.html" title="Stacking" scrolling="no"></iframe></div><figcaption>03f · Stacking<a href="screens/Stacking.html">open</a></figcaption></figure>
+<figure><div class="frame"><iframe src="screens/Done.html" title="Done" scrolling="no"></iframe></div><figcaption>03g · Done<a href="screens/Done.html">open</a></figcaption></figure>
+<figure><div class="frame"><iframe src="screens/Error.html" title="Error" scrolling="no"></iframe></div><figcaption>05 · Error<a href="screens/Error.html">open</a></figcaption></figure>
+</div>
+</section>
+
+<section>
+<h2>6–8 · 10 · Settings, sessions, diagnostics</h2>
+<div class="row">
+<figure><div class="frame"><iframe src="screens/Settings.html" title="Settings" scrolling="no"></iframe></div><figcaption>06 · Settings<a href="screens/Settings.html">open</a></figcaption></figure>
+<figure><div class="frame"><iframe src="screens/Sessions.html" title="Sessions gallery" scrolling="no"></iframe></div><figcaption>07 · Sessions<a href="screens/Sessions.html">open</a></figcaption></figure>
+<figure><div class="frame tall"><iframe src="screens/SessionDetail.html" title="Session detail" scrolling="no"></iframe></div><figcaption>08 · Session detail (full scroll)<a href="screens/SessionDetail.html">open</a></figcaption></figure>
+<figure><div class="frame"><iframe src="screens/Diagnostics.html" title="Diagnostics" scrolling="no"></iframe></div><figcaption>10 · Diagnostics<a href="screens/Diagnostics.html">open</a></figcaption></figure>
+</div>
+</section>
+
+<section>
+<h2>9 · Night vision</h2>
+<div class="row">
+<figure><div class="frame"><iframe src="screens/RedCapture.html" title="Night vision capture" scrolling="no"></iframe></div><figcaption>09a · Capture<a href="screens/RedCapture.html">open</a></figcaption></figure>
+<figure><div class="frame"><iframe src="screens/RedCapturing.html" title="Night vision capturing" scrolling="no"></iframe></div><figcaption>09b · Capturing<a href="screens/RedCapturing.html">open</a></figcaption></figure>
+<figure><div class="frame"><iframe src="screens/RedSettings.html" title="Night vision settings" scrolling="no"></iframe></div><figcaption>09c · Settings<a href="screens/RedSettings.html">open</a></figcaption></figure>
+</div>
+</section>
+
+<section>
+<h2>11 · First launch</h2>
+<div class="row">
+<figure><div class="frame"><iframe src="screens/Onboard1.html" title="Onboarding 1" scrolling="no"></iframe></div><figcaption>11a · Use a tripod<a href="screens/Onboard1.html">open</a></figcaption></figure>
+<figure><div class="frame"><iframe src="screens/Onboard2.html" title="Onboarding 2" scrolling="no"></iframe></div><figcaption>11b · Press once<a href="screens/Onboard2.html">open</a></figcaption></figure>
+<figure><div class="frame"><iframe src="screens/Onboard3.html" title="Onboarding 3" scrolling="no"></iframe></div><figcaption>11c · Cover the lens<a href="screens/Onboard3.html">open</a></figcaption></figure>
+<figure><div class="frame"><iframe src="screens/Permission.html" title="Camera permission" scrolling="no"></iframe></div><figcaption>11d · Camera permission<a href="screens/Permission.html">open</a></figcaption></figure>
+</div>
+</section>
+
+<section>
+<h2>Design system</h2>
+<div class="row">
+<figure><div class="frame wide"><iframe src="screens/Foundations.html" title="Foundations" scrolling="no"></iframe></div><figcaption>Foundations<a href="screens/Foundations.html">open</a></figcaption></figure>
+<figure><div class="frame wider"><iframe src="screens/Components.html" title="Component sheet" scrolling="no"></iframe></div><figcaption>Component sheet<a href="screens/Components.html">open</a></figcaption></figure>
+</div>
+</section>
+</body>
+</html>

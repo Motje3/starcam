@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>StarCam · Hold still</title>
+</head>
+<body>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&amp;family=Geist+Mono:wght@300..600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0A0B10}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;margin:0;cursor:pointer}
+.mono{font-family:'Geist Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}
+a{color:#7FB4FF}a:hover{color:#A9CCFF}
+</style>
+<div style="position: relative; width: 390px; height: 866px; overflow: hidden; background: #0A0B10; font-family: 'Geist', system-ui, sans-serif; color: #E8ECF4; font-variant-numeric: tabular-nums">
+
+<img src="../assets/sky.svg" alt="" style="position: absolute; top: 0; left: 0; width: 390px; height: 560px; object-fit: cover; filter: brightness(0.32) saturate(0.8)">
+<div style="position: absolute; top: 300px; left: 0; width: 390px; height: 262px; background: linear-gradient(180deg, rgba(10,11,16,0) 0%, #0A0B10 100%)"></div>
+
+<div role="progressbar" aria-label="Session step 1 of 7: hold still" aria-valuemin="1" aria-valuemax="7" aria-valuenow="1" style="position: absolute; top: 18px; left: 14px; right: 14px; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px">
+<div style="display: flex; flex-direction: column; gap: 6px"><div style="height: 4px; border-radius: 2px; background: #7FB4FF; box-shadow: 0 0 8px rgba(127,180,255,0.7)"></div><span style="font-size: 12px; font-weight: 600; color: #E8ECF4">Still</span></div>
+<div style="display: flex; flex-direction: column; gap: 6px"><div style="height: 4px; border-radius: 2px; background: rgba(170,190,230,0.18)"></div><span style="font-size: 12px; color: #8891A5">Sky</span></div>
+<div style="display: flex; flex-direction: column; gap: 6px"><div style="height: 4px; border-radius: 2px; background: rgba(170,190,230,0.18)"></div><span style="font-size: 12px; color: #8891A5">Focus</span></div>
+<div style="display: flex; flex-direction: column; gap: 6px"><div style="height: 4px; border-radius: 2px; background: rgba(170,190,230,0.18)"></div><span style="font-size: 12px; color: #8891A5">Capture</span></div>
+<div style="display: flex; flex-direction: column; gap: 6px"><div style="height: 4px; border-radius: 2px; background: rgba(170,190,230,0.18)"></div><span style="font-size: 12px; color: #8891A5">Darks</span></div>
+<div style="display: flex; flex-direction: column; gap: 6px"><div style="height: 4px; border-radius: 2px; background: rgba(170,190,230,0.18)"></div><span style="font-size: 12px; color: #8891A5">Stack</span></div>
+<div style="display: flex; flex-direction: column; gap: 6px"><div style="height: 4px; border-radius: 2px; background: rgba(170,190,230,0.18)"></div><span style="font-size: 12px; color: #8891A5">Done</span></div>
+</div>
+
+<div style="position: absolute; top: 120px; left: 50%; margin-left: -110px; width: 220px; height: 220px">
+<svg width="220" height="220" viewBox="0 0 220 220" aria-hidden="true" style="position: absolute; inset: 0">
+<circle cx="110" cy="110" r="100" fill="rgba(10,11,16,0.55)" stroke="rgba(170,190,230,0.14)" stroke-width="6"></circle>
+<circle cx="110" cy="110" r="100" fill="none" stroke="#7FB4FF" stroke-width="6" stroke-linecap="round" stroke-dasharray="209 628" transform="rotate(-90 110 110)" style="filter: drop-shadow(0 0 6px rgba(127,180,255,0.7))"></circle>
+<circle cx="110" cy="110" r="86" fill="none" stroke="rgba(170,190,230,0.08)" stroke-width="1"></circle>
+</svg>
+<div style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center">
+<span style="font-size: 13px; color: #AEB6C7; letter-spacing: 0.04em">Starting in</span>
+<span class="mono" style="font-size: 92px; font-weight: 300; line-height: 1; margin-top: 4px">2<span style="font-size: 28px; color: #AEB6C7; font-weight: 400"> s</span></span>
+</div>
+</div>
+
+<h1 style="position: absolute; top: 372px; left: 24px; right: 24px; margin: 0; text-align: center; font-size: 30px; font-weight: 600; letter-spacing: -0.02em">Hold still</h1>
+<p style="position: absolute; top: 418px; left: 36px; right: 36px; margin: 0; text-align: center; font-size: 15px; line-height: 1.5; color: #AEB6C7">Waiting for the tripod to settle. Hands off — it starts by itself.</p>
+
+<div style="position: absolute; top: 498px; left: 14px; right: 14px; padding: 16px; border-radius: 22px; background: #12141C; border: 1px solid rgba(170,190,230,0.12)">
+<div style="display: flex; align-items: baseline; justify-content: space-between">
+<span style="font-size: 13px; font-weight: 600; letter-spacing: 0.06em; color: #AEB6C7">STILLNESS</span>
+<span style="font-size: 14px; color: #CFE2FF"><span style="font-weight: 600">Steady</span> · <span class="mono">0.02°/s</span></span>
+</div>
+<svg width="330" height="64" viewBox="0 0 330 64" aria-hidden="true" style="display: block; margin-top: 12px">
+<rect x="0" y="22" width="330" height="12" fill="rgba(127,180,255,0.07)"></rect>
+<path d="M0 22H330M0 34H330" stroke="rgba(127,180,255,0.35)" stroke-width="1" stroke-dasharray="3 4"></path>
+<polyline points="0,28 8,6 16,52 24,9 32,48 40,15 48,42 56,18 64,38 72,22 80,35 88,24 96,32 104,25 112,31 120,26.5 128,30 136,27 144,29.5 152,28" fill="none" stroke="#8891A5" stroke-width="1.75" stroke-linejoin="round"></polyline>
+<polyline points="152,28 168,28.6 184,27.6 200,28.4 216,27.8 232,28.3 248,27.9 264,28.2 280,27.9 296,28.1 312,28 326,28" fill="none" stroke="#7FB4FF" stroke-width="1.75" stroke-linejoin="round"></polyline>
+<circle cx="326" cy="28" r="4" fill="#7FB4FF" style="filter: drop-shadow(0 0 5px rgba(127,180,255,0.9))"></circle>
+</svg>
+<div style="display: flex; justify-content: space-between; margin-top: 8px; font-size: 12px; color: #8891A5">
+<span>Last 3 s</span>
+<span style="color: #A9CCFF">Still zone</span>
+</div>
+<div style="display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 3px; margin-top: 14px">
+<span style="height: 8px; border-radius: 2px; background: #7FB4FF"></span><span style="height: 8px; border-radius: 2px; background: #7FB4FF"></span><span style="height: 8px; border-radius: 2px; background: #7FB4FF"></span><span style="height: 8px; border-radius: 2px; background: #7FB4FF"></span><span style="height: 8px; border-radius: 2px; background: #7FB4FF"></span><span style="height: 8px; border-radius: 2px; background: #7FB4FF"></span><span style="height: 8px; border-radius: 2px; background: #7FB4FF"></span><span style="height: 8px; border-radius: 2px; background: #7FB4FF"></span><span style="height: 8px; border-radius: 2px; background: #7FB4FF"></span><span style="height: 8px; border-radius: 2px; background: #7FB4FF"></span><span style="height: 8px; border-radius: 2px; background: rgba(170,190,230,0.18)"></span><span style="height: 8px; border-radius: 2px; background: rgba(170,190,230,0.18)"></span>
+</div>
+<div style="display: flex; justify-content: space-between; margin-top: 6px; font-size: 12px; color: #8891A5"><span>Moving</span><span>Still</span></div>
+</div>
+
+<p style="position: absolute; top: 744px; left: 24px; right: 24px; margin: 0; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 13px; color: #8891A5">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"></path><path d="M20 5v6h-6"></path></svg>
+The countdown restarts if the phone moves.
+</p>
+<button style="position: absolute; left: 14px; right: 14px; bottom: 24px; height: 56px; border-radius: 18px; background: #161925; border: 1px solid rgba(170,190,230,0.18); font-size: 16px; font-weight: 600">Cancel</button>
+
+</div>
+</body>
+</html>

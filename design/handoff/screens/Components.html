@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>StarCam · Component sheet</title>
+</head>
+<body>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&amp;family=Geist+Mono:wght@300..600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0A0B10}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;margin:0;cursor:pointer}
+.mono{font-family:'Geist Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}
+a{color:#7FB4FF}a:hover{color:#A9CCFF}
+</style>
+<div style="position: relative; width: 1600px; height: 1240px; overflow: hidden; background: #0A0B10; font-family: 'Geist', system-ui, sans-serif; color: #E8ECF4; font-variant-numeric: tabular-nums">
+
+<div style="position: absolute; top: 44px; left: 56px">
+<h1 style="margin: 0; font-size: 30px; font-weight: 600; letter-spacing: -0.02em">Component sheet</h1>
+<p style="margin: 6px 0 0; font-size: 14px; color: #8891A5">Core elements, states and patterns · 1 px here = 1 dp</p>
+</div>
+
+<section aria-label="Shutter states" style="position: absolute; top: 120px; left: 56px; width: 480px; height: 300px; box-sizing: border-box; padding: 24px; border-radius: 24px; background: #0E1018; border: 1px solid rgba(170,190,230,0.10)">
+<div style="font-size: 12px; font-weight: 600; letter-spacing: 0.12em; color: #8891A5">SHUTTER · 84 DP</div>
+<div style="margin-top: 34px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); justify-items: center; gap: 8px">
+<div style="display: flex; flex-direction: column; align-items: center; gap: 14px">
+<button aria-label="Start capture" style="width: 84px; height: 84px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2.5px solid #7FB4FF; box-shadow: 0 0 0 6px rgba(127,180,255,0.08), 0 0 28px rgba(127,180,255,0.35)"><span style="width: 66px; height: 66px; border-radius: 50%; background: radial-gradient(circle at 50% 38%, #DCE6F6 0%, #B4C6E2 60%, #93AACB 100%)"></span></button>
+<span style="font-size: 13px; color: #AEB6C7">Idle</span>
+</div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 14px">
+<button aria-label="Capturing, 62 percent. Stop" style="position: relative; width: 84px; height: 84px; border-radius: 50%; display: flex; align-items: center; justify-content: center">
+<svg width="84" height="84" viewBox="0 0 84 84" aria-hidden="true" style="position: absolute; inset: 0"><circle cx="42" cy="42" r="39" fill="none" stroke="rgba(170,190,230,0.18)" stroke-width="4"></circle><circle cx="42" cy="42" r="39" fill="none" stroke="#7FB4FF" stroke-width="4" stroke-linecap="round" stroke-dasharray="152 245" transform="rotate(-90 42 42)" style="filter: drop-shadow(0 0 5px rgba(127,180,255,0.7))"></circle></svg>
+<span style="width: 64px; height: 64px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: #161925"><span style="width: 22px; height: 22px; border-radius: 6px; background: #CFE2FF"></span></span>
+</button>
+<span style="font-size: 13px; color: #AEB6C7">Running <span class="mono">62%</span></span>
+</div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 14px">
+<button disabled aria-label="Start capture, unavailable" style="width: 84px; height: 84px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2.5px solid rgba(170,190,230,0.22); cursor: default"><span style="width: 66px; height: 66px; border-radius: 50%; background: #262A36"></span></button>
+<span style="font-size: 13px; color: #AEB6C7">Disabled</span>
+</div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 14px">
+<button aria-label="Start capture, night vision" style="width: 84px; height: 84px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2.5px solid #FF5544; background: #120404"><span style="width: 66px; height: 66px; border-radius: 50%; background: radial-gradient(circle at 50% 38%, #C2392B 0%, #8E2418 65%, #6A170E 100%)"></span></button>
+<span style="font-size: 13px; color: #D9483A">Night</span>
+</div>
+</div>
+<p style="margin: 30px 0 0; font-size: 13px; line-height: 1.5; color: #8891A5">Stopping a running capture asks to confirm and keeps saved frames. Disabled shows why in the plan line.</p>
+</section>
+
+<section aria-label="Chips" style="position: absolute; top: 120px; left: 560px; width: 480px; height: 300px; box-sizing: border-box; padding: 24px; border-radius: 24px; background: #0E1018; border: 1px solid rgba(170,190,230,0.10)">
+<div style="font-size: 12px; font-weight: 600; letter-spacing: 0.12em; color: #8891A5">MODE · PRESET · LENS · STATUS</div>
+<div style="margin-top: 16px; height: 60px; padding: 4px; box-sizing: border-box; border-radius: 20px; background: #12141C; border: 1px solid rgba(170,190,230,0.12); display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px">
+<button style="border-radius: 16px; background: rgba(127,180,255,0.15); border: 1px solid rgba(127,180,255,0.5); color: #CFE2FF; font-size: 12px; font-weight: 600; letter-spacing: 0.08em">ASTRO</button>
+<button style="border-radius: 16px; color: #AEB6C7; font-size: 12px; font-weight: 600; letter-spacing: 0.08em">TRAILS</button>
+<button style="border-radius: 16px; color: #AEB6C7; font-size: 12px; font-weight: 600; letter-spacing: 0.08em">METEOR <span style="color: #FFC66E; font-size: 10px">β</span></button>
+<button style="border-radius: 16px; color: #AEB6C7; font-size: 12px; font-weight: 600; letter-spacing: 0.08em">PRO</button>
+</div>
+<div style="margin-top: 12px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px">
+<button style="height: 56px; border-radius: 16px; background: #12141C; border: 1px solid rgba(170,190,230,0.12); font-size: 13px; font-weight: 600; letter-spacing: 0.08em">FAST</button>
+<button style="height: 56px; border-radius: 16px; background: rgba(127,180,255,0.15); border: 1px solid rgba(127,180,255,0.5); color: #CFE2FF; font-size: 13px; font-weight: 600; letter-spacing: 0.08em">BEST</button>
+<button style="height: 56px; border-radius: 16px; background: #12141C; border: 1px solid rgba(170,190,230,0.12); font-size: 13px; font-weight: 600; letter-spacing: 0.08em">INSANE</button>
+</div>
+<div style="margin-top: 14px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap">
+<div style="display: flex; gap: 4px; height: 48px; padding: 3px; box-sizing: border-box; border-radius: 999px; background: #12141C; border: 1px solid rgba(170,190,230,0.14)">
+<button class="mono" style="width: 50px; border-radius: 999px; font-size: 13px; font-weight: 600; color: #AEB6C7">1×</button>
+<button class="mono" style="width: 50px; border-radius: 999px; font-size: 13px; font-weight: 600; color: #CFE2FF; background: rgba(127,180,255,0.18); border: 1px solid rgba(127,180,255,0.55)">0.3×</button>
+</div>
+<span style="height: 34px; padding: 0 12px; display: flex; align-items: center; gap: 7px; border-radius: 999px; background: #12141C; border: 1px solid rgba(170,190,230,0.14); font-size: 12px"><span style="width: 7px; height: 7px; border-radius: 50%; background: #7FB4FF"></span>86% · cool</span>
+<span style="height: 34px; padding: 0 12px; display: flex; align-items: center; gap: 7px; border-radius: 999px; background: rgba(255,198,110,0.10); border: 1px solid rgba(255,198,110,0.35); font-size: 12px; color: #FFC66E"><span style="width: 7px; height: 7px; border-radius: 50%; background: #FFC66E"></span>39 °C · warm</span>
+<span style="height: 34px; padding: 0 12px; display: flex; align-items: center; gap: 7px; border-radius: 999px; background: rgba(255,110,110,0.10); border: 1px solid rgba(255,110,110,0.35); font-size: 12px; color: #FF6E6E"><span style="width: 7px; height: 7px; border-radius: 50%; background: #FF6E6E"></span>12% · low</span>
+</div>
+</section>
+
+<section aria-label="Buttons" style="position: absolute; top: 120px; left: 1064px; width: 480px; height: 300px; box-sizing: border-box; padding: 24px; border-radius: 24px; background: #0E1018; border: 1px solid rgba(170,190,230,0.10)">
+<div style="font-size: 12px; font-weight: 600; letter-spacing: 0.12em; color: #8891A5">BUTTONS · 56 DP</div>
+<div style="margin-top: 16px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+<button style="height: 56px; border-radius: 18px; background: #24426F; border: 1px solid rgba(127,180,255,0.55); box-shadow: 0 8px 24px rgba(40,90,170,0.25); font-size: 15px; font-weight: 600; color: #E3EEFF">Primary</button>
+<button style="height: 56px; border-radius: 18px; background: #161925; border: 1px solid rgba(170,190,230,0.18); font-size: 15px; font-weight: 600">Secondary</button>
+<button style="height: 56px; border-radius: 18px; background: rgba(127,180,255,0.10); border: 1px solid rgba(127,180,255,0.45); font-size: 15px; font-weight: 600; color: #CFE2FF">Accent outline</button>
+<button style="height: 56px; border-radius: 18px; font-size: 15px; font-weight: 600; color: #A9CCFF">Text button</button>
+<button style="height: 56px; border-radius: 18px; background: rgba(255,110,110,0.08); border: 1px solid rgba(255,110,110,0.35); font-size: 15px; font-weight: 600; color: #FF6E6E">Delete</button>
+<button style="height: 56px; border-radius: 18px; background: #1C0807; border: 1px solid rgba(255,85,68,0.4); font-size: 15px; font-weight: 600; color: #FF5544">Night primary</button>
+</div>
+<p style="margin: 16px 0 0; font-size: 13px; line-height: 1.5; color: #8891A5">No white fills. Primary is a deep blue with light text, so it never lights up a dark-adapted eye.</p>
+</section>
+
+<section aria-label="Toggles and segmented controls" style="position: absolute; top: 444px; left: 56px; width: 480px; height: 300px; box-sizing: border-box; padding: 24px; border-radius: 24px; background: #0E1018; border: 1px solid rgba(170,190,230,0.10)">
+<div style="font-size: 12px; font-weight: 600; letter-spacing: 0.12em; color: #8891A5">TOGGLES · SEGMENTED</div>
+<div style="margin-top: 18px; display: flex; align-items: center; gap: 26px; font-size: 13px; color: #AEB6C7">
+<span style="display: flex; align-items: center; gap: 10px"><button role="switch" aria-checked="false" aria-label="Off example" style="position: relative; width: 48px; height: 28px; border-radius: 14px; background: #232736; border: 1px solid rgba(170,190,230,0.2)"><span style="position: absolute; top: 2px; left: 2px; width: 22px; height: 22px; border-radius: 50%; background: #8891A5"></span></button>Off</span>
+<span style="display: flex; align-items: center; gap: 10px"><button role="switch" aria-checked="true" aria-label="On example" style="position: relative; width: 48px; height: 28px; border-radius: 14px; background: #2E5591; border: 1px solid rgba(127,180,255,0.6)"><span style="position: absolute; top: 2px; right: 2px; width: 22px; height: 22px; border-radius: 50%; background: #E3EEFF"></span></button>On</span>
+<span style="display: flex; align-items: center; gap: 10px; opacity: 0.4"><button role="switch" aria-checked="true" aria-label="Disabled example" disabled style="position: relative; width: 48px; height: 28px; border-radius: 14px; background: #2E5591; border: 1px solid rgba(127,180,255,0.6); cursor: default"><span style="position: absolute; top: 2px; right: 2px; width: 22px; height: 22px; border-radius: 50%; background: #E3EEFF"></span></button>Locked</span>
+<span style="display: flex; align-items: center; gap: 10px"><button role="switch" aria-checked="true" aria-label="Night example" style="position: relative; width: 48px; height: 28px; border-radius: 14px; background: #7A1C12; border: 1px solid rgba(255,85,68,0.6)"><span style="position: absolute; top: 2px; right: 2px; width: 22px; height: 22px; border-radius: 50%; background: #FF5544"></span></button><span style="color: #D9483A">Night</span></span>
+</div>
+<div style="margin-top: 24px; height: 48px; padding: 3px; box-sizing: border-box; border-radius: 14px; background: #0A0B10; border: 1px solid rgba(170,190,230,0.12); display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px">
+<button style="border-radius: 11px; background: rgba(127,180,255,0.16); border: 1px solid rgba(127,180,255,0.5); color: #CFE2FF; font-size: 14px; font-weight: 600">Auto stars</button>
+<button style="border-radius: 11px; color: #AEB6C7; font-size: 14px">Infinity</button>
+<button style="border-radius: 11px; color: #AEB6C7; font-size: 14px">Manual</button>
+</div>
+<div style="margin-top: 12px; height: 48px; padding: 3px; box-sizing: border-box; border-radius: 14px; background: #0A0B10; border: 1px solid rgba(170,190,230,0.12); display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px">
+<button class="mono" style="border-radius: 11px; color: #AEB6C7; font-size: 14px">0 s</button>
+<button class="mono" style="border-radius: 11px; background: rgba(127,180,255,0.16); border: 1px solid rgba(127,180,255,0.5); color: #CFE2FF; font-size: 14px; font-weight: 600">3 s</button>
+<button class="mono" style="border-radius: 11px; color: #AEB6C7; font-size: 14px">10 s</button>
+</div>
+<div style="margin-top: 16px; display: flex; align-items: center; gap: 10px; font-size: 13px; color: #AEB6C7">
+<span style="width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: rgba(127,180,255,0.16); color: #7FB4FF"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5.5M12 7.75v.01"></path></svg></span>
+(i) is always a 44 dp target and expands the explanation in place.
+</div>
+</section>
+
+<section aria-label="Dials, steppers and sliders" style="position: absolute; top: 444px; left: 560px; width: 480px; height: 300px; box-sizing: border-box; padding: 24px; border-radius: 24px; background: #0E1018; border: 1px solid rgba(170,190,230,0.10)">
+<div style="font-size: 12px; font-weight: 600; letter-spacing: 0.12em; color: #8891A5">DIALS · STEPPERS · SLIDERS</div>
+<div style="margin-top: 16px; display: flex; gap: 20px">
+<div style="flex: 1">
+<div style="display: flex; align-items: center; gap: 8px">
+<button aria-label="Decrease" style="width: 52px; height: 52px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: #1A1D28; border: 1px solid rgba(170,190,230,0.16)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#E8ECF4" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12"></path></svg></button>
+<span class="mono" style="flex: 1; text-align: center; font-size: 24px">22.5<span style="font-size: 14px; color: #AEB6C7"> s</span></span>
+<button aria-label="Increase" style="width: 52px; height: 52px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: #1A1D28; border: 1px solid rgba(170,190,230,0.16)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#E8ECF4" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12M12 6v12"></path></svg></button>
+</div>
+<div style="font-size: 12px; color: #8891A5; margin-top: 8px; text-align: center">Stepper · shutter</div>
+<div role="slider" aria-label="Frames" aria-valuemin="4" aria-valuemax="99" aria-valuenow="20" tabindex="0" style="position: relative; height: 40px; margin-top: 22px">
+<div style="position: absolute; top: 18px; left: 0; right: 0; height: 4px; border-radius: 2px; background: #232736"><div style="width: 17%; height: 4px; border-radius: 2px; background: #7FB4FF"></div></div>
+<div style="position: absolute; top: 8px; left: 17%; margin-left: -12px; width: 24px; height: 24px; border-radius: 50%; background: #E3EEFF; box-shadow: 0 0 0 5px rgba(127,180,255,0.2)"></div>
+</div>
+<div style="display: flex; justify-content: space-between; font-size: 12px; color: #8891A5"><span class="mono">4</span><span>Slider · frames <span class="mono" style="color: #E8ECF4">20</span></span><span class="mono">99</span></div>
+</div>
+<div style="width: 170px; flex: none; text-align: center">
+<svg width="170" height="170" viewBox="0 0 160 160" role="img" aria-label="ISO dial set to 1600, range 200 to 6400">
+<circle cx="80" cy="80" r="72" fill="none" stroke="rgba(170,190,230,0.16)" stroke-width="4" stroke-dasharray="339.3 452.4" transform="rotate(135 80 80)" stroke-linecap="round"></circle>
+<circle cx="80" cy="80" r="72" fill="none" stroke="#7FB4FF" stroke-width="4" stroke-dasharray="203.6 452.4" transform="rotate(135 80 80)" stroke-linecap="round"></circle>
+<circle cx="112.7" cy="15.8" r="7" fill="#E3EEFF" stroke="#7FB4FF" stroke-width="2"></circle>
+<text x="39" y="125" text-anchor="middle" font-family="Geist Mono, monospace" font-size="10" fill="#8891A5">200</text>
+<text x="25" y="74" text-anchor="middle" font-family="Geist Mono, monospace" font-size="10" fill="#8891A5">400</text>
+<text x="54" y="34" text-anchor="middle" font-family="Geist Mono, monospace" font-size="10" fill="#8891A5">800</text>
+<text x="135" y="74" text-anchor="middle" font-family="Geist Mono, monospace" font-size="10" fill="#8891A5">3200</text>
+<text x="121" y="125" text-anchor="middle" font-family="Geist Mono, monospace" font-size="10" fill="#8891A5">6400</text>
+<text x="80" y="76" text-anchor="middle" font-family="Geist, sans-serif" font-size="11" font-weight="600" letter-spacing="1.5" fill="#8891A5">ISO</text>
+<text x="80" y="100" text-anchor="middle" font-family="Geist Mono, monospace" font-size="26" fill="#E8ECF4">1600</text>
+</svg>
+<div style="font-size: 12px; color: #8891A5">Rotary dial · ISO</div>
+</div>
+</div>
+</section>
+
+<section aria-label="Progress" style="position: absolute; top: 444px; left: 1064px; width: 480px; height: 300px; box-sizing: border-box; padding: 24px; border-radius: 24px; background: #0E1018; border: 1px solid rgba(170,190,230,0.10)">
+<div style="font-size: 12px; font-weight: 600; letter-spacing: 0.12em; color: #8891A5">PROGRESS RINGS · PIPELINE · FRAME TAPE</div>
+<div style="margin-top: 16px; display: flex; gap: 22px; align-items: center">
+<div style="position: relative; width: 112px; height: 112px">
+<svg width="112" height="112" viewBox="0 0 112 112" aria-hidden="true" style="position: absolute; inset: 0"><circle cx="56" cy="56" r="49" fill="#10121A" stroke="rgba(170,190,230,0.14)" stroke-width="6"></circle><circle cx="56" cy="56" r="49" fill="none" stroke="#7FB4FF" stroke-width="6" stroke-linecap="round" stroke-dasharray="191.5 308" transform="rotate(-90 56 56)"></circle></svg>
+<div style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center"><span class="mono" style="font-size: 24px">14.0</span><span class="mono" style="font-size: 11px; color: #AEB6C7">/ 22.5 s</span></div>
+</div>
+<div style="position: relative; width: 112px; height: 112px">
+<svg width="112" height="112" viewBox="0 0 112 112" aria-hidden="true" style="position: absolute; inset: 0"><circle cx="56" cy="56" r="49" fill="#10121A" stroke="rgba(170,190,230,0.14)" stroke-width="6"></circle><circle cx="56" cy="56" r="49" fill="none" stroke="#7FB4FF" stroke-width="6" stroke-linecap="round" stroke-dasharray="241 308" transform="rotate(-90 56 56)"></circle></svg>
+<div style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center"><span class="mono" style="font-size: 26px; font-weight: 300">47<span style="font-size: 13px; color: #AEB6C7"> s</span></span><span style="font-size: 11px; color: #8891A5">auto-skips</span></div>
+</div>
+<div style="flex: 1; font-size: 13px; line-height: 1.5; color: #8891A5">Exposure ring and countdown ring. Rings fill clockwise from 12 o’clock and update every second, so a long exposure never looks frozen.</div>
+</div>
+<div style="margin-top: 20px; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px">
+<div style="height: 4px; border-radius: 2px; background: rgba(127,180,255,0.5)"></div><div style="height: 4px; border-radius: 2px; background: rgba(127,180,255,0.5)"></div><div style="height: 4px; border-radius: 2px; background: rgba(127,180,255,0.5)"></div><div style="height: 4px; border-radius: 2px; background: linear-gradient(90deg, #7FB4FF 0%, #7FB4FF 32%, rgba(170,190,230,0.18) 32%)"></div><div style="height: 4px; border-radius: 2px; background: rgba(170,190,230,0.18)"></div><div style="height: 4px; border-radius: 2px; background: rgba(170,190,230,0.18)"></div><div style="height: 4px; border-radius: 2px; background: rgba(170,190,230,0.18)"></div>
+</div>
+<div style="margin-top: 14px; display: grid; grid-template-columns: repeat(20, minmax(0, 1fr)); gap: 3px">
+<span style="height: 14px; border-radius: 3px; background: rgba(127,180,255,0.7)"></span><span style="height: 14px; border-radius: 3px; background: rgba(127,180,255,0.7)"></span><span style="height: 14px; border-radius: 3px; background: rgba(127,180,255,0.7)"></span><span style="height: 14px; border-radius: 3px; background: rgba(255,198,110,0.7)"></span><span style="height: 14px; border-radius: 3px; background: rgba(127,180,255,0.7)"></span><span style="height: 14px; border-radius: 3px; background: rgba(127,180,255,0.7)"></span><span style="height: 14px; border-radius: 3px; border: 1.5px solid #7FB4FF; box-sizing: border-box"></span><span style="height: 14px; border-radius: 3px; background: rgba(170,190,230,0.12)"></span><span style="height: 14px; border-radius: 3px; background: rgba(170,190,230,0.12)"></span><span style="height: 14px; border-radius: 3px; background: rgba(170,190,230,0.12)"></span><span style="height: 14px; border-radius: 3px; background: rgba(170,190,230,0.12)"></span><span style="height: 14px; border-radius: 3px; background: rgba(170,190,230,0.12)"></span><span style="height: 14px; border-radius: 3px; background: rgba(170,190,230,0.12)"></span><span style="height: 14px; border-radius: 3px; background: rgba(170,190,230,0.12)"></span><span style="height: 14px; border-radius: 3px; background: rgba(170,190,230,0.12)"></span><span style="height: 14px; border-radius: 3px; background: rgba(170,190,230,0.12)"></span><span style="height: 14px; border-radius: 3px; background: rgba(170,190,230,0.12)"></span><span style="height: 14px; border-radius: 3px; background: rgba(170,190,230,0.12)"></span><span style="height: 14px; border-radius: 3px; background: rgba(170,190,230,0.12)"></span><span style="height: 14px; border-radius: 3px; background: rgba(170,190,230,0.12)"></span>
+</div>
+<div style="margin-top: 8px; font-size: 12px; color: #8891A5">Pipeline (7 steps) · frame tape: kept, drift warning in amber, exposing, to go</div>
+</section>
+
+<section aria-label="Cards" style="position: absolute; top: 768px; left: 56px; width: 480px; height: 420px; box-sizing: border-box; padding: 24px; border-radius: 24px; background: #0E1018; border: 1px solid rgba(170,190,230,0.10)">
+<div style="font-size: 12px; font-weight: 600; letter-spacing: 0.12em; color: #8891A5">CARDS · TIP · WARNING · ERROR · SAVED</div>
+<div style="margin-top: 16px; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; gap: 10px; align-items: flex-start; padding: 14px; border-radius: 18px; background: rgba(12,14,22,0.8); border: 1px solid rgba(127,180,255,0.32)">
+<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" style="flex: none"><path d="M12 3C12.8 9 15 11.2 21 12C15 12.8 12.8 15 12 21C11.2 15 9 12.8 3 12C9 11.2 11.2 9 12 3Z" fill="#7FB4FF"></path></svg>
+<span style="flex: 1; font-size: 13px; line-height: 1.45; color: #DCE3EF"><span style="color: #A9CCFF; font-weight: 600">0.3×</span> holds stars for 26 s vs 8 s — better for wide Milky Way</span>
+</div>
+<div style="display: flex; gap: 10px; align-items: flex-start; padding: 14px; border-radius: 18px; background: rgba(255,198,110,0.08); border: 1px solid rgba(255,198,110,0.35)">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFC66E" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M10 14.5V5a2 2 0 0 1 4 0v9.5a4 4 0 1 1-4 0z"></path></svg>
+<span style="flex: 1; font-size: 13px; line-height: 1.45; color: #FFE2B5">Phone is warm (39 °C). Frames may get noisier — StarCam will pause if it gets hotter.</span>
+</div>
+<div style="display: flex; gap: 10px; align-items: flex-start; padding: 14px; border-radius: 18px; background: rgba(255,110,110,0.08); border: 1px solid rgba(255,110,110,0.35)">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FF6E6E" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M10.3 4.2L2.6 17.5A2 2 0 0 0 4.3 20.5h15.4a2 2 0 0 0 1.7-3L13.7 4.2a2 2 0 0 0-3.4 0z"></path><path d="M12 9.5v4.5M12 17.2v.01"></path></svg>
+<span style="flex: 1; font-size: 13px; line-height: 1.45; color: #FFC9C9">Storage almost full — 1.2 GB left, enough for about 12 frames.</span>
+</div>
+<div style="display: flex; gap: 12px; align-items: center; padding: 14px; border-radius: 18px; background: rgba(127,180,255,0.08); border: 1px solid rgba(127,180,255,0.35)">
+<span style="flex: none; width: 36px; height: 36px; border-radius: 12px; display: flex; align-items: center; justify-content: center; background: rgba(127,180,255,0.16)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#7FB4FF" stroke-width="1.9" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5z"></path><path d="M3 13l9 5 9-5"></path></svg></span>
+<span style="flex: 1"><span style="display: block; font-size: 15px; font-weight: 600">8 frames are safe</span><span style="display: block; font-size: 12px; color: #AEB6C7; margin-top: 2px">Saved as RAW in Sessions</span></span>
+</div>
+</div>
+</section>
+
+<section aria-label="Toasts" style="position: absolute; top: 768px; left: 560px; width: 480px; height: 420px; box-sizing: border-box; padding: 24px; border-radius: 24px; background: #0E1018; border: 1px solid rgba(170,190,230,0.10)">
+<div style="font-size: 12px; font-weight: 600; letter-spacing: 0.12em; color: #8891A5">TOASTS · AUTO-DISMISS 4 S, NEVER BLOCK THE SHUTTER</div>
+<div style="margin-top: 16px; display: flex; flex-direction: column; gap: 12px">
+<div role="status" style="height: 64px; display: flex; align-items: center; gap: 12px; padding: 0 8px 0 16px; border-radius: 20px; background: rgba(18,20,28,0.92); border: 1px solid rgba(127,180,255,0.3); box-shadow: 0 12px 30px rgba(0,0,0,0.5)">
+<span style="flex: none; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(127,180,255,0.18)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#7FB4FF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span>
+<span style="flex: 1"><span style="display: block; font-size: 14px; font-weight: 600">Saved to Gallery</span><span style="display: block; font-size: 12px; color: #AEB6C7">Stacked 20/20 frames</span></span>
+<button style="height: 44px; padding: 0 12px; border-radius: 12px; font-size: 14px; font-weight: 600; color: #A9CCFF">Open</button>
+</div>
+<div role="status" style="height: 64px; display: flex; align-items: center; gap: 12px; padding: 0 16px; border-radius: 20px; background: rgba(18,20,28,0.92); border: 1px solid rgba(170,190,230,0.18); box-shadow: 0 12px 30px rgba(0,0,0,0.5)">
+<span style="flex: none; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(170,190,230,0.12)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#E8ECF4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"></path><path d="M20 5v6h-6"></path></svg></span>
+<span style="flex: 1"><span style="display: block; font-size: 14px; font-weight: 600">Camera hiccup — recovered</span><span style="display: block; font-size: 12px; color: #AEB6C7">Resuming at frame 6 · nothing lost</span></span>
+</div>
+<div role="status" style="height: 64px; display: flex; align-items: center; gap: 12px; padding: 0 16px; border-radius: 20px; background: rgba(28,22,12,0.95); border: 1px solid rgba(255,198,110,0.4); box-shadow: 0 12px 30px rgba(0,0,0,0.5)">
+<span style="flex: none; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(255,198,110,0.16)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#FFC66E" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 14.5V5a2 2 0 0 1 4 0v9.5a4 4 0 1 1-4 0z"></path></svg></span>
+<span style="flex: 1"><span style="display: block; font-size: 14px; font-weight: 600; color: #FFE2B5">Cooling down for 30 s</span><span style="display: block; font-size: 12px; color: #FFC66E">Phone 41 °C · capture continues after</span></span>
+</div>
+<div role="status" style="height: 64px; display: flex; align-items: center; gap: 12px; padding: 0 16px; border-radius: 20px; background: #1C0807; border: 1px solid rgba(255,85,68,0.4)">
+<span style="flex: none; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(255,85,68,0.16)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#FF5544" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span>
+<span style="flex: 1"><span style="display: block; font-size: 14px; font-weight: 600; color: #FF5544">Saved to Gallery</span><span style="display: block; font-size: 12px; color: #D9483A">Night-vision variant</span></span>
+</div>
+</div>
+</section>
+
+<section aria-label="Bottom sheet" style="position: absolute; top: 768px; left: 1064px; width: 480px; height: 420px; box-sizing: border-box; padding: 24px; border-radius: 24px; background: #0E1018; border: 1px solid rgba(170,190,230,0.10); overflow: hidden">
+<div style="font-size: 12px; font-weight: 600; letter-spacing: 0.12em; color: #8891A5">BOTTOM SHEET</div>
+<div style="position: absolute; left: 24px; right: 24px; top: 56px; bottom: 0; border-radius: 28px 28px 0 0; background: #12141C; border: 1px solid rgba(170,190,230,0.16); border-bottom: 0; padding: 14px 20px 0; box-shadow: 0 -20px 40px rgba(0,0,0,0.5)">
+<div style="width: 36px; height: 4px; border-radius: 2px; margin: 0 auto; background: rgba(170,190,230,0.3)"></div>
+<div style="display: flex; align-items: center; gap: 14px; margin-top: 20px">
+<span class="mono" style="flex: none; height: 32px; padding: 0 8px; display: flex; align-items: center; border: 1.5px solid #AEB6C7; border-radius: 8px; font-size: 13px; font-weight: 600; color: #AEB6C7">RAW</span>
+<span style="flex: 1; font-size: 18px; font-weight: 600">Save RAW files?</span>
+<button role="switch" aria-checked="true" aria-label="Save RAW files" style="position: relative; width: 48px; height: 28px; border-radius: 14px; background: #2E5591; border: 1px solid rgba(127,180,255,0.6)"><span style="position: absolute; top: 2px; right: 2px; width: 22px; height: 22px; border-radius: 50%; background: #E3EEFF"></span></button>
+</div>
+<p style="margin: 14px 0 0; font-size: 14px; line-height: 1.5; color: #AEB6C7">Keeps every frame as a DNG for desktop editing. About 55 MB per frame — a 20-frame session needs 1.1 GB.</p>
+<div class="mono" style="margin-top: 12px; font-size: 12px; color: #8891A5">38.2 GB free · ~34 sessions</div>
+<div style="margin-top: 18px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+<button style="height: 56px; border-radius: 18px; background: #161925; border: 1px solid rgba(170,190,230,0.18); font-size: 15px; font-weight: 600">Not now</button>
+<button style="height: 56px; border-radius: 18px; background: #24426F; border: 1px solid rgba(127,180,255,0.55); font-size: 15px; font-weight: 600; color: #E3EEFF">Keep RAW</button>
+</div>
+</div>
+</section>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>StarCam · Screen shield</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&amp;family=Geist+Mono:wght@300..600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#000000}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;margin:0;cursor:pointer}
+.mono{font-family:'Geist Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}
+a{color:#7FB4FF}a:hover{color:#A9CCFF}
+</style>
+</helmet>
+<div style="position: relative; width: 390px; height: 866px; overflow: hidden; background: #000000; font-family: 'Geist', system-ui, sans-serif; color: #6E7790; font-variant-numeric: tabular-nums">
+
+<div style="position: absolute; top: 22px; left: 22px; right: 22px; display: flex; justify-content: space-between; align-items: center; font-size: 13px">
+<span class="mono" style="display: flex; align-items: center; gap: 8px">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h1.8l1.4-2h4.6l1.4 2h1.8A2.5 2.5 0 0 1 20 8.5v9a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 17.5z"></path><circle cx="12" cy="13" r="3.5"></circle></svg>
+8 / 20
+</span>
+<span class="mono">23:19</span>
+</div>
+
+<button aria-label="Double-tap to show the capture screen" style="position: absolute; top: 380px; left: 50%; margin-left: -110px; width: 220px; height: 120px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; color: #6E7790">
+<svg width="34" height="34" viewBox="0 0 34 34" fill="none" aria-hidden="true"><circle cx="17" cy="17" r="5" stroke="#6E7790" stroke-width="1.5"></circle><circle cx="17" cy="17" r="11" stroke="#3A4152" stroke-width="1.5"></circle><circle cx="17" cy="17" r="16" stroke="#232834" stroke-width="1"></circle></svg>
+<span style="font-size: 14px; letter-spacing: 0.02em">double-tap to show</span>
+</button>
+
+<div aria-hidden="true" style="position: absolute; left: 22px; right: 22px; bottom: 30px; height: 2px; border-radius: 1px; background: rgba(110,119,144,0.2)">
+<div style="width: 38%; height: 2px; border-radius: 1px; background: rgba(127,180,255,0.32)"></div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":866}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

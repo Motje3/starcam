@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>StarCam · Foundations</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&amp;family=Geist+Mono:wght@300..600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0A0B10}
+.mono{font-family:'Geist Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}
+a{color:#7FB4FF}a:hover{color:#A9CCFF}
+</style>
+</helmet>
+<div style="position: relative; width: 1280px; height: 1000px; overflow: hidden; background: #0A0B10; font-family: 'Geist', system-ui, sans-serif; color: #E8ECF4; font-variant-numeric: tabular-nums">
+
+<div style="position: absolute; top: 56px; left: 56px; display: flex; align-items: center; gap: 20px">
+<div role="img" aria-label="StarCam app icon" style="position: relative; width: 120px; height: 120px; border-radius: 30px; overflow: hidden; background: radial-gradient(circle at 32% 26%, #2C528D 0%, #15233F 55%, #0A1120 100%); box-shadow: inset 0 0 0 1px rgba(170,200,255,0.18)">
+<svg width="120" height="120" viewBox="0 0 120 120" aria-hidden="true" style="position: absolute; inset: 0">
+<ellipse cx="60" cy="62" rx="44" ry="17" fill="none" stroke="rgba(170,200,255,0.55)" stroke-width="2" transform="rotate(-22 60 62)"></ellipse>
+<circle cx="99" cy="46" r="3.5" fill="#7FB4FF"></circle>
+<path d="M60 30C61.8 47 66 53.5 82 56C66 58.5 61.8 65 60 82C58.2 65 54 58.5 38 56C54 53.5 58.2 47 60 30Z" fill="#E6EFFF"></path>
+<circle cx="28" cy="30" r="1.4" fill="#CFE2FF"></circle>
+<circle cx="92" cy="94" r="1.2" fill="#CFE2FF" opacity="0.7"></circle>
+</svg>
+</div>
+<div role="img" aria-label="StarCam app icon in night-vision red" style="position: relative; width: 120px; height: 120px; border-radius: 30px; overflow: hidden; background: radial-gradient(circle at 32% 26%, #4A120C 0%, #250806 55%, #140303 100%); box-shadow: inset 0 0 0 1px rgba(255,85,68,0.25)">
+<svg width="120" height="120" viewBox="0 0 120 120" aria-hidden="true" style="position: absolute; inset: 0">
+<ellipse cx="60" cy="62" rx="44" ry="17" fill="none" stroke="rgba(255,85,68,0.55)" stroke-width="2" transform="rotate(-22 60 62)"></ellipse>
+<circle cx="99" cy="46" r="3.5" fill="#FF5544"></circle>
+<path d="M60 30C61.8 47 66 53.5 82 56C66 58.5 61.8 65 60 82C58.2 65 54 58.5 38 56C54 53.5 58.2 47 60 30Z" fill="#FF5544"></path>
+</svg>
+</div>
+<div style="margin-left: 16px">
+<div style="display: flex; align-items: flex-start; gap: 6px; font-size: 64px; font-weight: 600; letter-spacing: -0.035em; line-height: 1">StarCam<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" style="margin-top: 2px"><path d="M12 3C12.8 9 15 11.2 21 12C15 12.8 12.8 15 12 21C11.2 15 9 12.8 3 12C9 11.2 11.2 9 12 3Z" fill="#7FB4FF"></path></svg></div>
+<div style="font-size: 16px; color: #AEB6C7; margin-top: 12px">Astrophotography in one press.</div>
+<div style="font-size: 12px; font-weight: 600; letter-spacing: 0.14em; color: #8891A5; margin-top: 10px">WORKING NAME · ANDROID · DARK ONLY</div>
+</div>
+</div>
+
+<div style="position: absolute; top: 232px; left: 56px; width: 564px">
+<div style="font-size: 12px; font-weight: 600; letter-spacing: 0.14em; color: #8891A5">COLOUR · DARK</div>
+<div style="margin-top: 14px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px">
+<div><div style="height: 64px; border-radius: 14px; background: #0A0B10; border: 1px solid rgba(170,190,230,0.2)"></div><div style="font-size: 13px; margin-top: 8px">Background</div><div class="mono" style="font-size: 12px; color: #8891A5">#0A0B10</div></div>
+<div><div style="height: 64px; border-radius: 14px; background: #12141C; border: 1px solid rgba(170,190,230,0.12)"></div><div style="font-size: 13px; margin-top: 8px">Surface</div><div class="mono" style="font-size: 12px; color: #8891A5">#12141C</div></div>
+<div><div style="height: 64px; border-radius: 14px; background: #1A1D28; border: 1px solid rgba(170,190,230,0.12)"></div><div style="font-size: 13px; margin-top: 8px">Raised</div><div class="mono" style="font-size: 12px; color: #8891A5">#1A1D28</div></div>
+<div><div style="height: 64px; border-radius: 14px; background: #0A0B10; border: 1px solid rgba(170,190,230,0.12); display: flex; align-items: center; justify-content: center"><div style="width: 70%; height: 1px; background: rgba(170,190,230,0.3)"></div></div><div style="font-size: 13px; margin-top: 8px">Hairline</div><div class="mono" style="font-size: 12px; color: #8891A5">#AABEE6 · 12%</div></div>
+<div><div style="height: 64px; border-radius: 14px; background: #E8ECF4"></div><div style="font-size: 13px; margin-top: 8px">Text</div><div class="mono" style="font-size: 12px; color: #8891A5">#E8ECF4</div></div>
+<div><div style="height: 64px; border-radius: 14px; background: #AEB6C7"></div><div style="font-size: 13px; margin-top: 8px">Text 2</div><div class="mono" style="font-size: 12px; color: #8891A5">#AEB6C7</div></div>
+<div><div style="height: 64px; border-radius: 14px; background: #8891A5"></div><div style="font-size: 13px; margin-top: 8px">Text 3 · 5.3:1</div><div class="mono" style="font-size: 12px; color: #8891A5">#8891A5</div></div>
+<div><div style="height: 64px; border-radius: 14px; background: #7FB4FF; box-shadow: 0 0 22px rgba(127,180,255,0.35)"></div><div style="font-size: 13px; margin-top: 8px">Astro blue</div><div class="mono" style="font-size: 12px; color: #8891A5">#7FB4FF</div></div>
+<div><div style="height: 64px; border-radius: 14px; background: #24426F; border: 1px solid rgba(127,180,255,0.55)"></div><div style="font-size: 13px; margin-top: 8px">Primary fill</div><div class="mono" style="font-size: 12px; color: #8891A5">#24426F</div></div>
+<div><div style="height: 64px; border-radius: 14px; background: rgba(127,180,255,0.16); border: 1px solid rgba(127,180,255,0.5)"></div><div style="font-size: 13px; margin-top: 8px">Selected</div><div class="mono" style="font-size: 12px; color: #8891A5">blue · 16%</div></div>
+<div><div style="height: 64px; border-radius: 14px; background: #FFC66E"></div><div style="font-size: 13px; margin-top: 8px">Warning</div><div class="mono" style="font-size: 12px; color: #8891A5">#FFC66E</div></div>
+<div><div style="height: 64px; border-radius: 14px; background: #FF6E6E"></div><div style="font-size: 13px; margin-top: 8px">Error</div><div class="mono" style="font-size: 12px; color: #8891A5">#FF6E6E</div></div>
+</div>
+<div style="margin-top: 26px; font-size: 12px; font-weight: 600; letter-spacing: 0.14em; color: #8891A5">COLOUR · NIGHT VISION <span style="color: #D9483A">(RED ONLY)</span></div>
+<div style="margin-top: 14px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px">
+<div><div style="height: 64px; border-radius: 14px; background: #120404; border: 1px solid rgba(255,85,68,0.25)"></div><div style="font-size: 13px; margin-top: 8px">Background</div><div class="mono" style="font-size: 12px; color: #8891A5">#120404</div></div>
+<div><div style="height: 64px; border-radius: 14px; background: #1C0807; border: 1px solid rgba(255,85,68,0.2)"></div><div style="font-size: 13px; margin-top: 8px">Surface</div><div class="mono" style="font-size: 12px; color: #8891A5">#1C0807</div></div>
+<div><div style="height: 64px; border-radius: 14px; background: #FF5544"></div><div style="font-size: 13px; margin-top: 8px">Text &amp; accent</div><div class="mono" style="font-size: 12px; color: #8891A5">#FF5544 · 6.4:1</div></div>
+<div><div style="height: 64px; border-radius: 14px; background: #D9483A"></div><div style="font-size: 13px; margin-top: 8px">Text 2</div><div class="mono" style="font-size: 12px; color: #8891A5">#D9483A · 4.8:1</div></div>
+</div>
+</div>
+
+<div style="position: absolute; top: 790px; left: 56px; width: 564px">
+<div style="font-size: 12px; font-weight: 600; letter-spacing: 0.14em; color: #8891A5">SPACING · RADII</div>
+<div style="margin-top: 16px; display: flex; align-items: flex-end; gap: 14px">
+<div style="text-align: center"><div style="width: 4px; height: 4px; margin: 0 auto; background: #7FB4FF"></div><div class="mono" style="font-size: 12px; color: #AEB6C7; margin-top: 8px">4</div></div>
+<div style="text-align: center"><div style="width: 8px; height: 8px; margin: 0 auto; background: #7FB4FF"></div><div class="mono" style="font-size: 12px; color: #AEB6C7; margin-top: 8px">8</div></div>
+<div style="text-align: center"><div style="width: 12px; height: 12px; margin: 0 auto; background: #7FB4FF"></div><div class="mono" style="font-size: 12px; color: #AEB6C7; margin-top: 8px">12</div></div>
+<div style="text-align: center"><div style="width: 16px; height: 16px; margin: 0 auto; background: #7FB4FF"></div><div class="mono" style="font-size: 12px; color: #AEB6C7; margin-top: 8px">16</div></div>
+<div style="text-align: center"><div style="width: 20px; height: 20px; margin: 0 auto; background: #7FB4FF"></div><div class="mono" style="font-size: 12px; color: #AEB6C7; margin-top: 8px">20</div></div>
+<div style="text-align: center"><div style="width: 24px; height: 24px; margin: 0 auto; background: #7FB4FF"></div><div class="mono" style="font-size: 12px; color: #AEB6C7; margin-top: 8px">24</div></div>
+<div style="text-align: center"><div style="width: 32px; height: 32px; margin: 0 auto; background: #7FB4FF"></div><div class="mono" style="font-size: 12px; color: #AEB6C7; margin-top: 8px">32</div></div>
+<div style="width: 24px"></div>
+<div style="text-align: center"><div style="width: 48px; height: 48px; border-radius: 14px; border: 1.5px solid #AEB6C7"></div><div class="mono" style="font-size: 12px; color: #AEB6C7; margin-top: 8px">14 chip</div></div>
+<div style="text-align: center"><div style="width: 48px; height: 48px; border-radius: 18px; border: 1.5px solid #AEB6C7"></div><div class="mono" style="font-size: 12px; color: #AEB6C7; margin-top: 8px">18 btn</div></div>
+<div style="text-align: center"><div style="width: 48px; height: 48px; border-radius: 22px; border: 1.5px solid #AEB6C7"></div><div class="mono" style="font-size: 12px; color: #AEB6C7; margin-top: 8px">22 card</div></div>
+<div style="text-align: center"><div style="width: 48px; height: 48px; border-radius: 28px 28px 0 0; border: 1.5px solid #AEB6C7; border-bottom: 0"></div><div class="mono" style="font-size: 12px; color: #AEB6C7; margin-top: 8px">28 sheet</div></div>
+</div>
+<p style="margin: 18px 0 0; font-size: 13px; line-height: 1.5; color: #8891A5">4-pt grid. 14 px screen margins. Frame 390 × 866 = 1080 × 2400 at 2.77×.</p>
+</div>
+
+<div style="position: absolute; top: 232px; left: 680px; width: 544px">
+<div style="font-size: 12px; font-weight: 600; letter-spacing: 0.14em; color: #8891A5">TYPE · GEIST + GEIST MONO (TABULAR FIGURES)</div>
+<div style="margin-top: 18px; display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; align-items: baseline; gap: 20px"><span class="mono" style="width: 96px; flex: none; font-size: 12px; color: #8891A5">Display 76</span><span class="mono" style="font-size: 76px; font-weight: 300; line-height: 1; letter-spacing: -0.03em">7<span style="font-size: 30px; color: #8891A5"> / 20</span></span></div>
+<div style="display: flex; align-items: baseline; gap: 20px"><span class="mono" style="width: 96px; flex: none; font-size: 12px; color: #8891A5">Readout 36</span><span class="mono" style="font-size: 36px">14.0 <span style="font-size: 16px; color: #AEB6C7">/ 22.5 s</span></span></div>
+<div style="display: flex; align-items: baseline; gap: 20px"><span class="mono" style="width: 96px; flex: none; font-size: 12px; color: #8891A5">Title 30</span><span style="font-size: 30px; font-weight: 600; letter-spacing: -0.02em">Hold still</span></div>
+<div style="display: flex; align-items: baseline; gap: 20px"><span class="mono" style="width: 96px; flex: none; font-size: 12px; color: #8891A5">Headline 18</span><span style="font-size: 18px; font-weight: 600">Re-process with different settings</span></div>
+<div style="display: flex; align-items: baseline; gap: 20px"><span class="mono" style="width: 96px; flex: none; font-size: 12px; color: #8891A5">Body 15</span><span style="font-size: 15px; color: #AEB6C7">Waiting for the tripod to settle. Hands off.</span></div>
+<div style="display: flex; align-items: baseline; gap: 20px"><span class="mono" style="width: 96px; flex: none; font-size: 12px; color: #8891A5">Label 12</span><span style="font-size: 12px; font-weight: 600; letter-spacing: 0.1em">ASTRO · BEST · TIME LEFT</span></div>
+<div style="display: flex; align-items: baseline; gap: 20px"><span class="mono" style="width: 96px; flex: none; font-size: 12px; color: #8891A5">Data 12</span><span class="mono" style="font-size: 12px">stars 312 · FWHM 1.6 px · drift 0.4 px</span></div>
+</div>
+</div>
+
+<div style="position: absolute; top: 640px; left: 680px; width: 544px">
+<div style="font-size: 12px; font-weight: 600; letter-spacing: 0.14em; color: #8891A5">ICONS · 24 GRID · 1.75 STROKE · ROUND</div>
+<div style="margin-top: 16px; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 10px 8px; color: #E8ECF4">
+<div style="display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12px; color: #AEB6C7"><span style="width: 48px; height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center; background: #12141C; color: #E8ECF4"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round" aria-hidden="true"><path d="M12 3C12.8 9 15 11.2 21 12C15 12.8 12.8 15 12 21C11.2 15 9 12.8 3 12C9 11.2 11.2 9 12 3Z"></path></svg></span>Astro</div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12px; color: #AEB6C7"><span style="width: 48px; height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center; background: #12141C; color: #E8ECF4"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><path d="M12 4a8 8 0 0 1 8 8"></path><path d="M12 7.5a4.5 4.5 0 0 1 4.5 4.5"></path><path d="M4 12a8 8 0 0 0 8 8"></path><path d="M7.5 12a4.5 4.5 0 0 0 4.5 4.5"></path><circle cx="12" cy="12" r="1.2"></circle></svg></span>Trails</div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12px; color: #AEB6C7"><span style="width: 48px; height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center; background: #12141C; color: #E8ECF4"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><path d="M4 4l9.5 9.5"></path><path d="M8.5 3.5l7 7"></path><path d="M3.5 8.5l7 7"></path><circle cx="16.5" cy="16.5" r="3"></circle></svg></span>Meteor</div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12px; color: #AEB6C7"><span style="width: 48px; height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center; background: #12141C; color: #E8ECF4"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="13" r="7.5"></circle><path d="M12 13l3.5-3.5"></path><path d="M12 3v1.5M4.2 6.2l1.1 1.1M19.8 6.2l-1.1 1.1"></path></svg></span>Pro mode</div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12px; color: #AEB6C7"><span style="width: 48px; height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center; background: #12141C; color: #E8ECF4"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="3"></rect><circle cx="9" cy="10" r="1.75"></circle><path d="M20.5 16l-4.5-4.5L7 20"></path></svg></span>Gallery</div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12px; color: #AEB6C7"><span style="width: 48px; height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center; background: #12141C; color: #FF5544"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"></path><circle cx="12" cy="12" r="2.75"></circle></svg></span>Night</div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12px; color: #AEB6C7"><span style="width: 48px; height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center; background: #12141C; color: #E8ECF4"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><path d="M6 4v3M6 11v9M12 4v9M12 17v3M18 4v2M18 10v10"></path><circle cx="6" cy="9" r="2"></circle><circle cx="12" cy="15" r="2"></circle><circle cx="18" cy="8" r="2"></circle></svg></span>Pro</div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12px; color: #AEB6C7"><span style="width: 48px; height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center; background: #12141C; color: #E8ECF4"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4M12 13l-5 8M12 13l5 8M12 13v8"></path><rect x="7" y="4" width="10" height="5" rx="1.5"></rect></svg></span>Tripod</div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12px; color: #AEB6C7"><span style="width: 48px; height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center; background: #12141C; color: #E8ECF4"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5.5M12 7.75v.01"></path></svg></span>Info</div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12px; color: #AEB6C7"><span style="width: 48px; height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center; background: #12141C; color: #E8ECF4"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"></rect><path d="M13.6 9a3.2 3.2 0 1 0 1.9 5.6A3.6 3.6 0 0 1 13.6 9z"></path></svg></span>Shield</div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12px; color: #AEB6C7"><span style="width: 48px; height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center; background: #12141C; color: #E8ECF4"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5z"></path><path d="M3 13l9 5 9-5"></path></svg></span>Stack</div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12px; color: #AEB6C7"><span style="width: 48px; height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center; background: #12141C; color: #E8ECF4"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="7"></circle><path d="M12 2.5v4M12 17.5v4M2.5 12h4M17.5 12h4"></path></svg></span>Focus</div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12px; color: #AEB6C7"><span style="width: 48px; height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center; background: #12141C; color: #E8ECF4"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="8"></circle><path d="M12 9v4l2.5 2.5M9.5 2.5h5"></path></svg></span>Timer</div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12px; color: #AEB6C7"><span style="width: 48px; height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center; background: #12141C; color: #FFC66E"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 14.5V5a2 2 0 0 1 4 0v9.5a4 4 0 1 1-4 0z"></path></svg></span>Heat</div>
+</div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
