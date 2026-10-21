@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -15,22 +14,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -42,21 +27,27 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.wm.starcam.engine.NativeEngine
+import com.wm.starcam.ui.components.ScButton
+import com.wm.starcam.ui.components.ScButtonKind
+import com.wm.starcam.ui.components.ScCard
+import com.wm.starcam.ui.components.ScLabel
+import com.wm.starcam.ui.components.ScNotice
+import com.wm.starcam.ui.components.ScScreen
+import com.wm.starcam.ui.components.ScSpinner
+import com.wm.starcam.ui.components.ScTopBar
+import com.wm.starcam.ui.components.Tone
+import com.wm.starcam.ui.theme.Sc
+import com.wm.starcam.ui.theme.ScIcons
+import com.wm.starcam.ui.theme.ScType
+import com.wm.starcam.ui.theme.ScreenMargin
 import com.wm.starcam.util.AppLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
-
-/** Green used for a passing verdict (visible but not blinding at night). */
-private val PassGreen = Color(0xFF6EDB8F)
 
 private data class SelfTestCheck(
     val name: String,
@@ -94,9 +85,9 @@ private fun parseSelfTestReport(raw: String): SelfTestReport {
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SelfTestScreen(onBack: () -> Unit) {
+    val c = Sc.colors
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -113,55 +104,22 @@ fun SelfTestScreen(onBack: () -> Unit) {
         logScroll.scrollTo(logScroll.maxValue)
     }
 
-    Scaffold(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
-        containerColor = MaterialTheme.colorScheme.background,
-        topBar = {
-            TopAppBar(
-                title = { Text("Engine self-test") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                    titleContentColor = MaterialTheme.colorScheme.onBackground,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
-                ),
-            )
-        },
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 16.dp),
-        ) {
+    ScScreen {
+        ScTopBar("Engine self-test", onBack, subtitle = "The stacking engine on a synthetic starfield")
+        Column(Modifier.weight(1f).fillMaxWidth().padding(horizontal = ScreenMargin)) {
             Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .verticalScroll(contentScroll),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                Modifier.weight(1f).fillMaxWidth().verticalScroll(contentScroll),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Spacer(Modifier.height(0.dp))
-
                 Text(
-                    text = "This test synthesizes an artificial starfield and runs it through " +
-                        "the full align/stack pipeline on this phone, validating the native " +
-                        "engine end to end. No camera or dark sky needed — it works fine in " +
-                        "daylight.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onBackground,
+                    "This test synthesizes an artificial starfield and runs it through the full " +
+                        "align/stack pipeline on this phone, validating the native engine end to end. " +
+                        "No camera or dark sky needed — it works fine in daylight.",
+                    style = ScType.body, color = c.text2,
                 )
 
-                Button(
+                ScButton(
+                    if (running) "Running (about a minute)…" else "Run self-test",
                     onClick = {
                         if (!running) {
                             running = true
@@ -182,10 +140,7 @@ fun SelfTestScreen(onBack: () -> Unit) {
                                 outcome.fold(
                                     onSuccess = { parsed ->
                                         report = parsed
-                                        AppLog.d(
-                                            "Self-test finished: " +
-                                                if (parsed.pass) "PASS" else "FAIL"
-                                        )
+                                        AppLog.d("Self-test finished: " + if (parsed.pass) "PASS" else "FAIL")
                                     },
                                     onFailure = { t ->
                                         errorMessage = t.message ?: t.toString()
@@ -196,111 +151,52 @@ fun SelfTestScreen(onBack: () -> Unit) {
                             }
                         }
                     },
+                    modifier = Modifier.fillMaxWidth(),
+                    kind = ScButtonKind.Primary,
                     enabled = !running,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(64.dp),
-                ) {
-                    Text(
-                        text = "Run self-test",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
+                    height = 52.dp,
+                )
 
                 if (running) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(28.dp),
-                            strokeWidth = 3.dp,
-                        )
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically) {
+                        ScSpinner(size = 24.dp)
                         Spacer(Modifier.width(12.dp))
-                        Text(
-                            text = "running (~1 min)",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onBackground,
-                        )
+                        Text("Stacking synthetic frames…", style = ScType.body, color = c.text2)
                     }
                 }
 
                 errorMessage?.let { msg ->
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        ),
-                    ) {
-                        Text(
-                            text = "Self-test could not run: $msg",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.padding(12.dp),
-                        )
-                    }
+                    ScNotice("Self-test could not run: $msg", tone = Tone.Error, icon = ScIcons.Warning)
                 }
 
                 report?.let { r ->
                     Text(
-                        text = if (r.pass) "PASS" else "FAIL",
-                        fontSize = 44.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (r.pass) PassGreen else MaterialTheme.colorScheme.error,
+                        if (r.pass) "PASS" else "FAIL",
+                        style = ScType.display,
+                        color = if (r.pass) c.accentText else c.error,
                         modifier = Modifier.align(Alignment.CenterHorizontally),
                     )
-
-                    r.checks.forEach { check ->
-                        CheckCard(check)
-                    }
-
+                    r.checks.forEach { check -> CheckCard(check) }
                     if (r.log.isNotBlank()) {
                         Text(
-                            text = r.log,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 11.sp,
-                            lineHeight = 15.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(MaterialTheme.colorScheme.surface)
-                                .padding(8.dp),
+                            r.log, style = ScType.data, color = c.text2,
+                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                                .background(c.surface).padding(10.dp),
                         )
                     }
                 }
-
-                Spacer(Modifier.height(0.dp))
+                Spacer(Modifier.height(4.dp))
             }
 
-            Text(
-                text = "Engine log",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
-            )
+            ScLabel("Engine log", Modifier.padding(top = 10.dp, bottom = 6.dp))
             Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(150.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(MaterialTheme.colorScheme.surface)
-                    .verticalScroll(logScroll)
-                    .padding(8.dp),
+                Modifier.fillMaxWidth().height(150.dp).clip(RoundedCornerShape(12.dp))
+                    .background(c.surface).verticalScroll(logScroll).padding(10.dp),
             ) {
                 Text(
-                    text = if (logLines.isEmpty()) {
-                        "(no log output yet)"
-                    } else {
-                        logLines.joinToString("\n")
-                    },
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 11.sp,
-                    lineHeight = 15.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    if (logLines.isEmpty()) "(no log output yet)" else logLines.joinToString("\n"),
+                    style = ScType.data, color = c.text3,
                 )
             }
             Spacer(Modifier.height(12.dp))
@@ -310,40 +206,20 @@ fun SelfTestScreen(onBack: () -> Unit) {
 
 @Composable
 private fun CheckCard(check: SelfTestCheck) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-        ),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+    val c = Sc.colors
+    ScCard(Modifier.fillMaxWidth(), color = c.tile) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
-                imageVector = if (check.pass) Icons.Default.Check else Icons.Default.Close,
-                contentDescription = if (check.pass) "Passed" else "Failed",
-                tint = if (check.pass) PassGreen else MaterialTheme.colorScheme.error,
-                modifier = Modifier.size(28.dp),
+                if (check.pass) ScIcons.CheckCircle else ScIcons.Warning,
+                if (check.pass) "Passed" else "Failed",
+                Modifier.size(24.dp),
+                tint = if (check.pass) c.accent else c.error,
             )
             Spacer(Modifier.width(12.dp))
             Column {
-                Text(
-                    text = check.name,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    text = "value ${check.value}   limit ${check.limit}",
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Text(check.name, style = ScType.headline, color = c.text)
+                Text("value ${check.value}   limit ${check.limit}", style = ScType.data, color = c.text3,
+                    modifier = Modifier.padding(top = 2.dp))
             }
         }
     }

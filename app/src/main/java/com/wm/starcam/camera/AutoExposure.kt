@@ -6,7 +6,7 @@ import kotlin.math.ceil
 
 /**
  * Chooses exposure/ISO/frame count from the probe frame (PLAN.md §5.1). Every output is shown in
- * the HUD with its reasoning and is overridable in the Pro panel.
+ * the HUD with its reasoning and is overridable in the Pro sheet and Settings.
  */
 object AutoExposure {
 

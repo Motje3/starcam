@@ -10,7 +10,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import com.wm.starcam.StarCamViewModel
+import com.wm.starcam.camera.CamInfo
 import com.wm.starcam.util.AppLog
+
+/**
+ * Width / height of the viewfinder in portrait: the sensor is landscape, the app portrait, so the
+ * camera's preview size is flipped. Shared so overlays can be laid out on exactly the same box.
+ */
+fun previewAspect(cam: CamInfo?): Float =
+    cam?.previewSize()?.let { it.height.toFloat() / it.width } ?: 0.75f
 
 /**
  * The camera viewfinder: a SurfaceView fixed to a camera-supported size so it is never stretched,
@@ -22,9 +30,9 @@ fun CameraPreview(vm: StarCamViewModel, modifier: Modifier = Modifier) {
     val camInfo by vm.camInfo.collectAsState()
     val previewSize = remember(camInfo) { camInfo?.previewSize() }
     // Compose aspectRatio is width/height; the sensor is landscape, the app portrait.
-    val previewAspect = previewSize?.let { it.height.toFloat() / it.width } ?: 0.75f
+    val aspect = previewSize?.let { it.height.toFloat() / it.width } ?: 0.75f
     AndroidView(
-        modifier = modifier.aspectRatio(previewAspect),
+        modifier = modifier.aspectRatio(aspect),
         factory = { ctx ->
             SurfaceView(ctx).apply {
                 holder.addCallback(object : SurfaceHolder.Callback {

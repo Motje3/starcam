@@ -13,12 +13,14 @@ frame for PC stacking (Siril/PixInsight/Sequator).
 - **METEOR** — continuous capture + streak detection; planes/satellites classified out (beta)
 - **PRO** — full manual everything
 
-Every automatic decision is overridable in the Pro panel (30+ toggles/sliders), including
-"stack on device" off = pure RAW intervalometer. Red night-vision UI with screen dim. Gyro
-stillness gating + per-frame bump rejection. Thermal-aware frame pacing. Live stack preview
-while capturing. Built-in **engine self-test** (synthetic starfield through the real pipeline —
-verify the math in daylight) and a **capability probe** that dumps everything the OnePlus 15
-exposes through Camera2.
+The capture screen keeps to the essentials (viewfinder, mode, preset, shutter); the **Pro sheet**
+holds the quick manual overrides and **Settings** every automatic decision (40+ settings in eight
+tabs, searchable, each with a plain-language explanation), including "stack on device" off = pure
+RAW intervalometer. Each session step has its own full screen with live clocks, the live stack and
+a frame tape. Red night-vision UI with screen dim. Gyro stillness gating + per-frame bump
+rejection. Thermal-aware frame pacing. Built-in **engine self-test** (synthetic starfield through
+the real pipeline — verify the math in daylight) and a **capability probe** that dumps everything
+the OnePlus 15 exposes through Camera2. UI design: `design/handoff/` (tokens, screens, components).
 
 ## Stack
 Kotlin + Jetpack Compose (Material3, dark-only) · Camera2 directly (no CameraX) · C++17 native

@@ -11,7 +11,7 @@
 #   powershell -ExecutionPolicy Bypass -File tools\device-test.ps1 -Frames 5 -ExposureMs 20000 -Recovery
 #
 # Debug switches (map on every frame, frame duration, preview stream) are set in the app's
-# Pro panel -> Debug; this script uses whatever is set there.
+# Settings -> Advanced; this script uses whatever is set there.
 
 param(
     [int]$Frames = 5,
@@ -20,7 +20,7 @@ param(
     [switch]$Recovery,
     [switch]$NoWork,
     [switch]$SkipInstall,
-    # Per-run overrides of the Pro -> Debug switches (otherwise the phone's settings apply).
+    # Per-run overrides of the Settings -> Advanced switches (otherwise the phone's settings apply).
     [switch]$NoFresh,        # keep one session through long exposures (reproduces the old hang)
     [switch]$NoPreview,      # RAW-only capture session
     [switch]$FrameDuration,  # set SENSOR_FRAME_DURATION explicitly

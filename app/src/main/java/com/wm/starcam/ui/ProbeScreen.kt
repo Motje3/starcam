@@ -8,33 +8,27 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.wm.starcam.camera.CapabilityProbe
+import com.wm.starcam.ui.components.ScIconButton
+import com.wm.starcam.ui.components.ScScreen
+import com.wm.starcam.ui.components.ScSpinner
+import com.wm.starcam.ui.components.ScTopBar
+import com.wm.starcam.ui.theme.Sc
+import com.wm.starcam.ui.theme.ScIcons
+import com.wm.starcam.ui.theme.ScType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -45,7 +39,6 @@ private const val PROBING_PLACEHOLDER = "probing..."
  * camera HAL exposes to third-party apps. Must never crash: the probe runs inside
  * runCatching and any exception is rendered into the report text instead.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProbeScreen(onBack: () -> Unit) {
     val context = LocalContext.current
@@ -60,81 +53,37 @@ fun ProbeScreen(onBack: () -> Unit) {
         }
     }
 
-    Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        containerColor = MaterialTheme.colorScheme.background,
-        topBar = {
-            TopAppBar(
-                title = { Text("Capability probe") },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                    titleContentColor = MaterialTheme.colorScheme.onBackground,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
-                    actionIconContentColor = MaterialTheme.colorScheme.onBackground,
-                ),
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                        )
+    ScScreen {
+        ScTopBar(
+            "Capability probe", onBack,
+            subtitle = "What this camera exposes to apps",
+            actions = {
+                ScIconButton(ScIcons.Log, "Copy report", { clipboard.setText(AnnotatedString(report)) }, filled = false)
+                ScIconButton(ScIcons.Share, "Share report", {
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_SUBJECT, "StarCam capability probe")
+                        putExtra(Intent.EXTRA_TEXT, report)
                     }
-                },
-                actions = {
-                    IconButton(onClick = {
-                        clipboard.setText(AnnotatedString(report))
-                    }) {
-                        Icon(
-                            imageVector = Icons.Filled.ContentCopy,
-                            contentDescription = "Copy report",
-                        )
+                    runCatching {
+                        context.startActivity(Intent.createChooser(send, "Share probe report"))
                     }
-                    IconButton(onClick = {
-                        val send = Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_SUBJECT, "StarCam capability probe")
-                            putExtra(Intent.EXTRA_TEXT, report)
-                        }
-                        runCatching {
-                            context.startActivity(
-                                Intent.createChooser(send, "Share probe report")
-                            )
-                        }
-                    }) {
-                        Icon(
-                            imageVector = Icons.Filled.Share,
-                            contentDescription = "Share report",
-                        )
-                    }
-                },
-            )
-        },
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState()),
-        ) {
+                }, filled = false)
+            },
+        )
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
             if (report == PROBING_PLACEHOLDER) {
-                LinearProgressIndicator(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                )
-            }
-            SelectionContainer {
-                Text(
-                    text = report,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    color = MaterialTheme.colorScheme.onBackground,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 12.sp,
-                    lineHeight = 16.sp,
-                    softWrap = true,
-                )
+                ScSpinner(Modifier.align(Alignment.CenterHorizontally).padding(24.dp), size = 28.dp)
+            } else {
+                SelectionContainer {
+                    Text(
+                        text = report,
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        style = ScType.data,
+                        color = Sc.colors.text2,
+                        softWrap = true,
+                    )
+                }
             }
         }
     }

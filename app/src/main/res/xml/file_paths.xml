@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- What the FileProvider may hand to other apps: only the debug bundles built for sharing. -->
+<!-- What the FileProvider may hand to other apps: the debug bundles built for sharing, and the
+     finished photos in the sessions folder (Share / Open on the Done and session screens). Only
+     the exact files the app shares are ever granted. -->
 <paths>
     <cache-path name="share" path="share/" />
+    <external-media-path name="sessions" path="StarCam/sessions/" />
 </paths>

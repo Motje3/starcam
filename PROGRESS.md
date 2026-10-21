@@ -1,5 +1,40 @@
 # StarCam build progress (PLAN.md §10)
 
+## UI redesign, 0.3.0 (2026-10-21)
+
+The whole interface was rebuilt on the design handoff in `design/handoff/` (24 boards, tokens,
+Geist type, one icon set, red night vision), made more compact than the mockups so the controls
+leave the viewfinder room. Frontend only: the camera, capture engine, stacking and settings model
+are untouched; every screen reads the same state and calls the same functions as before.
+
+- **Theme** (`ui/theme`): design tokens for dark and night vision, Geist + Geist Mono bundled
+  (SIL OFL, licence in Settings › Advanced), 40 stroke icons ported path for path from the
+  handoff. Night vision recolours every surface red; photos and the live stack are shown through a
+  grayscale × red filter; the camera's own preview (a SurfaceView, untouched so the camera
+  pipeline stays exactly as tested) is dimmed and tinted instead.
+- **Components** (`ui/components`): buttons, chips, segmented controls, switch, slider, rings,
+  spinner, the seven-step session strip, frame tape, shutter, status pill, notices, setting rows.
+- **Capture screen**: status + lens on one 54 dp row, the viewfinder (rounded, thirds grid, plan
+  line inside it), mode tabs, one preset/duration row and one bottom bar - about 240 dp of
+  controls instead of the mockup's ~310. The plan line shows what the shutter will do (exposure
+  from the lens's NPF limit, frames, darks); it is computed with the engine's own rule, before
+  shooting, without inventing the ISO the test frame will pick. Wider-lens tip (tap to switch),
+  spirit level as a horizon line, night dimmer on the viewfinder in night vision.
+- **Pro sheet**: shutter / ISO / frames tiles with a stepper, focus, start delay, four switches.
+- **Session flow**: one full screen per step (hold still with a live gyro trace, reading the sky,
+  star focus with the sweep position, capturing with live stack, frame ring, time left and frame
+  tape, cover the lens, dark frames, stacking stages, done with Share / Open / Re-process, error
+  with what was saved and what to do next). The idle layout stays composed underneath, so the
+  viewfinder surface that is part of the camera session is never destroyed mid-capture.
+  Stopping a capture now asks first.
+- **Settings** replaces the Pro panel: eight tabs plus search over every setting, each with its
+  (i) explanation. Troubleshooting switches, Diagnostics, probe and self-test live under Advanced.
+- **Sessions** is a grid with status per session (finished, RAWs only, interrupted, meteors);
+  **session detail** has pinch-zoom, stats, the same re-stack and delete, and Share / Open.
+- **First launch**: three intro cards, then the camera permission asked in context.
+- Smaller fixes on the way: photos are decoded downsampled in the session detail (a 50 MP stack
+  was decoded at full size); the camera-problem card no longer blocks Sessions and Settings.
+
 ## Field-debugging pass, 0.2.0 → 0.2.1 (2026-10-21)
 
 Field sessions kept dying at the 2nd light frame with `capture failed: capture failed: reason 0`

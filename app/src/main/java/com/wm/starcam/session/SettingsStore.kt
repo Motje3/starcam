@@ -79,7 +79,7 @@ data class AppSettings(
     val haptics: Boolean = true,
     /** Spirit level readout on the capture screen. Only useful for landscape-astro framing. */
     val showLevel: Boolean = false,
-    // Camera debugging (Pro panel → Debug). The defaults are the production behaviour; each
+    // Camera debugging (Settings → Advanced). The defaults are the production behaviour; each
     // switch exists to A/B one suspect at home when the camera misbehaves in the field.
     /** When a frame fails: abort → fresh session → reopen the camera, instead of one plain retry. */
     val cameraRecovery: Boolean = true,

@@ -5,11 +5,11 @@ to switch on. The aim is that any failure in the field can be fully explained at
 
 ## In the field (no laptop)
 
-- **Something failed?** The error card has a **Share log** button. It zips the logs and the recent
+- **Something failed?** The error screen has a **Share log** button. It zips the logs and the recent
   sessions' details (never the images) and opens the share sheet. Mail it to yourself, or send it
   over WhatsApp or Drive. Or just bring the phone home; everything stays on it.
-- The same is under **quick bar → ⌄ (more) → logs → Share debug bundle**, and that screen also
-  shows the live log.
+- The same is under **Settings → Advanced → Diagnostics → Share debug report**, and that screen
+  also shows the live log.
 - The files live at `Android/media/com.wm.starcam/StarCam/` and are visible in the phone's Files
   app and over USB:
   - `logs/app_<start time>.log`: the app's log, one file per app start.
@@ -38,13 +38,13 @@ Start with the newest `logs\app_*.log`, or the session's `meta\session.log`, and
 
 ## Reproducing camera problems without a night sky
 
-**Diagnostics → Camera test** shoots N frames exactly the way a session does: the same requests,
+**Settings → Advanced → Diagnostics → Camera test** shoots N frames exactly the way a session does: the same requests,
 probe frame, white-balance lock, and the same work between frames (native ingest + DNG). Lay the
 phone face down or cover the lens, then run **5 × 20 s**. The field failure happened at the 2nd
 light frame, so a test like this replays it in about two minutes. Results show per frame, and
 every request and callback is in the log.
 
-**Pro panel → Debug** has one switch per camera behaviour. Flip one, rerun the test, and compare:
+**Settings → Advanced** has one switch per camera behaviour. Flip one, rerun the test, and compare:
 
 | Switch | Default | What it controls |
 |---|---|---|

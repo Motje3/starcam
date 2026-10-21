@@ -34,6 +34,9 @@ data class SessionSummary(
     val frameCount: Int,
     val finished: Boolean,
     val finalJpg: File?,
+    /** Problems recorded in session.json (a camera failure, a lost dark frame). */
+    val issueCount: Int = 0,
+    val meteorCount: Int = 0,
 )
 
 /**
@@ -273,6 +276,8 @@ class SessionRepository(private val context: Context) {
                 frameCount = json?.optJSONArray("frames")?.length() ?: 0,
                 finished = json?.has("result") == true,
                 finalJpg = jpg,
+                issueCount = json?.optJSONArray("issues")?.length() ?: 0,
+                meteorCount = json?.optJSONObject("result")?.optInt("meteorCount", 0) ?: 0,
             )
         }
     }

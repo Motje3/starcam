@@ -36,7 +36,7 @@ object CameraTest {
         val simulateWork: Boolean = true,
         /** Repair the camera on failure like a session does; off shows the raw failure pattern. */
         val recovery: Boolean = false,
-        // Per-run overrides of the Pro → Debug switches (null = use the setting), so a PC can
+        // Per-run overrides of the Settings → Advanced switches (null = use the setting), so a PC can
         // A/B them over adb without touching the phone's settings.
         val previewInSession: Boolean? = null,
         val freshSession: Boolean? = null,
