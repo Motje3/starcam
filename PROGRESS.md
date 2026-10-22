@@ -1,5 +1,50 @@
 # StarCam build progress (PLAN.md §10)
 
+## The overnight session, 0.4.0 (2026-10-23)
+
+### StarCam 2 processing (Settings › Look › Processing; Classic kept)
+
+Judged with `tools\postlab` (DEBUGGING.md): the engine's post-processing as a command-line tool on
+the emulator, run on a synthetic nightscape with known ground truth — light pollution towards the
+horizon and one side, residual vignetting, a Milky Way band with dust lanes, 40 000 coloured
+stars, a dark landscape with trees and two house lights, stack noise correlated like demosaiced
+data — and measured: sky level and flatness, Milky Way contrast, landscape level, star colour,
+noise. On it the classic pipeline left a grey sky (0.36), lifted the landscape to nearly the same
+grey (0.33: its gradient polynomial was fitted through the dark ground), and turned every star
+white (saturation 0.04).
+
+- **The landscape is found** (post2.cpp): star-free cells darker than the sky, along the edge that
+  faces the ground (from the phone's attitude, or every edge is tried), refined to the pixel by
+  each column's sky-to-ground step, trees included.
+- **The light-pollution gradient is fitted to the sky alone**, Milky Way cells rejected
+  iteratively; cubic when the sky fills the frame, quadratic over the smaller sky above a
+  landscape (a cubic there eats into the Milky Way). The ground is left as it is.
+- **Sky and ground each get their own black point and stretch.** The sky's black point comes
+  from the sky (classic took the darkest pixels of the frame: the ground), so the sky is dark
+  again; the landscape lands at its own level with its detail. Along the horizon each pixel's
+  own brightness decides which curve it gets, so silhouettes stay sharp without the dark outline
+  a positional blend drew.
+- **Star colour survives**: background neutralized with offsets (not gains), chroma denoise no
+  longer runs over stars, extra colour in stars, over-range colours scaled instead of clipped.
+- **Noise reduction**: a two-scale a-trous wavelet on the luma, Wiener-style gain against the
+  sky's measured noise, stars excluded, in strips of rows (bounded memory at any resolution).
+- Nightfall adapted to the darker sky; star sharpening ported.
+
+Synthetic nightscape, classic → StarCam 2: sky 0.36 → 0.14, sky flatness 0.159 → 0.061, landscape
+0.33 → 0.06 (with detail), star saturation red/blue 0.04/0.03 → 0.35/0.15, hue right 55% → 95%.
+Without a landscape the cubic model flattens the sky 0.162 → 0.069. Classic's output is
+byte-identical to 0.3.3's (hash-checked); the self-test gained a v2 sanity check.
+
+### Photos come out upright
+
+Frames were stacked and saved in sensor orientation, so a photo shot with the phone upright (the
+way the app is held) came out lying on its side, and one shot in landscape with the phone turned
+the "wrong" way came out upside down. Now the phone's attitude is read from the accelerometer
+when the burst starts (OrientationEventListener's maths, ImageRotation.kt; flat on its back
+counts as upright portrait, like the viewfinder): the JPEG, the master TIFF and the live stack
+preview are written turned, the DNGs carry the orientation tag, and the processing knows which
+edge the ground is on. Older sessions, which recorded nothing, look for it along every edge.
+
 ## Production readiness, 0.3.3 (2026-10-22)
 
 - **Target SDK 36.** Google Play takes new apps and updates only when they target Android 16

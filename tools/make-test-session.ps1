@@ -15,6 +15,8 @@
 param(
     [string]$Name = (Get-Date -Format 'yyyyMMdd') + '_030000_astro',
     [int]$Frames = 8,
+    # Recorded as the clockwise turn that makes the photo upright (-1: not recorded, as before 0.4).
+    [int]$Rotation = -1,
     [switch]$Push,
     [string]$Serial = ''
 )
@@ -88,7 +90,10 @@ public static class StarCamTestSession {
                 for (int y = Math.Max(0, y0); y <= Math.Min(H - 1, y1); y++)
                     for (int x = Math.Max(0, x0); x <= Math.Min(W - 1, x1); x++) {
                         double d2 = (x - px) * (x - px) + (y - py) * (y - py);
-                        img[y * W + x] += sa[i] * Math.Exp(-d2 / (2 * sigma * sigma));
+                        // Tinted like the sky, so the stars come out white after white balance
+                        // (untinted they were raw-white, i.e. magenta once balanced).
+                        img[y * W + x] += sa[i] * Math.Exp(-d2 / (2 * sigma * sigma)) *
+                            skyTint[((y & 1) << 1) | (x & 1)];
                     }
             }
             if (f == 5)
@@ -130,7 +135,8 @@ $framesJson = (0..($Frames - 1) | ForEach-Object {
 }) -join ','
 $json = '{"header":{"mode":"ASTRO","quality":"FAST","stackConfig":{"sigmaFirst":3.5,"sigmaFinal":2.8,' +
     '"hotPixelFix":true,"lensShading":true,"gradientRemoval":true,"stretchStrength":1,"saturation":1.25,' +
-    '"chromaDenoise":true,"starSharpen":false,"foregroundComposite":false,"featherPx":40,"style":0},' +
+    '"chromaDenoise":true,"starSharpen":false,"foregroundComposite":false,"featherPx":40,"style":0' +
+    $(if ($Rotation -ge 0) { ",`"rotation`":$Rotation" } else { '' }) + '},' +
     "`"startedAt`":$startedAt,`"rawWidth`":1856,`"rawHeight`":1392,`"exposureNs`":20000000000,`"iso`":800," +
     "`"plannedFrames`":$Frames,`"reasoning`":`"synthetic test session (tools\\make-test-session.ps1)`"}," +
     "`"frames`":[$framesJson]}"

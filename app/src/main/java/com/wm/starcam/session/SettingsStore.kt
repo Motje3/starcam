@@ -66,6 +66,11 @@ data class AppSettings(
     val starSharpen: Boolean = false,
     /** 0 = natural color (default), 1 = "nightfall" purple-blue grade (opt-in). */
     val style: Int = 0,
+    /**
+     * Processing generation: 2 = current (landscape-aware, darker sky, star colour), 1 = the 0.3
+     * "Classic" look, kept so the two can be compared.
+     */
+    val look: Int = 2,
     val foregroundComposite: Boolean = false,
     // Motion
     val gyroStillThreshold: Float = 0.006f,
@@ -107,6 +112,7 @@ data class AppSettings(
         chromaDenoise = chromaDenoise,
         starSharpen = starSharpen,
         style = style,
+        version = look,
         // Insane preset implies foreground compositing; elsewhere it follows the user toggle.
         // Suppressed at full-res: the composite holds the sky stack, the ground stack, the blend
         // and the mask simultaneously, which is ~2 GB at 50 MP and gets the app killed.
@@ -203,6 +209,7 @@ class SettingsStore(context: Context) {
                 chromaDenoise = prefs.getBoolean("chromaDenoise", d.chromaDenoise),
                 starSharpen = prefs.getBoolean("starSharpen", d.starSharpen),
                 style = prefs.getInt("style", d.style).coerceIn(0, 1),
+                look = prefs.getInt("look", d.look).coerceIn(1, 2),
                 foregroundComposite = prefs.getBoolean("foregroundComposite", d.foregroundComposite),
                 gyroStillThreshold = prefs.getFloat("gyroStillThreshold", d.gyroStillThreshold),
                 gyroBumpThreshold = prefs.getFloat("gyroBumpThreshold", d.gyroBumpThreshold),
@@ -261,6 +268,7 @@ class SettingsStore(context: Context) {
             .putBoolean("chromaDenoise", s.chromaDenoise)
             .putBoolean("starSharpen", s.starSharpen)
             .putInt("style", s.style)
+            .putInt("look", s.look)
             .putBoolean("foregroundComposite", s.foregroundComposite)
             .putFloat("gyroStillThreshold", s.gyroStillThreshold)
             .putFloat("gyroBumpThreshold", s.gyroBumpThreshold)

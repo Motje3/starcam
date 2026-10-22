@@ -67,6 +67,25 @@ object NativeEngine {
     /** Synthetic end-to-end pipeline validation. Returns JSON report. Blocking (~1 min). */
     external fun runSelfTest(tmpDir: String): String
 
+    // ---- Editing studio: a session's linear master developed again with new settings ----
+
+    /** Opens [tiffPath] (a master_linear16.tiff) with a preview of at most [previewLongEdge]. 0 = failed. */
+    external fun studioOpen(tiffPath: String, previewLongEdge: Int): Long
+
+    /** {width, height, previewWidth, previewHeight} of the master as stored. */
+    external fun studioInfo(handle: Long): String
+
+    /**
+     * Develops the preview into [bitmap] (ARGB_8888, exactly the preview size turned by the
+     * options' "rotation"). Blocking, well under a second at preview size.
+     */
+    external fun studioRender(handle: Long, optionsJson: String, bitmap: Bitmap): Boolean
+
+    /** Develops the full master and writes RGB8 to [outPath]. Returns {ok, error, width, height}. */
+    external fun studioExport(handle: Long, optionsJson: String, outPath: String): String
+
+    external fun studioClose(handle: Long)
+
     interface ProgressCallback {
         fun onProgress(stage: String, percent: Int)
     }

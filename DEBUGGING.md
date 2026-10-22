@@ -132,6 +132,27 @@ recents crash in the emulator's graphics (system_server restarts): drive it with
 app, take screenshots with `adb emu screenrecord screenshot <dir>` and dump the UI to
 `/data/local/tmp`.
 
+## Judging the processing: tools\postlab
+
+`tools\postlab\run.ps1` builds the engine's post-processing (post.cpp, post2.cpp) as a
+command-line tool for the x86_64 emulator, runs it there and pulls the pictures back into
+`field-logs\postlab\<time>\` as PNG: the whole frame at 1/4 and three 1:1 crops (horizon, a dense
+part of the Milky Way, plain sky) per variant. Without arguments it renders a synthetic
+nightscape with known ground truth and prints metrics for classic and v2 side by side:
+
+```
+classic  sky 0.358 flat 0.1585  mw +0.0975  ground 0.331  horizon +0.1401  starSat red 0.039 blue 0.028 ...
+v2       sky 0.137 flat 0.0611  mw +0.1153  ground 0.061  horizon +0.0185  starSat red 0.345 blue 0.145 ...
+```
+
+sky = display level of the clean sky; flat = spread of its 64 px block medians (lower is flatter);
+mw = Milky Way above sky; ground = landscape level; horizon = sky just above the horizon against
+the rest; starSat = colour of clearly red / blue stars; noise = pixel-scale luma and chroma noise.
+`-LabArgs` passes options: `--nofg`, `--nomw`, `--nograd`, `--noise 2.5`, `--rot90` (landscape on
+the left), a variant list (`classic`, `v2`) and post parameters (`sky=0.14 gap=0.2 ground=0.05
+gs=1 nr=0.8 starc=0.6 style=1 sharpen=1 order=3 down=0`). `-Tiff <session>\out\master_linear16.tiff`
+develops a real session's master instead: the way to judge a change on real sky data.
+
 ## Reading a log line
 
 ```

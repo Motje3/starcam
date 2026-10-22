@@ -469,7 +469,8 @@ class StarCamViewModel(app: Application) : AndroidViewModel(app) {
                         }
                     }
                 }
-                val cfg = adjust(base)
+                // A re-stack is developed with the look chosen now (Settings › Look › Processing).
+                val cfg = adjust(base).copy(version = settingsStore.settings.value.look)
                 AppLog.i(TAG, "re-stack ${dir.name}: ${repo.cacheFrames(dir).size} frames, " +
                     "${bumped.size} bumped left out, options ${cfg.toJson()}")
                 val result = Restacker.restack(dir, repo.cacheFrames(dir), cfg, mode.ordinal, bumped) {

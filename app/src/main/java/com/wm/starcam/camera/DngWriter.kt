@@ -2,16 +2,19 @@ package com.wm.starcam.camera
 
 import android.hardware.camera2.DngCreator
 import com.wm.starcam.util.AppLog
+import com.wm.starcam.util.ImageRotation
 import java.io.File
 import java.io.FileOutputStream
 
 /** Archival DNG writing (PLAN.md §3.3). Failure-tolerant: OnePlus quirks must not kill a session. */
 object DngWriter {
 
-    fun write(cam: CamInfo, shot: CapturedRaw, file: File): Boolean {
+    /** [rotation]: clockwise turn that makes the frame upright, recorded as the DNG orientation. */
+    fun write(cam: CamInfo, shot: CapturedRaw, file: File, rotation: Int = 0): Boolean {
         return try {
             file.parentFile?.mkdirs()
             DngCreator(cam.characteristics, shot.result).use { dng ->
+                dng.setOrientation(ImageRotation.exifOrientation(rotation))
                 FileOutputStream(file).use { out ->
                     dng.writeImage(out, shot.image)
                 }

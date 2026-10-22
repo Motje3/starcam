@@ -841,8 +841,15 @@ private fun LiveStackCard(
 ) {
     val c = Sc.colors
     var image by remember { mutableStateOf<ImageBitmap?>(null) }
-    val buffer = remember { Bitmap.createBitmap(960, 720, Bitmap.Config.ARGB_8888) }
-    LaunchedEffect(refreshKey) {
+    // The engine draws the stack turned upright like the final photo: portrait when the phone
+    // was upright.
+    val rotation = vm.engine?.rotation?.collectAsState()?.value ?: 0
+    val portrait = rotation == 90 || rotation == 270
+    val buffer = remember(portrait) {
+        if (portrait) Bitmap.createBitmap(720, 960, Bitmap.Config.ARGB_8888)
+        else Bitmap.createBitmap(960, 720, Bitmap.Config.ARGB_8888)
+    }
+    LaunchedEffect(refreshKey, portrait) {
         withContext(Dispatchers.Default) {
             if (vm.engine?.fillPreview(buffer) == true) {
                 // A copy, so Compose never reads the buffer while the next fill writes it.
@@ -851,8 +858,8 @@ private fun LiveStackCard(
         }
     }
     Box(
-        Modifier.fillMaxWidth().aspectRatio(4f / 3f).clip(ScShapes.card).background(c.sunken)
-            .border(1.dp, c.hairline, ScShapes.card),
+        Modifier.fillMaxWidth().aspectRatio(if (portrait) 3f / 4f else 4f / 3f).clip(ScShapes.card)
+            .background(c.sunken).border(1.dp, c.hairline, ScShapes.card),
     ) {
         val img = image
         if (img != null) {

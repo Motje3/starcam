@@ -2,6 +2,7 @@ package com.wm.starcam.camera
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CaptureFailure
 import android.hardware.camera2.CaptureResult
 import android.net.Uri
@@ -24,6 +25,7 @@ import com.wm.starcam.session.SessionRepository
 import com.wm.starcam.session.SettingsStore
 import com.wm.starcam.util.AppLog
 import com.wm.starcam.util.Diagnostics
+import com.wm.starcam.util.ImageRotation
 import com.wm.starcam.util.MediaSaver
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -120,6 +122,10 @@ class CaptureEngine(
 
     private val _decision = MutableStateFlow<AutoExposure.Decision?>(null)
     val decision: StateFlow<AutoExposure.Decision?> = _decision
+
+    /** Clockwise turn that makes the running session's photo upright; the live stack uses it. */
+    private val _rotation = MutableStateFlow(0)
+    val rotation: StateFlow<Int> = _rotation
 
     private val _focus = MutableStateFlow<FocusSweep.Result?>(null)
     val focus: StateFlow<FocusSweep.Result?> = _focus
@@ -533,6 +539,16 @@ class CaptureEngine(
             if (stopRequested()) return finishCancelled()
 
             // ---- Session + native engine ----
+            // Which way up the photo is: the phone's attitude now, settled on the tripod before
+            // the first frame. The frames stay in sensor orientation; the outputs are turned.
+            val sensorOrientation =
+                cam.characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
+            val deviceDeg = motion.deviceOrientationDeg()
+            val rotation = ImageRotation.forBackCamera(sensorOrientation, deviceDeg)
+            _rotation.value = rotation
+            AppLog.i(TAG, "orientation: sensor $sensorOrientation, phone ${deviceDeg ?: "flat"} -> " +
+                "photo turned $rotation")
+            val stackCfg = s.stackConfig().copy(rotation = rotation)
             paths = repo.newSession(s.mode)
             // Removed in finally. One still present at the next app start means this session was
             // cut off (crash, kill) - the app then says so instead of showing a plain viewfinder.
@@ -544,7 +560,7 @@ class CaptureEngine(
                 if (s.mode == Mode.ASTRO) put("quality", s.quality.name)
                 // What this session was stacked with, so a later re-stack starts from the same
                 // options (an INSANE foreground blend, a changed hot-pixel setting) and not defaults.
-                put("stackConfig", JSONObject(s.stackConfig().toJson()))
+                put("stackConfig", JSONObject(stackCfg.toJson()))
                 put("startedAt", System.currentTimeMillis())
                 put("rawWidth", rawSize.width)
                 put("rawHeight", rawSize.height)
@@ -599,6 +615,7 @@ class CaptureEngine(
                 // was even written; now they go only once the photo is safely saved (below).
                 put("keepCache", true)
                 put("livePreview", s.livePreview)
+                put("rotation", rotation)
             }.toString()
             handleLock.withLock { engineHandle = NativeEngine.createSession(config) }
             if (engineHandle == 0L) {
@@ -746,7 +763,7 @@ class CaptureEngine(
                         beginBusy("writing DNG ${i + 1}")
                         val t1 = SystemClock.elapsedRealtime()
                         val f = File(paths.lights, "frame_%04d.dng".format(i))
-                        if (DngWriter.write(cam, shot, f)) dngName = f.name
+                        if (DngWriter.write(cam, shot, f, rotation)) dngName = f.name
                         else dngFailures++
                         dngMs = SystemClock.elapsedRealtime() - t1
                     }
@@ -959,7 +976,7 @@ class CaptureEngine(
                                 // actually reached the accumulator belong in the master dark.
                                 darksCaptured++
                                 if (s.saveDngs) {
-                                    DngWriter.write(cam, shot, File(paths.darks, "dark_%04d.dng".format(d)))
+                                    DngWriter.write(cam, shot, File(paths.darks, "dark_%04d.dng".format(d)), rotation)
                                 }
                             }
                         } finally {
@@ -993,7 +1010,7 @@ class CaptureEngine(
             }
             setState(CaptureState.Stacking("prepare", 0))
             beginBusy("preparing the stack")
-            val optionsJson = s.stackConfig().toJson()
+            val optionsJson = stackCfg.toJson()
             var lastStage = ""
             val stackT0 = SystemClock.elapsedRealtime()
             AppLog.i(TAG, "stacking $captured frames (+$darksCaptured darks): $optionsJson")

@@ -626,12 +626,58 @@ std::string run_impl(const std::string& tmpDir, std::vector<std::string>& paths)
         add_log(log, "postprocess smoke ok");
     }
 
+    // ---- check 6: the v2 pipeline gives a finite, in-range picture with a dark sky ----
+    double v2Median = -1.0;
+    bool v2Finite = true;
+    {
+        ImageF v2 = stackImg;
+        PostParams pp;
+        pp.version = 2;
+        ProgressFn pprog = [](const char*, int) {};
+        postprocess(v2, pp, pprog);
+        std::vector<float> lum;
+        lum.reserve(v2.d.size() / 3);
+        for (size_t i = 0; i + 2 < v2.d.size(); i += 3) {
+            for (int c = 0; c < 3; ++c) {
+                const float v = v2.d[i + c];
+                if (!(v >= 0.0f && v <= 1.0f)) v2Finite = false;
+            }
+            lum.push_back((v2.d[i] + v2.d[i + 1] + v2.d[i + 2]) * (1.0f / 3.0f));
+        }
+        if (!lum.empty()) v2Median = median_of(lum);
+    }
+    const bool c6 = v2Finite && v2Median >= 0.03 && v2Median <= 0.40;
+    add_log(log, "check6 post v2: finite %s, sky median %.3f (%s)", v2Finite ? "yes" : "NO", v2Median,
+            c6 ? "PASS" : "FAIL");
+
+    // ---- check 7: output rotation maps corners and the ground edge consistently ----
+    bool c7 = true;
+    {
+        const int W = 5, H = 3;
+        for (int rot : {0, 90, 180, 270}) {
+            int ow, oh, sx, sy;
+            rotated_size(rot, W, H, &ow, &oh);
+            // The source's top-left corner must land where a clockwise turn puts it.
+            const int ex = rot == 90 ? ow - 1 : rot == 180 ? ow - 1 : 0;
+            const int ey = rot == 180 ? oh - 1 : rot == 270 ? oh - 1 : 0;
+            rotated_source(rot, W, H, ex, ey, &sx, &sy);
+            if (sx != 0 || sy != 0) c7 = false;
+            // The output's bottom row must come from the edge down_edge_for_rotation names.
+            rotated_source(rot, W, H, ow / 2, oh - 1, &sx, &sy);
+            const int down = down_edge_for_rotation(rot);
+            const bool onEdge = (down == 0 && sy == H - 1) || (down == 1 && sx == 0) ||
+                                (down == 2 && sy == 0) || (down == 3 && sx == W - 1);
+            if (!onEdge) c7 = false;
+        }
+    }
+    add_log(log, "check7 rotation mapping (%s)", c7 ? "PASS" : "FAIL");
+
     const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                         std::chrono::steady_clock::now() - tStart)
                         .count();
     add_log(log, "elapsed %lld ms", (long long)ms);
 
-    const bool pass = c1 && c2 && c3 && c4 && c5;
+    const bool pass = c1 && c2 && c3 && c4 && c5 && c6 && c7;
     std::string checks = "[";
     checks += check_json("alignment", c1, alignMed, 0.35);
     checks += ",";
@@ -642,6 +688,10 @@ std::string run_impl(const std::string& tmpDir, std::vector<std::string>& paths)
     checks += check_json("fwhm", c4, fwhmMed, fwhmLimit);
     checks += ",";
     checks += check_json("lens_shading", c5, vignAfter, 0.97);
+    checks += ",";
+    checks += check_json("post_v2", c6, v2Median, 0.40);
+    checks += ",";
+    checks += check_json("rotation", c7, c7 ? 1.0 : 0.0, 1.0);
     checks += "]";
 
     jsonmini::Builder top;

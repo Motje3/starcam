@@ -19,6 +19,7 @@ struct EngineConfig {
     SensorInfo sensor;
     bool keepCache = false;   // keep .sraw files after successful finalize
     bool livePreview = true;
+    int rotation = 0;         // clockwise turn that makes the photo upright (live preview)
 };
 
 class EngineSession {

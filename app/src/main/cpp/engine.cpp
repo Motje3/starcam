@@ -14,6 +14,7 @@
 #include "json_mini.h"
 #include "mask.h"
 #include "post.h"
+#include "post_options.h"
 #include "stack.h"
 #include "stars.h"
 #include "tiffout.h"
@@ -133,28 +134,6 @@ bool write_text_file(const std::string& path, const std::string& text) {
     return ok;
 }
 
-// u8 clamp(v*255) interleaved RGB, plain fwrite.
-bool write_rgb8(const std::string& path, const ImageF& rgb) {
-    if (rgb.empty() || rgb.ch != 3 || rgb.w <= 0 || rgb.h <= 0) return false;
-    FILE* f = fopen(path.c_str(), "wb");
-    if (!f) {
-        SLOGE("write_rgb8: cannot open %s", path.c_str());
-        return false;
-    }
-    std::vector<uint8_t> row((size_t)rgb.w * 3);
-    bool ok = true;
-    for (int y = 0; y < rgb.h && ok; ++y) {
-        const float* src = rgb.px(0, y);
-        for (size_t i = 0; i < row.size(); ++i) {
-            float v = clampf(src[i], 0.0f, 1.0f);
-            row[i] = (uint8_t)(v * 255.0f + 0.5f);
-        }
-        ok = fwrite(row.data(), 1, row.size(), f) == row.size();
-    }
-    if (fclose(f) != 0) ok = false;
-    if (!ok) SLOGE("write_rgb8: write failed for %s", path.c_str());
-    return ok;
-}
 
 // ---------- small stats helpers ----------
 
@@ -698,10 +677,13 @@ bool EngineSession::getPreview(uint32_t* argbOut, int outW, int outH) {
         const float black = percentile_of(samples, 0.10f);
         const float inv = 1.0f / std::asinh(200.0f);
 
-        // Aspect-fit with black bars, nearest neighbor.
-        const double scale = std::min((double)outW / sw, (double)outH / sh);
-        int drawW = std::max(1, (int)std::lround(sw * scale));
-        int drawH = std::max(1, (int)std::lround(sh * scale));
+        // Aspect-fit with black bars, nearest neighbor, turned upright like the final photo.
+        const int rot = cfg_.rotation;
+        int rw, rh;
+        rotated_size(rot, sw, sh, &rw, &rh);
+        const double scale = std::min((double)outW / rw, (double)outH / rh);
+        int drawW = std::max(1, (int)std::lround(rw * scale));
+        int drawH = std::max(1, (int)std::lround(rh * scale));
         if (drawW > outW) drawW = outW;
         if (drawH > outH) drawH = outH;
         const int ox = (outW - drawW) / 2;
@@ -709,12 +691,12 @@ bool EngineSession::getPreview(uint32_t* argbOut, int outW, int outH) {
 
         std::fill(argbOut, argbOut + (size_t)outW * outH, 0xFF000000u);
         parallel_for(0, drawH, [&](int yy) {
-            int sy = (int)(((int64_t)yy * sh) / drawH);
-            if (sy > sh - 1) sy = sh - 1;
+            const int ry = std::min(rh - 1, (int)(((int64_t)yy * rh) / drawH));
             uint32_t* dst = argbOut + (size_t)(oy + yy) * outW + ox;
             for (int xx = 0; xx < drawW; ++xx) {
-                int sx = (int)(((int64_t)xx * sw) / drawW);
-                if (sx > sw - 1) sx = sw - 1;
+                const int rx = std::min(rw - 1, (int)(((int64_t)xx * rw) / drawW));
+                int sx, sy;
+                rotated_source(rot, sw, sh, rx, ry, &sx, &sy);
                 float rgb[3];
                 fetch(sx, sy, rgb);
                 uint32_t px = 0xFF000000u;
@@ -843,13 +825,12 @@ std::string EngineSession::finalizeStack(const std::string& optionsJson,
         sp.applyCCM = true;
         const bool fgComposite = opt.boolean("foregroundComposite", false);
         const float featherPx = (float)opt.num("featherPx", 40.0);
-        PostParams pp;
-        pp.gradientRemoval = opt.boolean("gradientRemoval", true);
-        pp.stretchStrength = clampi(opt.numi("stretchStrength", 1), 0, 2);
-        pp.saturation = (float)opt.num("saturation", 1.25);
-        pp.chromaDenoise = opt.boolean("chromaDenoise", true);
-        pp.starSharpen = opt.boolean("starSharpen", false);
-        pp.style = clampi(opt.numi("style", 0), 0, 1);
+        PostParams pp = read_post_params(opt);
+        // Clockwise turn that makes the photo upright (from the phone's attitude at capture):
+        // the outputs are written turned, and the post pipeline knows where the ground is.
+        const int rawRotation = opt.numi("rotation", -1);
+        const int rotation = rawRotation >= 0 ? normalize_rotation(rawRotation) : 0;
+        pp.downEdge = rawRotation >= 0 ? down_edge_for_rotation(rotation) : -1;
 
         const std::vector<uint32_t> hotIdx = find_hot_pixels(masterDark);
         // A master dark from the dark library comes from another night, with another black
@@ -1091,7 +1072,7 @@ std::string EngineSession::finalizeStack(const std::string& optionsJson,
 
         // 16-bit linear master (always the pure stack, pre-foreground, pre-post).
         const std::string tiffPath = outDir + "/master_linear16.tiff";
-        const bool tiffOk = write_tiff16(tiffPath, stackRGB);
+        const bool tiffOk = write_tiff16(tiffPath, stackRGB, rotation);
         if (!tiffOk) SLOGE("finalize: tiff write failed for %s", tiffPath.c_str());
 
         // ---- foreground (70-80) ----
@@ -1155,7 +1136,9 @@ std::string EngineSession::finalizeStack(const std::string& optionsJson,
         // ---- write (95-100) ----
         report("write", 95);
         const std::string finalPath = outDir + "/final_rgb.raw";
-        if (!write_rgb8(finalPath, stackRGB)) return error_json("failed to write final image");
+        if (!write_rgb8(finalPath, stackRGB, rotation)) return error_json("failed to write final image");
+        int outW, outH;
+        rotated_size(rotation, stackRGB.w, stackRGB.h, &outW, &outH);
 
         used = 0;
         std::string rejStr;
@@ -1241,8 +1224,9 @@ std::string EngineSession::finalizeStack(const std::string& optionsJson,
         jsonmini::Builder res;
         res.add("ok", true)
             .add("error", "")
-            .add("width", stackRGB.w)
-            .add("height", stackRGB.h)
+            .add("width", outW)
+            .add("height", outH)
+            .add("rotation", rotation)
             .add("finalRgbPath", finalPath)
             .add("tiffPath", tiffOk ? tiffPath : std::string())
             .add("framesUsed", used)

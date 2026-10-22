@@ -3,7 +3,8 @@
 #   session     a session started through the adb hook: Back asks before stopping, Finish ends it,
 #               Back closes the result (the emulator's camera shows no stars, so it cannot stack)
 #   cut-off     the app killed mid-session: the next launch says so
-#   stack       a synthetic starfield session (make-test-session.ps1) stacked from Sessions
+#   stack       a synthetic starfield session (make-test-session.ps1) stacked from Sessions, recorded
+#               as shot with the phone upright: 7 of 8 frames and a portrait photo
 #   background  Home releases the camera, coming back reopens it
 #   swipe       swiping the app out of recents mid-session leaves the session running
 #
@@ -149,7 +150,7 @@ if (Wanted 'stack') {
     # Named for now, so it is the newest session and the first tile in the list.
     $now = Get-Date
     $name = $now.ToString('yyyyMMdd_HHmmss') + '_astro'
-    & (Join-Path $PSScriptRoot 'make-test-session.ps1') -Name $name -Push -Serial $Serial | Out-Null
+    & (Join-Path $PSScriptRoot 'make-test-session.ps1') -Name $name -Rotation 90 -Push -Serial $Serial | Out-Null
     Launch | Out-Null
     Tap 'Sessions gallery' | Out-Null
     Start-Sleep -Seconds 2
@@ -168,8 +169,18 @@ if (Wanted 'stack') {
     $local = Join-Path $shots 'session.json'
     A pull "/sdcard/Android/media/com.wm.starcam/StarCam/sessions/$name/meta/session.json" $local 2>&1 | Out-Null
     $used = try { (Get-Content $local -Raw | ConvertFrom-Json).result.framesUsed } catch { $null }
-    # 8 frames, one recorded as bumped: 7 stacked.
-    Check 'stack' ($done -and [bool]$jpg -and $used -eq 7) "done=$done jpeg=$([bool]$jpg) framesUsed=$used"
+    # 8 frames, one recorded as bumped: 7 stacked. The sensor frames are landscape; recorded as
+    # shot upright, the photo is turned to portrait.
+    $jpgLocal = Join-Path $shots 'stack.jpg'
+    A pull "/sdcard/Android/media/com.wm.starcam/StarCam/sessions/$name/out/starcam_$name.jpg" $jpgLocal 2>&1 | Out-Null
+    $portrait = $false
+    if (Test-Path $jpgLocal) {
+        Add-Type -AssemblyName System.Drawing
+        $im = [System.Drawing.Image]::FromFile($jpgLocal)
+        $portrait = $im.Height -gt $im.Width
+        $im.Dispose()
+    }
+    Check 'stack' ($done -and [bool]$jpg -and $used -eq 7 -and $portrait) "done=$done jpeg=$([bool]$jpg) framesUsed=$used portrait=$portrait"
 }
 
 # ---- Home releases the camera, return reopens it

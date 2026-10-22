@@ -248,4 +248,36 @@ inline void parallel_for(int begin, int end, const std::function<void(int)>& fn)
 
 using ProgressFn = std::function<void(const char* stage, int percent)>;
 
+// ---------- Output rotation ----------
+
+// Photos are stacked in sensor orientation and turned upright only when written. rotation is the
+// clockwise turn (0, 90, 180, 270) that makes a w x h image upright; these give the written size
+// and, for an output pixel, the source pixel it comes from.
+inline int normalize_rotation(int r) {
+    r = ((r % 360) + 360) % 360;
+    return (r + 45) / 90 * 90 % 360;
+}
+inline void rotated_size(int rotation, int w, int h, int* ow, int* oh) {
+    const bool swap = rotation == 90 || rotation == 270;
+    *ow = swap ? h : w;
+    *oh = swap ? w : h;
+}
+inline void rotated_source(int rotation, int w, int h, int ox, int oy, int* sx, int* sy) {
+    switch (rotation) {
+        case 90: *sx = oy; *sy = h - 1 - ox; break;
+        case 180: *sx = w - 1 - ox; *sy = h - 1 - oy; break;
+        case 270: *sx = w - 1 - oy; *sy = ox; break;
+        default: *sx = ox; *sy = oy; break;
+    }
+}
+// The image edge that faces the ground once turned upright: 0 bottom, 1 left, 2 top, 3 right.
+inline int down_edge_for_rotation(int rotation) {
+    switch (rotation) {
+        case 90: return 3;
+        case 180: return 2;
+        case 270: return 1;
+        default: return 0;
+    }
+}
+
 }  // namespace starcam

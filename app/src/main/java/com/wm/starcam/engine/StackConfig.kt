@@ -25,6 +25,14 @@ data class StackConfig(
     val featherPx: Float = 40f,
     /** 0 = natural (default), 1 = "nightfall" purple-blue grade. Opt-in, never default. */
     val style: Int = 0,
+    /** Processing generation: 2 = current, 1 = the 0.3 "Classic" look (Settings › Look). */
+    val version: Int = 2,
+    /**
+     * Clockwise turn that makes the photo upright, from the phone's attitude when the burst
+     * started; -1 unknown (sessions from before it was recorded): written as the sensor
+     * delivers them, and the processing looks for the landscape along every edge.
+     */
+    val rotation: Int = -1,
 ) {
     fun toJson(): String = JSONObject().apply {
         put("sigmaFirst", sigmaFirst)
@@ -39,6 +47,8 @@ data class StackConfig(
         put("foregroundComposite", foregroundComposite)
         put("featherPx", featherPx)
         put("style", style)
+        put("version", version)
+        if (rotation >= 0) put("rotation", rotation)
     }.toString()
 
     companion object {
@@ -58,6 +68,9 @@ data class StackConfig(
                 foregroundComposite = o.optBoolean("foregroundComposite", d.foregroundComposite),
                 featherPx = o.optDouble("featherPx", d.featherPx.toDouble()).toFloat(),
                 style = o.optInt("style", d.style),
+                // A header from before the look existed was stacked classic.
+                version = o.optInt("version", 1),
+                rotation = o.optInt("rotation", -1),
             )
         }
     }

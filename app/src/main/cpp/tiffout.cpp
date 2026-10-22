@@ -42,7 +42,7 @@ inline bool fwrite_all(FILE* f, const void* p, size_t n) {
     return std::fwrite(p, 1, n, f) == n;
 }
 
-bool write_tiff16_impl(const std::string& path, const ImageF& rgb) {
+bool write_tiff16_impl(const std::string& path, const ImageF& rgb, int rotation) {
     if (rgb.empty() || rgb.w <= 0 || rgb.h <= 0) {
         SLOGE("write_tiff16: empty image for %s", path.c_str());
         return false;
@@ -51,13 +51,15 @@ bool write_tiff16_impl(const std::string& path, const ImageF& rgb) {
         SLOGE("write_tiff16: expected 3-channel image, got ch=%d", rgb.ch);
         return false;
     }
-    const uint32_t w = (uint32_t)rgb.w;
-    const uint32_t h = (uint32_t)rgb.h;
-    if (rgb.d.size() < (size_t)w * h * 3u) {
+    if (rgb.d.size() < (size_t)rgb.w * rgb.h * 3u) {
         SLOGE("write_tiff16: image buffer too small (%zu < %zu)",
-              rgb.d.size(), (size_t)w * h * 3u);
+              rgb.d.size(), (size_t)rgb.w * rgb.h * 3u);
         return false;
     }
+    int ow, oh;
+    rotated_size(rotation, rgb.w, rgb.h, &ow, &oh);
+    const uint32_t w = (uint32_t)ow;
+    const uint32_t h = (uint32_t)oh;
 
     // ---- Offset arithmetic (all fixed before any byte is written) ----
     // header: 8 bytes ("II", 42, IFD offset)
@@ -125,12 +127,12 @@ bool write_tiff16_impl(const std::string& path, const ImageF& rgb) {
     bool ok = fwrite_all(f, header.data(), header.size());
 
     if (ok) {
-        const size_t rowFloats = (size_t)w * 3u;
         for (uint32_t y = 0; y < h && ok; ++y) {
-            const float* src = &rgb.d[(size_t)y * rowFloats];
             uint8_t* dst = row.data();
-            for (size_t i = 0; i < rowFloats; ++i) {
-                float c = src[i];
+            for (size_t i = 0; i < (size_t)w * 3u; ++i) {
+                int sx, sy;
+                rotated_source(rotation, rgb.w, rgb.h, (int)(i / 3), (int)y, &sx, &sy);
+                float c = rgb.px(sx, sy)[i % 3];
                 if (!(c >= 0.0f)) {
                     c = 0.0f;  // catches negatives and NaN
                 } else if (c > 1.0f) {
@@ -170,10 +172,93 @@ bool write_tiff16_impl(const std::string& path, const ImageF& rgb) {
 
 }  // namespace
 
-bool write_tiff16(const std::string& path, const ImageF& rgb) {
+// u8 clamp(v*255) interleaved RGB, plain fwrite, turned upright by `rotation` on the way out.
+bool write_rgb8(const std::string& path, const ImageF& rgb, int rotation) {
+    if (rgb.empty() || rgb.ch != 3 || rgb.w <= 0 || rgb.h <= 0) return false;
+    FILE* f = fopen(path.c_str(), "wb");
+    if (!f) {
+        SLOGE("write_rgb8: cannot open %s", path.c_str());
+        return false;
+    }
+    int ow, oh;
+    rotated_size(rotation, rgb.w, rgb.h, &ow, &oh);
+    std::vector<uint8_t> row((size_t)ow * 3);
+    bool ok = true;
+    for (int y = 0; y < oh && ok; ++y) {
+        for (int x = 0; x < ow; ++x) {
+            int sx, sy;
+            rotated_source(rotation, rgb.w, rgb.h, x, y, &sx, &sy);
+            const float* src = rgb.px(sx, sy);
+            for (int c = 0; c < 3; ++c) {
+                float v = clampf(src[c], 0.0f, 1.0f);
+                row[(size_t)x * 3 + c] = (uint8_t)(v * 255.0f + 0.5f);
+            }
+        }
+        ok = fwrite(row.data(), 1, row.size(), f) == row.size();
+    }
+    if (fclose(f) != 0) ok = false;
+    if (!ok) SLOGE("write_rgb8: write failed for %s", path.c_str());
+    return ok;
+}
+
+bool read_tiff16(const std::string& path, ImageF* out) {
+    try {
+        FILE* f = std::fopen(path.c_str(), "rb");
+        if (!f) return false;
+        auto readAt = [f](uint64_t off, void* dst, size_t n) {
+            return std::fseek(f, (long)off, SEEK_SET) == 0 && std::fread(dst, 1, n, f) == n;
+        };
+        uint8_t hdr[8];
+        bool ok = readAt(0, hdr, 8) && hdr[0] == 'I' && hdr[1] == 'I' && hdr[2] == 42;
+        const uint32_t ifd = (uint32_t)hdr[4] | ((uint32_t)hdr[5] << 8) | ((uint32_t)hdr[6] << 16) |
+                             ((uint32_t)hdr[7] << 24);
+        uint8_t cnt[2];
+        ok = ok && readAt(ifd, cnt, 2);
+        const uint32_t n = ok ? ((uint32_t)cnt[0] | ((uint32_t)cnt[1] << 8)) : 0;
+        uint32_t w = 0, h = 0, strip = 0, spp = 0, bps = 16, comp = 1;
+        std::vector<uint8_t> e((size_t)n * 12);
+        ok = ok && n > 0 && n < 64 && readAt(ifd + 2, e.data(), e.size());
+        for (uint32_t i = 0; ok && i < n; ++i) {
+            const uint8_t* p = &e[(size_t)i * 12];
+            const uint32_t tag = (uint32_t)p[0] | ((uint32_t)p[1] << 8);
+            const uint32_t type = (uint32_t)p[2] | ((uint32_t)p[3] << 8);
+            const uint32_t v = type == kTypeShort ? ((uint32_t)p[8] | ((uint32_t)p[9] << 8))
+                                                  : ((uint32_t)p[8] | ((uint32_t)p[9] << 8) |
+                                                     ((uint32_t)p[10] << 16) | ((uint32_t)p[11] << 24));
+            if (tag == 256) w = v;
+            else if (tag == 257) h = v;
+            else if (tag == 259) comp = v;
+            else if (tag == 273) strip = v;
+            else if (tag == 277) spp = v;
+        }
+        ok = ok && w > 0 && h > 0 && spp == 3 && comp == 1 && bps == 16 && w < 20000 && h < 20000;
+        if (ok) {
+            out->init((int)w, (int)h, 3);
+            std::vector<uint8_t> row((size_t)w * 6);
+            for (uint32_t y = 0; ok && y < h; ++y) {
+                ok = readAt(strip + (uint64_t)y * w * 6, row.data(), row.size());
+                float* d = &out->d[(size_t)y * w * 3];
+                for (size_t i = 0; ok && i < (size_t)w * 3; ++i)
+                    d[i] = (float)((uint32_t)row[2 * i] | ((uint32_t)row[2 * i + 1] << 8)) / 65535.0f;
+            }
+        }
+        std::fclose(f);
+        if (!ok) {
+            out->d.clear();
+            SLOGE("read_tiff16: not a StarCam master: %s", path.c_str());
+        }
+        return ok;
+    } catch (...) {
+        SLOGE("read_tiff16: exception for %s", path.c_str());
+        out->d.clear();
+        return false;
+    }
+}
+
+bool write_tiff16(const std::string& path, const ImageF& rgb, int rotation) {
     // No exceptions may escape: all allocation happens in std::vector, which can throw.
     try {
-        return write_tiff16_impl(path, rgb);
+        return write_tiff16_impl(path, rgb, normalize_rotation(rotation));
     } catch (...) {
         SLOGE("write_tiff16: unexpected exception for %s", path.c_str());
         return false;

@@ -12,7 +12,9 @@
 #include "common.h"
 #include "engine.h"
 #include "json_mini.h"
+#include "post_options.h"
 #include "selftest.h"
+#include "studio.h"
 
 namespace {
 
@@ -141,6 +143,7 @@ JNIEXPORT jlong JNICALL Java_com_wm_starcam_engine_NativeEngine_createSession(
         for (int i = 0; i < 4 && i < (int)bl.size(); ++i) cfg.sensor.blackLevel[i] = (float)bl[i];
         cfg.keepCache = o.boolean("keepCache", false);
         cfg.livePreview = o.boolean("livePreview", true);
+        cfg.rotation = starcam::normalize_rotation(o.numi("rotation", 0));
 
         EngineSession* s = EngineSession::create(cfg);
         if (s == nullptr) SLOGE("createSession: EngineSession::create failed");
@@ -392,6 +395,105 @@ JNIEXPORT jstring JNICALL Java_com_wm_starcam_engine_NativeEngine_runSelfTest(
         SLOGE("runSelfTest: native exception");
         return toJString(env, errJson("native exception in runSelfTest"));
     }
+}
+
+
+// ---------- editing studio ----------
+
+static starcam::Studio* studio(jlong handle) { return reinterpret_cast<starcam::Studio*>(handle); }
+
+// The studio's options: the same keys as finalizeStack's post options, plus "rotation" (the
+// clockwise turn the photo is shown and saved with). It develops with the current pipeline
+// unless told otherwise.
+static bool studioParams(JNIEnv* env, jstring json, starcam::PostParams* pp, int* rotation) {
+    jsonmini::Obj o;
+    const std::string j = jstr(env, json);
+    if (!j.empty() && !jsonmini::Obj::parse(j, &o)) return false;
+    *pp = starcam::read_post_params(o);
+    if (!o.has("version")) pp->version = 2;
+    *rotation = starcam::normalize_rotation(o.numi("rotation", 0));
+    return true;
+}
+
+JNIEXPORT jlong JNICALL Java_com_wm_starcam_engine_NativeEngine_studioOpen(
+        JNIEnv* env, jobject /*thiz*/, jstring tiffPath, jint previewLongEdge) {
+    try {
+        return reinterpret_cast<jlong>(starcam::Studio::open(jstr(env, tiffPath), (int)previewLongEdge));
+    } catch (...) {
+        SLOGE("studioOpen: native exception");
+        return 0;
+    }
+}
+
+JNIEXPORT jstring JNICALL Java_com_wm_starcam_engine_NativeEngine_studioInfo(
+        JNIEnv* env, jobject /*thiz*/, jlong handle) {
+    try {
+        starcam::Studio* s = studio(handle);
+        return toJString(env, s ? s->info() : std::string("{}"));
+    } catch (...) {
+        return toJString(env, "{}");
+    }
+}
+
+JNIEXPORT jboolean JNICALL Java_com_wm_starcam_engine_NativeEngine_studioRender(
+        JNIEnv* env, jobject /*thiz*/, jlong handle, jstring optionsJson, jobject bitmap) {
+    try {
+        starcam::Studio* s = studio(handle);
+        if (s == nullptr || bitmap == nullptr) return JNI_FALSE;
+        starcam::PostParams pp;
+        int rotation = 0;
+        if (!studioParams(env, optionsJson, &pp, &rotation)) return JNI_FALSE;
+        AndroidBitmapInfo info;
+        if (AndroidBitmap_getInfo(env, bitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS ||
+            info.format != ANDROID_BITMAP_FORMAT_RGBA_8888 || info.width == 0 || info.height == 0 ||
+            info.stride < info.width * 4u) {
+            return JNI_FALSE;
+        }
+        std::vector<uint32_t> tmp((size_t)info.width * (size_t)info.height);
+        if (!s->renderPreview(pp, rotation, tmp.data(), (int)info.width, (int)info.height))
+            return JNI_FALSE;
+        void* pixels = nullptr;
+        if (AndroidBitmap_lockPixels(env, bitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS ||
+            pixels == nullptr) {
+            return JNI_FALSE;
+        }
+        // ARGB ints to RGBA_8888 memory order, as getPreview does.
+        for (uint32_t y = 0; y < info.height; ++y) {
+            const uint32_t* src = tmp.data() + (size_t)y * info.width;
+            uint32_t* dst = reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(pixels) + (size_t)y * info.stride);
+            for (uint32_t x = 0; x < info.width; ++x) {
+                const uint32_t p = src[x];
+                dst[x] = 0xFF000000u | ((p & 0xFFu) << 16) | (p & 0xFF00u) | ((p >> 16) & 0xFFu);
+            }
+        }
+        AndroidBitmap_unlockPixels(env, bitmap);
+        return JNI_TRUE;
+    } catch (...) {
+        SLOGE("studioRender: native exception");
+        return JNI_FALSE;
+    }
+}
+
+JNIEXPORT jstring JNICALL Java_com_wm_starcam_engine_NativeEngine_studioExport(
+        JNIEnv* env, jobject /*thiz*/, jlong handle, jstring optionsJson, jstring outPath) {
+    try {
+        starcam::Studio* s = studio(handle);
+        if (s == nullptr) return toJString(env, errJson("null handle"));
+        starcam::PostParams pp;
+        int rotation = 0;
+        if (!studioParams(env, optionsJson, &pp, &rotation)) return toJString(env, errJson("bad options"));
+        return toJString(env, s->exportFull(pp, rotation, jstr(env, outPath)));
+    } catch (...) {
+        SLOGE("studioExport: native exception");
+        return toJString(env, errJson("native exception in studioExport"));
+    }
+}
+
+JNIEXPORT void JNICALL Java_com_wm_starcam_engine_NativeEngine_studioClose(
+        JNIEnv* /*env*/, jobject /*thiz*/, jlong handle) {
+    try {
+        delete studio(handle);
+    } catch (...) {}
 }
 
 }  // extern "C"

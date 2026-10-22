@@ -13,11 +13,13 @@ add_library(starcam SHARED
         align.cpp
         stack.cpp
         post.cpp
+        post2.cpp
         mask.cpp
         trails.cpp
         meteor.cpp
         tiffout.cpp
-        selftest.cpp)
+        selftest.cpp
+        studio.cpp)
 
 # NOT -ffast-math: it implies -ffinite-math-only, which lets Clang assume no NaN/Inf exists and
 # folds away the engine's deliberate NaN guards (post.cpp, tiffout.cpp, meteor.cpp, mask.cpp) and

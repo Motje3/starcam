@@ -5,6 +5,7 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import com.wm.starcam.util.ImageRotation
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlin.math.sqrt
@@ -33,6 +34,14 @@ class MotionMonitor(context: Context) : SensorEventListener {
     /** Device roll in degrees (0 = level in portrait); drives the HUD spirit level. */
     private val _rollDeg = MutableStateFlow(0f)
     val rollDeg: StateFlow<Float> = _rollDeg
+
+    /** Latest accelerometer reading (x, y, z), for which way up the photo is. */
+    @Volatile
+    private var accelXyz: FloatArray? = null
+
+    /** The phone's rotation in OrientationEventListener terms, null when it lies flat. */
+    fun deviceOrientationDeg(): Int? =
+        accelXyz?.let { ImageRotation.deviceOrientationDeg(it[0], it[1], it[2]) }
 
     val hasGyro: Boolean get() = gyro != null
 
@@ -84,6 +93,7 @@ class MotionMonitor(context: Context) : SensorEventListener {
             val ax = event.values[0]
             val ay = event.values[1]
             _rollDeg.value = Math.toDegrees(kotlin.math.atan2(ax, ay).toDouble()).toFloat()
+            accelXyz = floatArrayOf(ax, ay, event.values[2])
             return
         }
         val m = sqrt(

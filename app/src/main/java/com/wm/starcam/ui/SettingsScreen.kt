@@ -440,6 +440,19 @@ private val Defs: List<Def> = listOf(
 
     // ---------------------------------------------------------------- Look
     Choice(
+        SettingsTab.Look, "Processing",
+        "How the stacked photo is developed. StarCam 2 finds the landscape and treats it apart " +
+            "from the sky: the light-pollution glow is removed from the sky only, the sky gets a " +
+            "dark background instead of a grey one, the ground keeps its own detail, stars keep " +
+            "their colour, and a light noise reduction cleans the background. Classic is the " +
+            "original look, kept so you can compare: it flattens sky and ground together, which " +
+            "lifts the landscape to grey. Kept sessions can be re-stacked with either.",
+        value = { s, _ -> if (s.look == 1) "Classic (0.3)" else "StarCam 2" },
+        options = { listOf("StarCam 2", "Classic") },
+        selected = { s, _ -> if (s.look == 1) 1 else 0 },
+        select = { s, _, i -> s.copy(look = if (i == 1) 1 else 2) },
+    ),
+    Choice(
         SettingsTab.Look, "Style",
         "Natural keeps honest colour — real star temperatures, real dust tones — and is what you " +
             "want if you edit on a PC later (the 16-bit TIFF master is always saved un-graded " +
