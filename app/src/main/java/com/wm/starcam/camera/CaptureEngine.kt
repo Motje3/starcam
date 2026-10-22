@@ -20,6 +20,7 @@ import com.wm.starcam.sensors.ThermalMonitor
 import com.wm.starcam.session.AppSettings
 import com.wm.starcam.session.FocusMode
 import com.wm.starcam.session.Mode
+import com.wm.starcam.session.SINGLE_FRAME_JPG
 import com.wm.starcam.session.SessionPaths
 import com.wm.starcam.session.SessionRepository
 import com.wm.starcam.session.SettingsStore
@@ -57,6 +58,8 @@ sealed class CaptureState {
         val cappedByStorage: Boolean = false, val interFrameGapMs: Long = 0,
         // elapsedRealtime when this frame's slot began (gap included), so the UI can count down.
         val frameStartedAtMs: Long = 0L,
+        /** The sky watch's warning (clouds, soft stars), see [SkyWatch]; null while all is well. */
+        val skyNote: String? = null,
     ) : CaptureState()
     data class AwaitingDarkCover(val secondsLeft: Int) : CaptureState()
     data class CapturingDarks(val current: Int, val total: Int) : CaptureState()
@@ -631,6 +634,9 @@ class CaptureEngine(
             var planned = totalFrames
             var reshoots = 0
             var rejected = 0
+            // Clouds and soft stars said while it can still be helped (ASTRO, PRO).
+            val skyWatch = SkyWatch()
+            val watchSky = s.mode == Mode.ASTRO || s.mode == Mode.PRO
             var darksCaptured = 0
             // Set when the camera could not be brought back mid-burst: the frames already on disk
             // are still stacked rather than thrown away with the session.
@@ -677,6 +683,7 @@ class CaptureEngine(
                     i + 1, planned, decision.exposureNs, decision.iso, null, rejected,
                     cappedByStorage = storageCapped, interFrameGapMs = (cooldown * 1000).toLong(),
                     frameStartedAtMs = frameStart,
+                    skyNote = skyWatch.note,
                 ))
                 if (i > 0 && cooldown > 0f) {
                     step("cooling the sensor", (cooldown * 1000).toLong()) {
@@ -803,6 +810,11 @@ class CaptureEngine(
                     }
                 } else {
                     lightBg.add(stats.bgFrac)
+                    if (watchSky) {
+                        val before = skyWatch.note
+                        val note = skyWatch.add(stats.starCount, stats.medianFwhm)
+                        if (note != before) AppLog.i(TAG, "sky watch: ${note ?: "clear again"}")
+                    }
                 }
                 repo.appendFrame(paths, stats, decision.exposureNs, decision.iso, peak, bumped, dngName)
                 captured++
@@ -812,6 +824,7 @@ class CaptureEngine(
                     i + 1, planned, decision.exposureNs, decision.iso, stats, rejected,
                     cappedByStorage = storageCapped, interFrameGapMs = (cooldown * 1000).toLong(),
                     frameStartedAtMs = frameStart,   // same slot: the countdown must not restart
+                    skyNote = skyWatch.note,
                 ))
                 i++
                 // Duration modes promise wall-clock minutes, but each frame also spends time on
@@ -1066,6 +1079,10 @@ class CaptureEngine(
                     paths.finalJpg, totalExposure, decision.iso,
                     focalMm = cam.focalLengthMm, fNumber = cam.apertureF, recipe = recipe,
                 )
+            }
+            if (result.singlePath.isNotEmpty()) {
+                MediaSaver.saveComparisonFrame(File(result.singlePath), result.singleWidth,
+                    result.singleHeight, File(paths.out, SINGLE_FRAME_JPG))
             }
             if (saved.jpegWritten) {
                 AppLog.i(TAG, "saved ${paths.finalJpg.name} (gallery: ${saved.galleryUri ?: "FAILED"})")

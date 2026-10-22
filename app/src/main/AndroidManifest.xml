@@ -11,6 +11,10 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Only to draw the progress notification; the service runs with or without it. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- The Tonight planner: when it gets dark and where the Milky Way stands, for where you
+         are. Coarse is plenty for the sky; it is asked for only from the planner, the planner
+         works with a typed-in place without it, and it never leaves the phone (no internet). -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <uses-feature android:name="android.hardware.camera.any" android:required="true" />
     <!-- Not required: some phones deliver RAW through Camera2 without declaring these features,

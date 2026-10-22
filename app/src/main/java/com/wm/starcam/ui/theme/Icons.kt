@@ -157,6 +157,7 @@ object ScIcons {
     }
     val Trash by icon { path("M4 7h16M9 7V4.5h6V7M6.5 7l1 12.5a1.5 1.5 0 0 0 1.5 1.5h6a1.5 1.5 0 0 0 1.5-1.5L17.5 7") }
     val Mountains by icon { path("M3 18l6-8 4 5 3-3 5 6z") }
+    val Moon by icon { path("M20 14.5A8.5 8.5 0 1 1 9.5 4a6.75 6.75 0 0 0 10.5 10.5z") }
     val RotateRight by icon { path("M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5") }
     val RotateLeft by icon { path("M4 12a8 8 0 1 0 2.3-5.7M4 4v5h5") }
     val Edit by icon { path("M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4") }

@@ -16,9 +16,11 @@ import com.wm.starcam.engine.StackConfig
 import com.wm.starcam.sensors.MotionMonitor
 import com.wm.starcam.sensors.ThermalMonitor
 import com.wm.starcam.session.Mode
+import com.wm.starcam.session.SINGLE_FRAME_JPG
 import com.wm.starcam.session.SessionRepository
 import com.wm.starcam.session.SessionSummary
 import com.wm.starcam.session.SettingsStore
+import com.wm.starcam.session.stackPhoto
 import com.wm.starcam.util.AppLog
 import com.wm.starcam.util.DebugBundle
 import com.wm.starcam.util.Fmt
@@ -480,8 +482,7 @@ class StarCamViewModel(app: Application) : AndroidViewModel(app) {
                 _restack.value = _restack.value?.copy(stage = "saving", percent = 99)
                 withContext(Dispatchers.IO) {
                     val out = File(dir, "out")
-                    val jpg = out.listFiles { f -> f.extension == "jpg" }?.firstOrNull()
-                        ?: File(out, "starcam_${dir.name}.jpg")
+                    val jpg = stackPhoto(dir)
                     val hdr = repo.cacheFrames(dir).firstOrNull()?.let { Restacker.readHeader(it) }
                     val saved = MediaSaver.saveFinal(
                         context = getApplication(),
@@ -496,6 +497,10 @@ class StarCamViewModel(app: Application) : AndroidViewModel(app) {
                         recipe = recipe,
                     )
                     if (!saved.jpegWritten) error("the photo could not be written - the phone may be out of storage")
+                    if (result.singlePath.isNotEmpty()) {
+                        MediaSaver.saveComparisonFrame(File(result.singlePath), result.singleWidth,
+                            result.singleHeight, File(out, SINGLE_FRAME_JPG))
+                    }
                     // With the options it was made with: the screen shows them, and they are
                     // where the next re-stack starts.
                     repo.writeResult(dir, JSONObject(result.json).put("stackConfig", JSONObject(cfg.toJson())))

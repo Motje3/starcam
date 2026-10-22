@@ -14,6 +14,22 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/** One frame developed like the stack, beside the photo in out/: for "1 frame vs stacked" only. */
+const val SINGLE_FRAME_JPG = "single_frame.jpg"
+
+private fun photoJpegs(dir: File): Array<File> =
+    File(dir, "out").listFiles { f -> f.extension == "jpg" && f.name != SINGLE_FRAME_JPG } ?: emptyArray()
+
+/**
+ * The photo a session shows: the newest of its JPEGs - the stack, a re-stack, an edit - and never
+ * the single-frame comparison image that lies beside them.
+ */
+fun sessionPhoto(dir: File): File? = photoJpegs(dir).maxByOrNull { it.lastModified() }
+
+/** The stack's own JPEG, which a re-stack replaces (an edit is a separate file it leaves alone). */
+fun stackPhoto(dir: File): File =
+    photoJpegs(dir).firstOrNull { !it.name.endsWith("_edit.jpg") } ?: File(dir, "out/starcam_${dir.name}.jpg")
+
 /** Folder handles for one capture session (PLAN.md §9). */
 data class SessionPaths(
     val dir: File,
@@ -375,8 +391,7 @@ class SessionRepository(private val context: Context) {
         return dirs.sortedByDescending { it.name }.map { dir ->
             val json = readSessionJson(dir)
             val header = json?.optJSONObject("header")
-            val jpg = File(dir, "out").listFiles { f -> f.extension == "jpg" }
-                ?.maxByOrNull { it.lastModified() }
+            val jpg = sessionPhoto(dir)
             SessionSummary(
                 dir = dir,
                 name = dir.name,

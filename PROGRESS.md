@@ -45,6 +45,58 @@ counts as upright portrait, like the viewfinder): the JPEG, the master TIFF and 
 preview are written turned, the DNGs carry the orientation tag, and the processing knows which
 edge the ground is on. Older sessions, which recorded nothing, look for it along every edge.
 
+### Editing studio
+
+Session › Edit photo opens the studio on the session's linear master (studio.cpp): the v2
+pipeline runs on a box-averaged preview (long edge 1600) after every change, and on the full
+master when saved. Light (sky brightness, contrast, landscape brightness), Colour (style,
+saturation, star colour, warmth, tint), Clean-up (light-pollution removal, noise reduction, star
+sharpening) and Frame (turn left/right: photos from before 0.4 came out sideways). Hold the
+picture to compare with the default development. Saving writes `out/starcam_<name>_edit.jpg` and
+a new gallery photo; the original stays, and the settings are kept in `out/edit.json` so the
+studio reopens where it was left. Sessions shot in Classic get the new look too.
+
+### 1 frame vs stacked
+
+Finalize also develops the reference frame alone, exactly like the stack (dark, hot pixels,
+demosaic, vignetting, colour matrix, the same post pipeline), and saves it small as
+`out/single_frame.jpg` (up to 20 MP stacks; ASTRO and PRO). The result screen and the session
+detail show it against the photo with a handle to drag: the noise and the faint stars that
+stacking bought, side by side - the picture to share.
+
+A "Share 1 frame vs stacked" button (result screen, session detail) turns the comparison into one
+picture - half a frame, half the stack, labelled, with the numbers underneath - for sharing.
+
+### Sky watch
+
+While the lights come in (ASTRO, PRO), the first two frames with a real star field set a bar;
+two frames in a row with under 40% of their stars ("cloud or haze is passing") or stars 1.6x
+wider ("dew on the lens, or the focus drifted - wipe it gently") put a warning on the capture
+screen, and two good frames clear it. Warnings only: the stacker already weights such frames
+down or leaves them out; this tells the photographer while it can still be helped. The first
+slice of the "adaptive autopilot" idea.
+
+### Smaller things
+
+- The Insane preset's foreground blend seeds its sky from the edge facing the sky, so it works
+  for photos shot with the phone upright (it assumed the sensor's top row was sky).
+- A finished re-stack scrolls the session page up to its new photo and says so there; a portrait
+  photo replacing the placeholder used to push the message out of sight.
+- The synthetic test session's stars are white after white balance (they were magenta).
+- Onboarding has a fourth page for the planner, the studio and the comparison.
+
+### Tonight planner
+
+The viewfinder's "Tonight" chip (it reads "Dark 20:21" once a place is known) opens the planner:
+when it is properly dark, the Moon's phase and when it is up, when and how high the Milky Way's
+core stands, the best moon-free window for it, a timeline of the night (twilight shading, core
+and Moon altitude curves, the best window, now), all the times, and a sight that brings the
+phone onto the core (rotation-vector sensor, corrected to true north with the phone's own
+magnetic model). Other nights with the arrows. The sky maths (sky/SkyMath.kt, NightPlanner.kt)
+is pure Kotlin checked by JUnit against the Meeus examples, JPL Horizons and USNO: event times to
+seconds. Location is coarse, asked for only in the planner, optional (coordinates can be typed
+in) and never leaves the phone: StarCam still has no internet permission.
+
 ## Production readiness, 0.3.3 (2026-10-22)
 
 - **Target SDK 36.** Google Play takes new apps and updates only when they target Android 16

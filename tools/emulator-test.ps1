@@ -5,6 +5,8 @@
 #   cut-off     the app killed mid-session: the next launch says so
 #   stack       a synthetic starfield session (make-test-session.ps1) stacked from Sessions, recorded
 #               as shot with the phone upright: 7 of 8 frames and a portrait photo
+#   studio      that session opened in the editing studio, restyled and saved as a new photo
+#   tonight     the Tonight planner opened from the viewfinder, for a place set with geo fix
 #   background  Home releases the camera, coming back reopens it
 #   swipe       swiping the app out of recents mid-session leaves the session running
 #
@@ -62,6 +64,8 @@ function WaitFor([string]$pattern, [int]$seconds) {
 }
 function Back { A shell input keyevent 4; Start-Sleep -Milliseconds 800 }
 function Shot([string]$name) {
+    # The Android 16 image's graphics crash its system_server on screencap (see DEBUGGING.md).
+    if ($script:apiLevel -ge 36) { return }
     A shell screencap -p /data/local/tmp/shot.png 2>&1 | Out-Null
     A pull /data/local/tmp/shot.png (Join-Path $shots "$name.png") 2>&1 | Out-Null
 }
@@ -87,6 +91,9 @@ if (-not ((& $adbExe devices) -match "^$Serial\s+device")) {
     $deadline = (Get-Date).AddMinutes(5)
     while ((Get-Date) -lt $deadline -and -not ((A shell getprop sys.boot_completed 2>$null) -match '1')) { Start-Sleep 5 }
 }
+$script:apiLevel = 0
+$sdkProp = ((A shell getprop ro.build.version.sdk 2>$null) -join '').Trim()
+if ($sdkProp -match '^\d+$') { $script:apiLevel = [int]$sdkProp }
 if ($Build) {
     $env:JAVA_HOME = Join-Path $env:LOCALAPPDATA 'Android\jdk17'
     $env:ANDROID_HOME = $sdk
@@ -162,6 +169,7 @@ if (Wanted 'stack') {
         Start-Sleep -Seconds 3
         for ($k = 0; $k -lt 5 -and -not ((AllText) -match '\|Stack\|'); $k++) { A shell input swipe 636 2200 636 900 300; Start-Sleep -Milliseconds 700 }
         Tap 'Stack' | Out-Null
+        # The page scrolls up to the new photo and its "Done" notice when the stack lands.
         $done = WaitFor 'Done: the photo above is updated' 600
         Shot 'stack-done'
     }
@@ -181,6 +189,48 @@ if (Wanted 'stack') {
         $im.Dispose()
     }
     Check 'stack' ($done -and [bool]$jpg -and $used -eq 7 -and $portrait) "done=$done jpeg=$([bool]$jpg) framesUsed=$used portrait=$portrait"
+}
+
+# ---- the editing studio on that session: preview, a change, saved as a new photo
+if (Wanted 'studio') {
+    if (-not $name) {
+        Check 'studio' $false 'needs the stack check in the same run'
+    } else {
+        # The Edit card sits under the photo: down from the top, or back up from the Stack button.
+        for ($k = 0; $k -lt 4 -and -not ((AllText) -match '\|Edit\|'); $k++) { A shell input swipe 636 2000 636 1200 300; Start-Sleep -Milliseconds 700 }
+        for ($k = 0; $k -lt 6 -and -not ((AllText) -match '\|Edit\|'); $k++) { A shell input swipe 636 900 636 2200 300; Start-Sleep -Milliseconds 700 }
+        Tap 'Edit' | Out-Null
+        $opened = WaitFor 'HOLD TO COMPARE' 90
+        Start-Sleep -Seconds 2
+        Shot 'studio-open'
+        Tap 'Colour' | Out-Null
+        Tap 'Nightfall' | Out-Null
+        Start-Sleep -Seconds 3
+        Shot 'studio-nightfall'
+        Tap 'Save as new photo' | Out-Null
+        $saved = WaitFor 'Saved to the gallery as a new photo' 180
+        $edit = (A shell ls "/sdcard/Android/media/com.wm.starcam/StarCam/sessions/$name/out/") -match "starcam_${name}_edit.jpg"
+        Back
+        Check 'studio' ($opened -and $saved -and [bool]$edit) "opened=$opened saved=$saved file=$([bool]$edit)"
+    }
+}
+
+# ---- the Tonight planner from the viewfinder chip, with the emulator placed in Amsterdam
+if (Wanted 'tonight') {
+    A shell pm grant com.wm.starcam android.permission.ACCESS_COARSE_LOCATION 2>&1 | Out-Null
+    & $adbExe -s $Serial emu geo fix 4.90 52.37 2>&1 | Out-Null
+    Launch | Out-Null
+    $chip = Nodes | Where-Object { $_.'content-desc' -like 'Tonight planner*' } | Select-Object -First 1
+    $planned = $false
+    if ($chip) {
+        $c = Center $chip
+        A shell input tap $c[0] $c[1]
+        $planned = WaitFor 'Dark from|Never fully dark|No real darkness' 40
+        Start-Sleep -Seconds 1
+        Shot 'tonight'
+        Back
+    }
+    Check 'tonight' ([bool]$chip -and $planned) "chip=$([bool]$chip) planned=$planned"
 }
 
 # ---- Home releases the camera, return reopens it

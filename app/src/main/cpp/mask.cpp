@@ -112,7 +112,7 @@ void fallback_sky_only(const ImageF& skyStack, ImageF* outComposite, ImageF* out
 }  // namespace
 
 void composite_foreground(const ImageF& skyStack, const ImageF& groundStack, float featherPx,
-                          ImageF* outComposite, ImageF* outMaskOptional) {
+                          ImageF* outComposite, ImageF* outMaskOptional, int downEdge) {
     if (!outComposite && !outMaskOptional) return;
     try {
         const int w = skyStack.w, h = skyStack.h, chn = skyStack.ch;
@@ -199,10 +199,16 @@ void composite_foreground(const ImageF& skyStack, const ImageF& groundStack, flo
         }
         const float thr = (float)(thrBin + 1) * (p995 / 255.0f);
 
-        // ---- Which side is sky? Majority vote on the top row ------------------------------
+        // ---- Which side is sky? Majority vote on the edge facing the sky -----------------
+        // (the top row for a phone held in landscape; opposite downEdge in general)
+        std::vector<int> skyEdge;
+        if (downEdge == 1) for (int sy = 0; sy < sh; ++sy) skyEdge.push_back(sy * sw + sw - 1);
+        else if (downEdge == 2) for (int sx = 0; sx < sw; ++sx) skyEdge.push_back((sh - 1) * sw + sx);
+        else if (downEdge == 3) for (int sy = 0; sy < sh; ++sy) skyEdge.push_back(sy * sw);
+        else for (int sx = 0; sx < sw; ++sx) skyEdge.push_back(sx);
         int below = 0, above = 0;
-        for (int sx = 0; sx < sw; ++sx) {
-            if (lumaS[sx] < thr) ++below; else ++above;
+        for (int i : skyEdge) {
+            if (lumaS[(size_t)i] < thr) ++below; else ++above;
         }
         const bool skyBelow = below > above;  // tie -> brighter side (typical night sky)
 
@@ -211,13 +217,13 @@ void composite_foreground(const ImageF& skyStack, const ImageF& groundStack, flo
             side[i] = ((lumaS[i] < thr) == skyBelow) ? (uint8_t)1 : (uint8_t)0;
         }
 
-        // ---- Flood fill (4-connected, iterative) from all top-row sky-side pixels ---------
+        // ---- Flood fill (4-connected, iterative) from the sky edge's sky-side pixels ------
         std::vector<uint8_t> mk((size_t)sw * sh, 0);
         {
             std::vector<int> st;
             st.reserve((size_t)sw * sh / 4 + 16);
-            for (int sx = 0; sx < sw; ++sx) {
-                if (side[sx] && !mk[sx]) { mk[sx] = 1; st.push_back(sx); }
+            for (int i : skyEdge) {
+                if (side[(size_t)i] && !mk[(size_t)i]) { mk[(size_t)i] = 1; st.push_back(i); }
             }
             while (!st.empty()) {
                 const int i = st.back();

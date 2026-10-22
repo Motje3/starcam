@@ -23,6 +23,7 @@ import androidx.core.content.FileProvider
 import com.wm.starcam.camera.CamInfo
 import com.wm.starcam.session.AppSettings
 import com.wm.starcam.session.Mode
+import com.wm.starcam.session.sessionPhoto
 import com.wm.starcam.util.AppLog
 import com.wm.starcam.util.Fmt
 import kotlinx.coroutines.delay
@@ -83,6 +84,13 @@ fun Modifier.blockTouches(): Modifier = pointerInput(Unit) {
 fun exposureText(ns: Long): String = Fmt.exposure(ns).removeSuffix("s") + " s"
 
 fun exposureText(seconds: Double): String = exposureText((seconds * 1e9).toLong())
+
+/** The comparison card's caption: "20 × 15 s · ISO 1600 · OnePlus". */
+fun compareCaption(frames: Int, exposureNs: Long, iso: Int): String = listOfNotNull(
+    if (exposureNs > 0) "$frames × ${exposureText(exposureNs)}" else "$frames frames",
+    if (iso > 0) "ISO $iso" else null,
+    android.os.Build.MANUFACTURER.replaceFirstChar { it.uppercase() },
+).joinToString(" · ")
 
 /** "45 s", "7 min 30 s", "1 h 05 min". */
 fun durationText(totalSec: Long): String {
@@ -233,7 +241,7 @@ fun latestPhoto(sessionsRoot: File): File? = runCatching {
         ?.sortedByDescending { it.name }
         ?.asSequence()
         ?.mapNotNull { dir ->
-            File(dir, "out").listFiles { f -> f.extension == "jpg" }?.maxByOrNull { it.lastModified() }
+            sessionPhoto(dir)
         }
         ?.firstOrNull()
 }.getOrNull()

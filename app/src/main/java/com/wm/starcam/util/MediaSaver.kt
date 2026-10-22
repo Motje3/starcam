@@ -108,6 +108,34 @@ object MediaSaver {
     }
 
     /**
+     * The engine's single-frame comparison image (see EngineResult.singlePath) as
+     * out/single_frame.jpg beside the photo. Session only, never the gallery; the raw file goes.
+     */
+    fun saveComparisonFrame(rgbFile: File, width: Int, height: Int, jpegOut: File): Boolean {
+        try {
+            val bitmap = rgbToBitmap(rgbFile, width, height) ?: return false
+            try {
+                val part = File(jpegOut.parentFile, jpegOut.name + ".part")
+                val ok = runCatching {
+                    part.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 90, it) }
+                }.getOrDefault(false)
+                if (!ok || !part.renameTo(jpegOut)) {
+                    part.delete()
+                    return false
+                }
+                return true
+            } finally {
+                bitmap.recycle()
+            }
+        } catch (t: Throwable) {
+            AppLog.e("comparison frame not saved", t)
+            return false
+        } finally {
+            rgbFile.delete()
+        }
+    }
+
+    /**
      * Streams the engine's interleaved-RGB file into a Bitmap row block by row block. Reading the
      * whole file plus a full IntArray plus the Bitmap at once needs ~11 bytes/px, which blows up on
      * a full-res (50 MP) stack; this holds the Bitmap plus one small row-block buffer.

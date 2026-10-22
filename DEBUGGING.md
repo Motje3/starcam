@@ -117,9 +117,13 @@ copy `Android/media/com.wm.starcam/StarCam` to a computer, then uninstall the de
 `tools\emulator-test.ps1` runs the checks that need no phone and no night sky on the `starcam_ui`
 AVD (API 34, the phone's screen, a back camera that delivers RAW): the engine self-test, a session
 through the adb hook (Back asks before stopping, Finish, the result screen), the app killed
-mid-session, a synthetic starfield session stacked from Sessions, the camera released on Home and
-reopened, and a session surviving a swipe out of recents. `-Clean` empties the emulator's sessions
-first, `-Only stack,swipe` runs a subset. The emulator's own camera shows a scene without stars, so
+mid-session, a synthetic starfield session stacked from Sessions (recorded as shot upright: the
+photo must come out portrait), that session opened in the editing studio and saved as a new photo,
+the Tonight planner opened from the viewfinder (the emulator placed in Amsterdam with `geo fix`),
+the camera released on Home and reopened, and a session surviving a swipe out of recents.
+`-Clean` empties the emulator's sessions first, `-Only stack,studio` runs a subset (studio needs
+stack in the same run). JVM unit tests (sky maths, rotation, studio settings) run with
+`gradlew testDebugUnitTest`. The emulator's own camera shows a scene without stars, so
 its sessions end on "no reference frame"; that is expected.
 
 `tools\make-test-session.ps1 -Push` writes that synthetic session (8 drifting starfield frames with

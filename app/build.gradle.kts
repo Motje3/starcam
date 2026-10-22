@@ -23,8 +23,8 @@ android {
         targetSdk = 36
         // Bump on every build that goes to the phone: logs and debug bundles name the version,
         // which is how a field log is matched to the code that produced it.
-        versionCode = 7
-        versionName = "0.3.3"
+        versionCode = 8
+        versionName = "0.4.0"
 
         ndk {
             abiFilters += "arm64-v8a"
@@ -93,4 +93,6 @@ dependencies {
     implementation("androidx.exifinterface:exifinterface:1.3.7")
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
+    // The real org.json for JVM tests: android.jar only has stubs that throw.
+    testImplementation("org.json:json:20240303")
 }

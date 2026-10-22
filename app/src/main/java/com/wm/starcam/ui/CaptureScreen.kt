@@ -117,6 +117,7 @@ fun CaptureScreen(
     onOpenSession: (File) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenProbe: () -> Unit,
+    onOpenTonight: () -> Unit,
 ) {
     val c = Sc.colors
     val settings by vm.settingsStore.settings.collectAsState()
@@ -157,6 +158,7 @@ fun CaptureScreen(
             onOpenSessions = onOpenSessions,
             onOpenSession = onOpenSession,
             onOpenSettings = onOpenSettings,
+            onOpenTonight = onOpenTonight,
         )
 
         // Not composed while the shield covers it: drawn underneath, its clocks and rings kept
@@ -236,6 +238,7 @@ private fun IdleLayout(
     onOpenSessions: () -> Unit,
     onOpenSession: (File) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenTonight: () -> Unit,
 ) {
     val camInfo by vm.camInfo.collectAsState()
     val ready by vm.ready.collectAsState()
@@ -256,6 +259,7 @@ private fun IdleLayout(
             onBoostOff = { onBoostChange(false) },
             onOpenPro = onOpenPro,
             onOpenSession = onOpenSession,
+            onOpenTonight = onOpenTonight,
             modifier = Modifier.weight(1f),
         )
         Spacer(Modifier.height(10.dp))
@@ -347,6 +351,7 @@ private fun Viewfinder(
     onBoostOff: () -> Unit,
     onOpenPro: () -> Unit,
     onOpenSession: (File) -> Unit,
+    onOpenTonight: () -> Unit,
     modifier: Modifier,
 ) {
     val c = Sc.colors
@@ -367,6 +372,8 @@ private fun Viewfinder(
                 Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(10.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                // Tonight at a glance, and the way into the planner.
+                TonightChip(onOpenTonight, Modifier.align(Alignment.End))
                 // After a crash or a kill the app used to come back to a plain viewfinder, with
                 // the cut-off session's frames sitting unannounced in Sessions.
                 interrupted?.let { s ->

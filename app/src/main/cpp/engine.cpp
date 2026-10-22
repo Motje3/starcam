@@ -265,6 +265,27 @@ void apply_ccm_inplace(ImageF& rgb, const float ccm[9]) {
     });
 }
 
+// Box-averages an image down by a whole factor so its long edge is at most maxEdge.
+ImageF box_downscale(const ImageF& in, int maxEdge) {
+    const int f = std::max(1, (std::max(in.w, in.h) + maxEdge - 1) / maxEdge);
+    ImageF out;
+    out.init(std::max(1, in.w / f), std::max(1, in.h / f), in.ch);
+    const float inv = 1.0f / (float)(f * f);
+    parallel_for(0, out.h, [&](int y) {
+        for (int x = 0; x < out.w; ++x) {
+            float* o = out.px(x, y);
+            for (int c = 0; c < in.ch; ++c) o[c] = 0.0f;
+            for (int yy = 0; yy < f; ++yy) {
+                const float* s = in.px(x * f, y * f + yy);
+                for (int xx = 0; xx < f; ++xx)
+                    for (int c = 0; c < in.ch; ++c) o[c] += s[xx * in.ch + c];
+            }
+            for (int c = 0; c < in.ch; ++c) o[c] *= inv;
+        }
+    });
+    return out;
+}
+
 // METEOR: lighten-blend each cls==0 streak, warped into reference geometry, onto the linear
 // stack - along the streak only: a feathered band around its line, not the whole bounding box,
 // which brought back one frame's noise and brightened every ordinary star inside the box.
@@ -1091,7 +1112,7 @@ std::string EngineSession::finalizeStack(const std::string& optionsJson,
                 !fgRGB.empty()) {
                 ImageF comp;
                 ImageF fgMask;
-                composite_foreground(stackRGB, fgRGB, featherPx, &comp, &fgMask);
+                composite_foreground(stackRGB, fgRGB, featherPx, &comp, &fgMask, std::max(0, pp.downEdge));
                 if (!comp.empty() && comp.w == stackRGB.w && comp.h == stackRGB.h) {
                     if (!fgMask.empty()) {
                         // Sanity-check the mask: a near-empty or near-full sky mask means the
@@ -1139,6 +1160,44 @@ std::string EngineSession::finalizeStack(const std::string& optionsJson,
         if (!write_rgb8(finalPath, stackRGB, rotation)) return error_json("failed to write final image");
         int outW, outH;
         rotated_size(rotation, stackRGB.w, stackRGB.h, &outW, &outH);
+
+        // One frame developed exactly like the stack, small, for "1 frame vs stacked": what the
+        // stacking bought, side by side. Not at full-res sizes, where one more full frame in
+        // memory beside the stack is a real risk. The frame is the stack's own path with a
+        // single survivor - warped into the stack's geometry, so stars line up across the
+        // divider - and it is the one with the median star count: the reference is chosen for
+        // the most stars, which a satellite or a plane crossing it can inflate.
+        std::string singlePath;
+        int singleW = 0, singleH = 0;
+        int singlePos = -1;
+        {
+            std::vector<std::pair<int, int>> byStars;  // (stars, position)
+            for (int i = 0; i < (int)frames.size(); ++i)
+                if (!frames[i].rejected) byStars.emplace_back((int)frames[i].stars.size(), i);
+            if (!byStars.empty()) {
+                std::sort(byStars.begin(), byStars.end());
+                singlePos = byStars[byStars.size() / 2].second;
+            }
+        }
+        if ((mode == SessionMode::ASTRO || mode == SessionMode::PRO) && singlePos >= 0 &&
+            (int64_t)stackRGB.w * stackRGB.h <= 20000000LL && !abort_.load()) {
+            std::vector<FrameRecord> justOne = frames;
+            for (int i = 0; i < (int)justOne.size(); ++i) justOne[i].rejected = i != singlePos;
+            ImageF one;
+            float oneRej = 0.0f;
+            ProgressFn quiet = [](const char*, int) {};
+            if (stack_frames(justOne, cfg_.sensor, masterDark, hotIdx, sp, &one, quiet, &abort_, &oneRej) &&
+                one.w == stackRGB.w && one.h == stackRGB.h) {
+                postprocess(one, pp, nullptr);
+                const ImageF small = box_downscale(one, 1600);
+                singlePath = outDir + "/single_rgb.raw";
+                if (write_rgb8(singlePath, small, rotation)) {
+                    rotated_size(rotation, small.w, small.h, &singleW, &singleH);
+                } else {
+                    singlePath.clear();
+                }
+            }
+        }
 
         used = 0;
         std::string rejStr;
@@ -1238,7 +1297,10 @@ std::string EngineSession::finalizeStack(const std::string& optionsJson,
             .add("elapsedMs", elapsedMs)
             .add("meteorCount", meteorCount)
             .add("meteorFrames", meteorFramesStr)
-            .add("foreground", fgOutcome);
+            .add("foreground", fgOutcome)
+            .add("singlePath", singlePath)
+            .add("singleWidth", singleW)
+            .add("singleHeight", singleH);
         SLOG("finalize: done in %lld ms, %d/%d frames", (long long)elapsedMs, used,
              (int)frames.size());
         return res.build();

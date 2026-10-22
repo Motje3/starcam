@@ -51,7 +51,9 @@ import androidx.compose.ui.unit.dp
 import com.wm.starcam.StarCamViewModel
 import com.wm.starcam.engine.StackConfig
 import com.wm.starcam.session.Mode
+import com.wm.starcam.session.SINGLE_FRAME_JPG
 import com.wm.starcam.session.SessionRepository
+import com.wm.starcam.session.sessionPhoto
 import com.wm.starcam.ui.components.ScButton
 import com.wm.starcam.ui.components.ScButtonKind
 import com.wm.starcam.ui.components.ScCard
@@ -71,6 +73,7 @@ import com.wm.starcam.ui.theme.ScIcons
 import com.wm.starcam.ui.theme.ScType
 import com.wm.starcam.ui.theme.ScreenMargin
 import com.wm.starcam.ui.theme.scImageFilter
+import com.wm.starcam.util.ShareCard
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -105,12 +108,17 @@ private data class DetailData(
     val cacheBytes: Long,
     /** What the photo was stacked with: a re-stack's own options, else the capture's. Null for old sessions. */
     val config: StackConfig?,
+    /** The linear master the editing studio develops; absent when the session was not stacked. */
+    val hasMaster: Boolean,
+    /** One frame developed like the stack (out/single_frame.jpg), for "1 frame vs stacked". */
+    val single: ImageBitmap? = null,
 )
 
 /** Blocking; reads session.json, the photo and the file sizes. */
 private fun loadDetail(dir: File, repo: SessionRepository): DetailData {
     val json = repo.readSessionJson(dir)
-    val jpg = File(dir, "out").listFiles { f -> f.extension == "jpg" }?.firstOrNull()
+    // The newest: an edit or a re-stack is what the session shows from then on.
+    val jpg = sessionPhoto(dir)
     // Downsampled: a full-res stack is up to 50 MP, ~200 MB as one ARGB bitmap.
     val bmp = jpg?.let { decodeDownsampled(it.absolutePath, 2048) }
     val frames = json?.optJSONArray("frames")
@@ -150,6 +158,9 @@ private fun loadDetail(dir: File, repo: SessionRepository): DetailData {
         cacheBytes = cache.sumOf { it.length() },
         config = (resultObj?.optJSONObject("stackConfig") ?: header?.optJSONObject("stackConfig"))
             ?.let { StackConfig.fromJson(it) },
+        hasMaster = File(dir, "out/master_linear16.tiff").isFile,
+        single = File(dir, "out/$SINGLE_FRAME_JPG").takeIf { it.isFile }
+            ?.let { decodeDownsampled(it.absolutePath, 2048)?.asImageBitmap() },
     )
 }
 
@@ -174,6 +185,7 @@ fun SessionDetailScreen(
     dir: File,
     vm: StarCamViewModel,
     onBack: () -> Unit,
+    onEdit: () -> Unit,
 ) {
     val c = Sc.colors
     val repo = vm.repo
@@ -198,6 +210,9 @@ fun SessionDetailScreen(
     var refused by remember { mutableStateOf(false) }
 
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var comparing by remember { mutableStateOf(false) }
+    val scroll = rememberScrollState()
+    var scrollUpOnLoad by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -205,6 +220,10 @@ fun SessionDetailScreen(
     LaunchedEffect(dir, loadKey) {
         val d = withContext(Dispatchers.IO) { loadDetail(dir, repo) }
         data = d
+        if (scrollUpOnLoad) {
+            scrollUpOnLoad = false
+            scroll.animateScrollTo(0)
+        }
         if (!optionsLoaded) {
             optionsLoaded = true
             d.config?.let { cfg ->
@@ -225,6 +244,7 @@ fun SessionDetailScreen(
             watching = true
         } else if (watching) {
             watching = false
+            scrollUpOnLoad = true
             loadKey++
         }
     }
@@ -264,12 +284,45 @@ fun SessionDetailScreen(
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { ScSpinner(size = 28.dp) }
             return@ScScreen
         }
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-            ZoomableImage(d.image)
+        Column(Modifier.fillMaxSize().verticalScroll(scroll)) {
+            val single = d.single
+            val image = d.image
+            if (comparing && single != null && image != null) {
+                CompareSlider(single, image, "1 frame", "Stacked · ${d.stats?.framesUsed ?: d.frameCount}")
+            } else {
+                ZoomableImage(image)
+            }
             Column(
                 Modifier.padding(horizontal = ScreenMargin, vertical = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                // A finished re-stack is announced up here, under its new photo: the page scrolls
+                // up to it, and a portrait photo replacing a placeholder used to push a message
+                // down by the button out of sight.
+                if (mine != null && mine.finished && mine.error == null) {
+                    ScNotice(
+                        if (mine.galleryFailed) "Done: the photo above is updated, but the gallery copy failed."
+                        else "Done: the photo above is updated, and the new version is in the gallery.",
+                        tone = if (mine.galleryFailed) Tone.Warning else Tone.Accent, icon = ScIcons.CheckCircle,
+                    )
+                }
+                if (single != null && image != null) {
+                    ScSegmented(listOf("Photo", "1 frame vs stacked"), if (comparing) 1 else 0,
+                        { comparing = it == 1 }, Modifier.fillMaxWidth())
+                    val jpg = d.jpgFile
+                    if (comparing && jpg != null) {
+                        val used = d.stats?.framesUsed ?: d.frameCount
+                        ScButton("Share 1 frame vs stacked", {
+                            scope.launch {
+                                val card = withContext(Dispatchers.IO) {
+                                    ShareCard.compare(context, File(dir, "out/$SINGLE_FRAME_JPG"), jpg,
+                                        "Stacked · $used", compareCaption(used, d.exposureNs, d.iso))
+                                }
+                                card?.let { photoUri(context, it) }?.let { sharePhoto(context, it) }
+                            }
+                        }, Modifier.fillMaxWidth(), icon = ScIcons.Share)
+                    }
+                }
                 // ---- What went into it
                 val st = d.stats
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -302,6 +355,27 @@ fun SessionDetailScreen(
                 if (st == null) {
                     ScNotice("Not stacked — the session did not finish, or stacking on the phone was off.",
                         tone = Tone.Normal, icon = ScIcons.Info)
+                }
+
+                // ---- Edit. Shown before a first stack too (disabled), so the screen does not jump
+                // when the stack finishes and the card would otherwise appear above its message.
+                if (d.hasMaster || d.cacheCount > 0) {
+                    ScCard(Modifier.fillMaxWidth()) {
+                        Text("Edit photo", style = ScType.headline, color = c.text)
+                        Text(
+                            if (d.hasMaster) {
+                                "Sky and landscape brightness, contrast, colour, light pollution and noise, " +
+                                    "previewed as you go. Saved as a new photo; this one stays."
+                            } else {
+                                "Once the session is stacked: sky and landscape brightness, contrast, " +
+                                    "colour, light pollution and noise, previewed as you go."
+                            },
+                            style = ScType.bodySmall, color = c.text2, modifier = Modifier.padding(top = 4.dp),
+                        )
+                        ScButton("Edit", onEdit, Modifier.fillMaxWidth().padding(top = 10.dp),
+                            kind = ScButtonKind.Primary, icon = ScIcons.Edit,
+                            enabled = d.hasMaster && !restacking, height = 52.dp)
+                    }
                 }
 
                 // ---- Re-process
@@ -362,14 +436,6 @@ fun SessionDetailScreen(
                         mine?.error?.let {
                             Text("${if (st != null) "Re-stack" else "Stacking"} failed: $it",
                                 style = ScType.bodySmall, color = c.error, modifier = Modifier.padding(top = 8.dp))
-                        }
-                        if (mine != null && mine.finished && mine.error == null) {
-                            Text(
-                                if (mine.galleryFailed) "Done: the photo above is updated, but the gallery copy failed."
-                                else "Done: the photo above is updated, and the new version is in the gallery.",
-                                style = ScType.bodySmall, color = if (mine.galleryFailed) c.warning else c.accentText,
-                                modifier = Modifier.padding(top = 8.dp),
-                            )
                         }
                     }
                 }

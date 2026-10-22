@@ -3,9 +3,17 @@
 A OnePlus-15-specific astrophotography camera app. One button — **ASTRO** — does the whole job:
 waits for tripod stillness → probes the sky and picks exposure/ISO → autofocuses **on the stars
 themselves** (FWHM sweep) → shoots a burst of manual RAW frames → star-aligns and sigma-clip-stacks
-them **on the phone** in native C++ → astro post-processing (gradient removal, asinh stretch,
-chroma denoise) → finished JPG in the gallery + 16-bit linear TIFF master + optional DNGs of every
-frame for PC stacking (Siril/PixInsight/Sequator).
+them **on the phone** in native C++ → astro post-processing that finds the landscape and treats
+it apart from the sky (light-pollution removal on the sky only, a dark sky, the ground's own
+detail, star colour, wavelet noise reduction) → finished JPG in the gallery, upright the way the
+phone was held + 16-bit linear TIFF master + optional DNGs of every frame for PC stacking
+(Siril/PixInsight/Sequator).
+
+Around the shot: a **Tonight planner** (when it gets dark, the Moon, when and where the Milky
+Way's core stands, a sight that brings the phone onto it — all computed on the phone), an
+**editing studio** that develops a session's master again with your own sky/landscape
+brightness, contrast, colour and noise settings (saved as a new photo), and **1 frame vs
+stacked**, a drag-to-compare view of what the stacking did.
 
 ## Modes
 - **ASTRO** — Fast (8 frames) / Best (20 + darks) / Insane (40 + darks + foreground composite)

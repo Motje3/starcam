@@ -22,6 +22,10 @@ data class EngineResult(
     val meteorFrames: String,
     /** Foreground composite outcome: "applied (sky NN%)", "skipped (reason)", or "" (not attempted). */
     val foreground: String,
+    /** One frame developed like the stack, small (u8 RGB), for "1 frame vs stacked"; "" if none. */
+    val singlePath: String = "",
+    val singleWidth: Int = 0,
+    val singleHeight: Int = 0,
     /** The engine's result JSON as returned, for session.json. */
     val json: String = "",
 ) {
@@ -46,6 +50,9 @@ data class EngineResult(
                 meteorCount = o.optInt("meteorCount", 0),
                 meteorFrames = o.optString("meteorFrames", ""),
                 foreground = o.optString("foreground", ""),
+                singlePath = o.optString("singlePath", ""),
+                singleWidth = o.optInt("singleWidth", 0),
+                singleHeight = o.optInt("singleHeight", 0),
             )
         }
     }

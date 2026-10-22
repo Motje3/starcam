@@ -42,6 +42,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -75,6 +76,7 @@ import com.wm.starcam.camera.FocusSweep
 import com.wm.starcam.camera.StopRequest
 import com.wm.starcam.engine.FrameStats
 import com.wm.starcam.session.AppSettings
+import com.wm.starcam.session.SINGLE_FRAME_JPG
 import com.wm.starcam.ui.components.ScButton
 import com.wm.starcam.ui.components.ScButtonKind
 import com.wm.starcam.ui.components.ScCard
@@ -97,8 +99,10 @@ import com.wm.starcam.ui.theme.ScShapes
 import com.wm.starcam.ui.theme.ScType
 import com.wm.starcam.ui.theme.ScreenMargin
 import com.wm.starcam.ui.theme.scImageFilter
+import com.wm.starcam.util.ShareCard
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
@@ -701,6 +705,7 @@ private fun CapturingStep(
             ScNotice("Fewer frames than planned: the phone is low on storage.", tone = Tone.Warning,
                 icon = ScIcons.Warning)
         }
+        st.skyNote?.let { ScNotice(it, tone = Tone.Warning, icon = ScIcons.Warning) }
         // The app's reasoning stays visible while it matters; reused calibration is never silent.
         val notes = listOfNotNull(decision?.reasoning, focus?.message, calibration)
         if (notes.isNotEmpty()) {
@@ -1055,11 +1060,15 @@ private fun DoneStep(
 ) {
     val c = Sc.colors
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var image by remember { mutableStateOf<ImageBitmap?>(null) }
     // Null until the file has been looked at. False when the stack finished but no JPEG was
     // written (out of storage or memory): the screen used to spin on a preview that never came
     // and offer to share a file that did not exist.
     var jpegSaved by remember { mutableStateOf<Boolean?>(null) }
+    // One frame developed the same way (engine: singlePath), for "1 frame vs stacked".
+    var single by remember { mutableStateOf<ImageBitmap?>(null) }
+    var comparing by remember { mutableStateOf(false) }
     LaunchedEffect(st.jpegFile) {
         val file = st.jpegFile
         val (saved, bitmap) = withContext(Dispatchers.IO) {
@@ -1069,6 +1078,10 @@ private fun DoneStep(
         }
         jpegSaved = saved
         image = bitmap
+        single = withContext(Dispatchers.IO) {
+            File(st.sessionDir, "out/$SINGLE_FRAME_JPG").takeIf { it.isFile }
+                ?.let { decodeDownsampled(it.absolutePath, 1440)?.asImageBitmap() }
+        }
     }
     val result = st.result
     val photo = remember(st, jpegSaved) {
@@ -1079,7 +1092,10 @@ private fun DoneStep(
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
             Box(Modifier.fillMaxWidth()) {
                 val img = image
-                if (result != null && img != null) {
+                val one = single
+                if (result != null && img != null && comparing && one != null) {
+                    CompareSlider(one, img, "1 frame", "Stacked · ${result.framesUsed}")
+                } else if (result != null && img != null) {
                     Image(img, "The finished photo", Modifier.fillMaxWidth(),
                         contentScale = ContentScale.FillWidth, colorFilter = scImageFilter)
                 } else {
@@ -1093,6 +1109,15 @@ private fun DoneStep(
                     ScIcons.Close, "Close", onClose,
                     modifier = Modifier.padding(12.dp).align(Alignment.TopStart),
                 )
+                if (result != null && image != null && single != null) {
+                    ScGlass(
+                        Modifier.align(Alignment.BottomEnd).padding(10.dp).clip(ScShapes.pill)
+                            .clickable(role = Role.Button) { comparing = !comparing },
+                    ) {
+                        Icon(ScIcons.Compare, null, Modifier.size(14.dp), tint = c.accent)
+                        Text(if (comparing) "Photo" else "1 frame vs stacked", style = ScType.caption, color = c.text)
+                    }
+                }
             }
             Column(Modifier.padding(ScreenMargin), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (result == null) {
@@ -1117,6 +1142,19 @@ private fun DoneStep(
                         icon = ScIcons.Warning)
                 }
                 st.warning?.let { ScNotice(it, tone = Tone.Warning, icon = ScIcons.Warning) }
+                if (comparing && result != null && single != null) {
+                    ScButton("Share 1 frame vs stacked", {
+                        scope.launch {
+                            val card = withContext(Dispatchers.IO) {
+                                st.jpegFile?.let { jpg ->
+                                    ShareCard.compare(context, File(st.sessionDir, "out/$SINGLE_FRAME_JPG"), jpg,
+                                        "Stacked · ${result.framesUsed}", compareCaption(result.framesUsed, decision?.exposureNs ?: 0L, decision?.iso ?: 0))
+                                }
+                            }
+                            card?.let { photoUri(context, it) }?.let { sharePhoto(context, it) }
+                        }
+                    }, Modifier.fillMaxWidth(), icon = ScIcons.Share)
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (result != null) {
                         ScStatTile("${result.framesUsed}/${result.framesTotal}", "frames", Modifier.weight(1f))

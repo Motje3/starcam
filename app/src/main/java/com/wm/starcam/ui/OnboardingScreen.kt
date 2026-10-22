@@ -67,6 +67,13 @@ private val IntroPages = listOf(
             "pixels. A lens cap or a dark cloth works best. If you miss it, it skips after 60 seconds.",
         ScIcons.Night, "Night vision turns the whole app red, to keep your eyes dark-adapted.",
     ),
+    IntroPage(
+        ScIcons.Moon, "Plan the night, finish the photo",
+        "The Tonight chip on the viewfinder tells you when it gets properly dark, when the Moon is out " +
+            "of the way and where the Milky Way stands. Afterwards, Edit brightens the sky, the " +
+            "landscape or the colours of any photo - the original stays.",
+        ScIcons.Compare, "\"1 frame vs stacked\" shows what the stacking did. Share that one.",
+    ),
 )
 
 /** Three first-launch cards. Skippable, and replayable from Settings › Interface. */
