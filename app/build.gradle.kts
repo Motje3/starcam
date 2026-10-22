@@ -92,4 +92,5 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.exifinterface:exifinterface:1.3.7")
     debugImplementation("androidx.compose.ui:ui-tooling")
+    testImplementation("junit:junit:4.13.2")
 }
