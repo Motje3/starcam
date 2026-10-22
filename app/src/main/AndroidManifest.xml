@@ -13,8 +13,10 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <uses-feature android:name="android.hardware.camera.any" android:required="true" />
-    <uses-feature android:name="android.hardware.camera.raw" android:required="false" />
-    <uses-feature android:name="android.hardware.camera.manual_sensor" android:required="false" />
+    <!-- Not required: some phones deliver RAW through Camera2 without declaring these features,
+         and Play would hide the app from them. The app checks the camera's capabilities itself. -->
+    <uses-feature android:name="android.hardware.camera.capability.raw" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.capability.manual_sensor" android:required="false" />
     <uses-feature android:name="android.hardware.sensor.gyroscope" android:required="false" />
 
     <application

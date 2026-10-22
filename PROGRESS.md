@@ -10,6 +10,10 @@
 - **Release build.** R8 minification and resource shrinking (about 5 MB instead of 30+ MB; the
   unused Material icon library is gone from debug too), native debug symbols for Play, signing
   from an uncommitted `keystore.properties`. The minified build passed the same emulator checks.
+- **Manifest features.** The optional RAW and manual-sensor features were declared under names
+  Android does not have (`android.hardware.camera.raw` instead of `...camera.capability.raw`).
+  Harmless while optional, but making one required would have hidden the app from every phone
+  on Play. Now the real names, still optional: the app checks each camera's capabilities itself.
 - **Sessions survive their screen.** The view model now lives as long as the process (the
   application owns its store). Swiping StarCam out of recents mid-session used to destroy the
   activity and cancel the capture with its view model; now the session carries on under its
