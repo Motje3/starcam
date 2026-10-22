@@ -1,6 +1,7 @@
 package com.wm.starcam.session
 
 import android.content.Context
+import android.media.MediaScannerConnection
 import android.util.AtomicFile
 import android.util.Size
 import com.wm.starcam.camera.ShadingMapData
@@ -49,6 +50,25 @@ class SessionRepository(private val context: Context) {
     fun sessionsRoot(): File {
         val base = context.externalMediaDirs.firstOrNull() ?: context.filesDir
         return File(base, "StarCam/sessions").apply { mkdirs() }
+    }
+
+    /**
+     * Keeps the StarCam folder out of gallery apps. MediaStore indexes Android/media, so every DNG
+     * frame and dark showed up in Google Photos and the like - dozens of near-black frames per
+     * session burying the finished photos, which go to Pictures/StarCam and stay visible. Over
+     * USB and in file managers the folder lists as before.
+     */
+    fun hideFromGallery() {
+        val base = context.externalMediaDirs.firstOrNull() ?: return
+        val root = File(base, "StarCam").apply { mkdirs() }
+        val marker = File(root, ".nomedia")
+        if (marker.exists()) return
+        runCatching {
+            marker.createNewFile()
+            // Files indexed before the marker existed stay in galleries until a scan sees it.
+            MediaScannerConnection.scanFile(context, arrayOf(root.path), null, null)
+            AppLog.i("StarCam folder hidden from gallery apps (.nomedia)")
+        }.onFailure { AppLog.w("could not hide the StarCam folder from gallery apps", it) }
     }
 
     fun newSession(mode: Mode): SessionPaths {

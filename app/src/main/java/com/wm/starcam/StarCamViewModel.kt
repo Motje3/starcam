@@ -86,6 +86,7 @@ class StarCamViewModel(app: Application) : AndroidViewModel(app) {
         // from a process that died mid-session.
         viewModelScope.launch(Dispatchers.IO) {
             _interrupted.value = repo.collectInterrupted().firstOrNull()
+            repo.hideFromGallery()
         }
     }
 

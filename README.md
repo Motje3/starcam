@@ -37,7 +37,9 @@ Malvar demosaic, post pipeline — no OpenCV, all ours) · zero third-party runt
 Sessions land in `Android/media/com.wm.starcam/StarCam/sessions/<timestamp>_<mode>/` — visible
 over USB: `lights/*.dng`, `darks/*.dng`, `out/` (final JPG + `master_linear16.tiff` +
 `stack_report.json`), `meta/session.json` (every frame's stats & rejection reasons), `cache/`
-(engine working files, kept only with "Keep raw cache" for in-app re-stacking).
+(engine working files, kept only with "Keep raw cache" for in-app re-stacking). A `.nomedia`
+marker keeps the StarCam folder out of gallery apps; the finished photo goes to the gallery
+under `Pictures/StarCam`.
 
 Requires: a OnePlus 15 (any RAW-capable Android 12+ device works, adaptively). Builds from the
 command line (`tools\setup-toolchain.ps1`, then `tools\build.ps1`, see `DEBUGGING.md`) or Android

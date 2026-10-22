@@ -21,6 +21,14 @@
 - **Camera released in the background.** Leaving the app (Home, another app, screen off) closes
   the camera unless a session or test runs, and coming back reopens it. Before, it stayed open
   until the system revoked it, with the camera-in-use indicator on for an app nobody was using.
+- **Session files out of the gallery.** MediaStore indexes Android/media, so every DNG frame,
+  dark and session copy of the photo showed up in Google Photos and other galleries, dozens of
+  near-black frames per session around the finished photos. A `.nomedia` marker in the StarCam
+  folder (created at start, with a rescan so files indexed earlier drop out too) hides them; the
+  finished photo is saved to Pictures/StarCam and stays in the gallery, and USB and file
+  managers list the session folders as before. On the emulator: 37 StarCam images in MediaStore
+  before, 0 after, the 9 gallery photos untouched; after a full test run (four new sessions,
+  one stacked) still 0, with the new photo as the gallery's 10th.
 - **Tooling.** `tools\emulator-test.ps1` (six regression checks on the emulator) and
   `tools\make-test-session.ps1` (a synthetic starfield session to stack anywhere); see
   DEBUGGING.md. Lint is clean again under the new AGP (local.properties written in properties
