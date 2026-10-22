@@ -1,5 +1,27 @@
 # StarCam build progress (PLAN.md §10)
 
+## Production readiness, 0.3.3 (2026-10-22)
+
+- **Target SDK 36.** Google Play takes new apps and updates only when they target Android 16
+  (API 36) since 31 August 2026. Compile and target SDK are now 36, with AGP 8.13.2 and Gradle
+  8.13 (8.7.3 was only tested up to 35). Checked on an Android 16 emulator with 16 KB pages:
+  predictive back reaches the session's Back handling, edge-to-edge and night vision look as on
+  14, the 16 KB-aligned engine loads, self-test PASS, a synthetic session stacks.
+- **Release build.** R8 minification and resource shrinking (about 5 MB instead of 30+ MB; the
+  unused Material icon library is gone from debug too), native debug symbols for Play, signing
+  from an uncommitted `keystore.properties`. The minified build passed the same emulator checks.
+- **Sessions survive their screen.** The view model now lives as long as the process (the
+  application owns its store). Swiping StarCam out of recents mid-session used to destroy the
+  activity and cancel the capture with its view model; now the session carries on under its
+  foreground service and reopening the app shows it.
+- **Camera released in the background.** Leaving the app (Home, another app, screen off) closes
+  the camera unless a session or test runs, and coming back reopens it. Before, it stayed open
+  until the system revoked it, with the camera-in-use indicator on for an app nobody was using.
+- **Tooling.** `tools\emulator-test.ps1` (six regression checks on the emulator) and
+  `tools\make-test-session.ps1` (a synthetic starfield session to stack anywhere); see
+  DEBUGGING.md. Lint is clean again under the new AGP (local.properties written in properties
+  syntax).
+
 ## Fixes from the second (GPT) review, 0.3.2 (2026-10-21)
 
 `gpt review.md` (written against 5ed0d77) was checked finding by finding against the current

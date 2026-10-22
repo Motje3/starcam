@@ -16,7 +16,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.viewModels
+import androidx.lifecycle.ViewModelProvider
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -37,7 +37,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.wm.starcam.camera.CameraTest
 import com.wm.starcam.ui.CaptureScreen
 import com.wm.starcam.ui.DiagnosticsScreen
@@ -79,7 +78,13 @@ class MainActivity : ComponentActivity() {
     /** A screen an adb-triggered test or session wants on top; consumed by [App]. */
     private val requestedScreen = mutableStateOf<Screen?>(null)
 
-    private val vm: StarCamViewModel by viewModels()
+    // From the application's store, not the activity's: see StarCamApp.
+    private val vm: StarCamViewModel by lazy {
+        ViewModelProvider(
+            application as StarCamApp,
+            ViewModelProvider.AndroidViewModelFactory.getInstance(application),
+        )[StarCamViewModel::class.java]
+    }
 
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -143,6 +148,7 @@ class MainActivity : ComponentActivity() {
             val granted by permissionGranted
             val deniedForever by permissionDeniedForever
             App(
+                vm = vm,
                 cameraGranted = granted,
                 deniedForever = deniedForever,
                 requestedScreen = requestedScreen,
@@ -151,6 +157,16 @@ class MainActivity : ComponentActivity() {
             )
         }
         handleDebugIntent(intent)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        vm.onUiShown()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        if (!isChangingConfigurations) vm.onUiHidden()
     }
 
     override fun onResume() {
@@ -217,13 +233,13 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun App(
+    vm: StarCamViewModel,
     cameraGranted: Boolean,
     deniedForever: Boolean,
     requestedScreen: MutableState<Screen?>,
     onRequestCamera: () -> Unit,
     onOpenAppSettings: () -> Unit,
 ) {
-    val vm: StarCamViewModel = viewModel()
     val settings by vm.settingsStore.settings.collectAsState()
     val context = LocalContext.current
     val uiPrefs = remember { UiPrefs(context) }

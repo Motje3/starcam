@@ -119,6 +119,38 @@ class StarCamViewModel(app: Application) : AndroidViewModel(app) {
     private val cameraBusy: Boolean
         get() = engine?.isRunning == true || testJob?.isActive == true
 
+    /** No screen of the app is visible (home, recents, another app on top, swiped away). */
+    @Volatile private var uiHidden = false
+
+    /**
+     * The app left the screen: the camera is let go unless a session or test is using it. It used
+     * to stay open in the background until the system revoked it, with the camera-in-use
+     * indicator lit for an app nobody was looking at. [onUiShown] reopens it.
+     */
+    fun onUiHidden() {
+        uiHidden = true
+        if (cameraBusy || controller == null) return
+        viewModelScope.launch(Dispatchers.Default) { releaseCameraIfIdle("app in the background") }
+    }
+
+    fun onUiShown() {
+        if (!uiHidden) return
+        uiHidden = false
+        if (permissionGranted && controller == null && !cameraBusy) {
+            val id = _camInfo.value?.cameraId ?: return
+            openCamera(id, force = true, what = "Resume")
+        }
+    }
+
+    private suspend fun releaseCameraIfIdle(why: String) = cameraMutex.withLock {
+        if (!uiHidden || cameraBusy) return@withLock
+        val ctrl = controller ?: return@withLock
+        AppLog.i(TAG, "$why — releasing the camera")
+        _ready.value = false
+        controller = null
+        runCatching { ctrl.close() }
+    }
+
     fun onPermissionGranted() {
         if (permissionGranted) return
         permissionGranted = true
@@ -372,6 +404,8 @@ class StarCamViewModel(app: Application) : AndroidViewModel(app) {
         SessionBeacon.clearActions()
         CaptureService.stop(getApplication())
         restorePreview()
+        // Finished with nobody looking: let the camera go now rather than when the app returns.
+        if (uiHidden) viewModelScope.launch(Dispatchers.Default) { releaseCameraIfIdle("session over in the background") }
     }
 
     /**

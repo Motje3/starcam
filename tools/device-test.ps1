@@ -45,7 +45,7 @@ if (-not $SkipInstall) {
     Write-Host '2/4 installing the debug build (in-place update)'
     $expected = 'e1f4bb65c77a308cfa7d8ee2976b5b012c4df5af32996ccac3aab07599bc04c4'
     $env:JAVA_HOME = Join-Path $env:LOCALAPPDATA 'Android\jdk17'
-    $signer = (& (Join-Path $sdk 'build-tools\34.0.0\apksigner.bat') verify --print-certs $apk 2>$null |
+    $signer = (& (Join-Path $sdk 'build-tools\35.0.0\apksigner.bat') verify --print-certs $apk 2>$null |
         Select-String 'SHA-256 digest: (\w+)').Matches.Groups[1].Value
     if ($signer -ne $expected) { throw "APK signed with $signer - would need an uninstall that deletes all sessions. Fix the keystore first (DEBUGGING.md)." }
     & $adb install -r $apk

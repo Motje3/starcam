@@ -97,6 +97,41 @@ cannot update the installed app. The only way around that is uninstalling, and u
 deletes everything under `Android/media/com.wm.starcam` (every session, frame and dark).
 `build.ps1` checks the signature and refuses to install a mismatched APK.
 
+**Release builds.** `gradlew bundleRelease` (Play) or `assembleRelease` builds a minified (R8),
+resource-shrunk build of about 5 MB instead of the debug APK's 30+, with the native symbols
+attached for Play's crash reports. It is signed with the upload key named in `keystore.properties`
+(copy `keystore.properties.example`; never commit either); without it the output is unsigned.
+Create the upload key once and back it up with its passwords:
+
+```powershell
+New-Item -ItemType Directory -Force ..\keys | Out-Null    # outside the repository
+& "$env:LOCALAPPDATA\Android\jdk17\bin\keytool.exe" -genkeypair -v -keystore ..\keys\starcam-upload.jks `
+    -alias upload -keyalg RSA -keysize 4096 -validity 10000
+```
+
+A Play-signed build cannot update the debug-signed app on the phone either: before installing one,
+copy `Android/media/com.wm.starcam/StarCam` to a computer, then uninstall the debug build.
+
+## Testing on the emulator
+
+`tools\emulator-test.ps1` runs the checks that need no phone and no night sky on the `starcam_ui`
+AVD (API 34, the phone's screen, a back camera that delivers RAW): the engine self-test, a session
+through the adb hook (Back asks before stopping, Finish, the result screen), the app killed
+mid-session, a synthetic starfield session stacked from Sessions, the camera released on Home and
+reopened, and a session surviving a swipe out of recents. `-Clean` empties the emulator's sessions
+first, `-Only stack,swipe` runs a subset. The emulator's own camera shows a scene without stars, so
+its sessions end on "no reference frame"; that is expected.
+
+`tools\make-test-session.ps1 -Push` writes that synthetic session (8 drifting starfield frames with
+hot pixels, a satellite trail and one frame recorded as bumped: it should stack 7 of 8) and pushes
+it to a connected device - the phone too, to try re-stacking there.
+
+An Android 16 AVD with 16 KB pages (`starcam_a16`, image `android-36.1;google_apis_ps16k`) checks
+the target-SDK behaviour and the native library's page alignment. On this PC its screenshots and
+recents crash in the emulator's graphics (system_server restarts): drive it without leaving the
+app, take screenshots with `adb emu screenrecord screenshot <dir>` and dump the UI to
+`/data/local/tmp`.
+
 ## Reading a log line
 
 ```

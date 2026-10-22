@@ -10,3 +10,7 @@ captures/
 field-logs/
 .kotlin/
 build_log.txt
+keystore.properties
+*.jks
+*.keystore
+keys/

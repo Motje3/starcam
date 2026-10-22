@@ -39,5 +39,8 @@ over USB: `lights/*.dng`, `darks/*.dng`, `out/` (final JPG + `master_linear16.ti
 `stack_report.json`), `meta/session.json` (every frame's stats & rejection reasons), `cache/`
 (engine working files, kept only with "Keep raw cache" for in-app re-stacking).
 
-Requires: Android Studio (Ladybug or newer), a OnePlus 15 (any RAW-capable Android 12+ device
-works, adaptively), no other setup — Gradle 8.9 / AGP 8.7.3 / NDK 27 pinned in the project.
+Requires: a OnePlus 15 (any RAW-capable Android 12+ device works, adaptively). Builds from the
+command line (`tools\setup-toolchain.ps1`, then `tools\build.ps1`, see `DEBUGGING.md`) or Android
+Studio — Gradle 8.13 / AGP 8.13.2 / NDK 27 / compile and target SDK 36 pinned in the project.
+Release builds (`gradlew bundleRelease`) are minified and signed from `keystore.properties`
+(see `keystore.properties.example`).

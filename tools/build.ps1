@@ -34,7 +34,7 @@ try {
     # D:\Personal\configs\.android). An APK signed with any other key cannot update it, and the
     # only way around that is uninstalling - which deletes every session under Android/media.
     $expected = 'e1f4bb65c77a308cfa7d8ee2976b5b012c4df5af32996ccac3aab07599bc04c4'
-    $apksigner = Join-Path $env:ANDROID_HOME 'build-tools\34.0.0\apksigner.bat'
+    $apksigner = Join-Path $env:ANDROID_HOME 'build-tools\35.0.0\apksigner.bat'
     $signer = (& $apksigner verify --print-certs $apk 2>$null | Select-String 'SHA-256 digest: (\w+)').Matches.Groups[1].Value
     if ($signer -ne $expected) {
         Write-Warning "APK is signed with $signer, not the key the phone's StarCam was installed with."

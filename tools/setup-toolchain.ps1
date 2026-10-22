@@ -1,5 +1,5 @@
 # Installs everything needed to build StarCam from the command line, without Android Studio:
-# JDK 17 + Android SDK (platform-tools/adb, platform 35, build-tools 34, NDK 27, CMake 3.22.1).
+# JDK 17 + Android SDK (platform-tools/adb, platform 36, build-tools 35, NDK 27, CMake 3.22.1).
 #
 # Everything goes under %LOCALAPPDATA%\Android, which is also where Android Studio looks, so a
 # later Studio install reuses it. Safe to re-run: finished steps are skipped.
@@ -58,11 +58,11 @@ if (-not (Test-Path (Join-Path $cmdline 'bin\sdkmanager.bat'))) {
 }
 $sdkmanager = Join-Path $cmdline 'bin\sdkmanager.bat'
 
-# ---- SDK packages (versions pinned by app/build.gradle.kts) ----
+# ---- SDK packages (versions pinned by app/build.gradle.kts; build-tools is AGP 8.13's default) ----
 $packages = @(
     'platform-tools',
-    'platforms;android-35',
-    'build-tools;34.0.0',
+    'platforms;android-36',
+    'build-tools;35.0.0',
     'ndk;27.0.12077973',
     'cmake;3.22.1'
 )
@@ -79,11 +79,10 @@ if ($LASTEXITCODE -ne 0) { throw 'sdkmanager failed' }
 
 # ---- Point the project at this SDK ----
 $props = Join-Path $PSScriptRoot '..\local.properties'
-$sdkFwd = $Sdk -replace '\\', '/'
-Set-Content -Encoding ascii $props @(
-    '## Local machine paths - not part of the source, do not commit.'
-    "sdk.dir=$sdkFwd"
-)
+# Properties-file syntax: forward slashes, the drive colon escaped, LF endings (lint checks all three).
+$sdkFwd = ($Sdk -replace '\\', '/') -replace ':', '\:'
+[IO.File]::WriteAllText($props,
+    "## Local machine paths - not part of the source, do not commit.`nsdk.dir=$sdkFwd`n")
 
 Write-Host ''
 Write-Host 'Toolchain ready:'
