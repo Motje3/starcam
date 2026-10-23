@@ -208,6 +208,7 @@ fun SessionDetailScreen(
     vm: StarCamViewModel,
     onBack: () -> Unit,
     onEdit: () -> Unit,
+    onPlayVideo: (File) -> Unit,
 ) {
     val c = Sc.colors
     val repo = vm.repo
@@ -403,7 +404,8 @@ fun SessionDetailScreen(
                 // ---- The stack building up, as a video
                 if (d.replayFrames >= 2) {
                     val used = st?.framesUsed ?: d.frameCount
-                    ReplayCard(dir, d.replayFrames, compareCaption(used, d.exposureNs, d.iso), enabled = !restacking)
+                    ReplayCard(dir, d.replayFrames, compareCaption(used, d.exposureNs, d.iso), enabled = !restacking,
+                        onPlay = onPlayVideo)
                 }
 
                 // ---- Re-process

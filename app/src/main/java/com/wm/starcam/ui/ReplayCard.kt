@@ -36,7 +36,7 @@ import kotlin.math.roundToInt
  * video is made by [StackReplay.make], outside the screen: this card only shows how it goes.
  */
 @Composable
-fun ReplayCard(dir: File, frames: Int, caption: String, enabled: Boolean) {
+fun ReplayCard(dir: File, frames: Int, caption: String, enabled: Boolean, onPlay: ((File) -> Unit)? = null) {
     val c = Sc.colors
     val context = LocalContext.current
     val video = remember(dir) { File(dir, "out/${StackReplay.VIDEO}") }
@@ -60,14 +60,25 @@ fun ReplayCard(dir: File, frames: Int, caption: String, enabled: Boolean) {
             }
         }
         Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ScButton(if (made) "Make again" else "Make video", { StackReplay.make(context, dir, caption) },
-                Modifier.weight(1f), kind = if (made) ScButtonKind.Secondary else ScButtonKind.Primary,
-                icon = ScIcons.Play, enabled = enabled && progress == null && frames >= 2)
+            if (made && onPlay != null) {
+                ScButton("Play", { onPlay(video) }, Modifier.weight(1f), kind = ScButtonKind.Primary,
+                    icon = ScIcons.Play, enabled = progress == null)
+            } else {
+                ScButton(if (made) "Make again" else "Make video", { StackReplay.make(context, dir, caption) },
+                    Modifier.weight(1f), kind = if (made) ScButtonKind.Secondary else ScButtonKind.Primary,
+                    icon = ScIcons.Play, enabled = enabled && progress == null && frames >= 2)
+            }
             if (made) {
                 ScButton("Share video", {
                     photoUri(context, video)?.let { shareVideo(context, it) }
                 }, Modifier.weight(1f), icon = ScIcons.Share, enabled = progress == null)
             }
+        }
+        // With Play in front, making it again (after a re-stack changed the photo) is the quiet option.
+        if (made && onPlay != null) {
+            ScButton("Make again", { StackReplay.make(context, dir, caption) },
+                Modifier.fillMaxWidth().padding(top = 4.dp), kind = ScButtonKind.Text, height = 40.dp,
+                enabled = enabled && progress == null && frames >= 2)
         }
         state?.message?.let { text ->
             Text(text, style = ScType.bodySmall, color = if (state.good) c.accentText else c.warning,
@@ -76,7 +87,7 @@ fun ReplayCard(dir: File, frames: Int, caption: String, enabled: Boolean) {
     }
 }
 
-private fun shareVideo(context: Context, uri: Uri) {
+internal fun shareVideo(context: Context, uri: Uri) {
     val send = Intent(Intent.ACTION_SEND).apply {
         type = "video/mp4"
         putExtra(Intent.EXTRA_STREAM, uri)

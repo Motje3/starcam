@@ -38,6 +38,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.CornerRadius
@@ -76,6 +77,7 @@ import com.wm.starcam.camera.CaptureState
 import com.wm.starcam.session.AppSettings
 import com.wm.starcam.session.Mode
 import com.wm.starcam.session.Quality
+import com.wm.starcam.session.SessionRepository
 import com.wm.starcam.ui.components.ScButton
 import com.wm.starcam.ui.components.ScButtonKind
 import com.wm.starcam.ui.components.ScCard
@@ -84,14 +86,13 @@ import com.wm.starcam.ui.components.ScIconButton
 import com.wm.starcam.ui.components.ScShutter
 import com.wm.starcam.ui.components.ScSlider
 import com.wm.starcam.ui.components.ScSpinner
-import com.wm.starcam.ui.components.ScStatusPill
-import com.wm.starcam.ui.components.Tone
 import com.wm.starcam.ui.theme.NightPreviewTint
 import com.wm.starcam.ui.theme.Sc
 import com.wm.starcam.ui.theme.ScIcons
 import com.wm.starcam.ui.theme.ScShapes
 import com.wm.starcam.ui.theme.ScType
 import com.wm.starcam.ui.theme.scImageFilter
+import com.wm.starcam.util.StackReplay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -118,6 +119,8 @@ fun CaptureScreen(
     onOpenSettings: () -> Unit,
     onOpenProbe: () -> Unit,
     onOpenTonight: () -> Unit,
+    onOpenStudio: (File) -> Unit,
+    onOpenVideo: (File) -> Unit,
 ) {
     val c = Sc.colors
     val settings by vm.settingsStore.settings.collectAsState()
@@ -159,6 +162,8 @@ fun CaptureScreen(
             onOpenSession = onOpenSession,
             onOpenSettings = onOpenSettings,
             onOpenTonight = onOpenTonight,
+            onOpenStudio = onOpenStudio,
+            onOpenVideo = onOpenVideo,
         )
 
         // Not composed while the shield covers it: drawn underneath, its clocks and rings kept
@@ -239,6 +244,8 @@ private fun IdleLayout(
     onOpenSession: (File) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenTonight: () -> Unit,
+    onOpenStudio: (File) -> Unit,
+    onOpenVideo: (File) -> Unit,
 ) {
     val camInfo by vm.camInfo.collectAsState()
     val ready by vm.ready.collectAsState()
@@ -248,7 +255,7 @@ private fun IdleLayout(
     val plan = remember(settings, camInfo) { planFor(settings, camInfo) }
 
     Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-        TopRow(vm)
+        QuickBar(vm, idle, onOpenTonight, onOpenStudio, onOpenVideo)
         Viewfinder(
             vm = vm,
             settings = settings,
@@ -259,7 +266,6 @@ private fun IdleLayout(
             onBoostOff = { onBoostChange(false) },
             onOpenPro = onOpenPro,
             onOpenSession = onOpenSession,
-            onOpenTonight = onOpenTonight,
             modifier = Modifier.weight(1f),
         )
         Spacer(Modifier.height(10.dp))
@@ -278,32 +284,132 @@ private fun IdleLayout(
     }
 }
 
+/** The newest session the studio can open, and the newest with pictures for a replay video. */
+private data class LatestShots(val studio: File? = null, val replay: File? = null, val replayCaption: String = "")
+
+private fun latestShots(repo: SessionRepository): LatestShots = runCatching {
+    val dirs = repo.sessionsRoot().listFiles { f -> f.isDirectory }?.sortedByDescending { it.name } ?: emptyList()
+    val studio = dirs.firstOrNull { File(it, "out/master_linear16.tiff").isFile }
+    val replay = dirs.firstOrNull { StackReplay.frames(it).size >= 2 }
+    val caption = replay?.let { dir ->
+        val json = repo.readSessionJson(dir)
+        val header = json?.optJSONObject("header")
+        val used = json?.optJSONObject("result")?.optInt("framesUsed", 0)?.takeIf { it > 0 }
+            ?: StackReplay.frames(dir).size
+        compareCaption(used, header?.optLong("exposureNs") ?: 0L, header?.optInt("iso") ?: 0)
+    } ?: ""
+    LatestShots(studio, replay, caption)
+}.getOrDefault(LatestShots())
+
+/**
+ * The top of the capture screen: the night ahead and the last photo, one tap each - the Tonight
+ * planner, the editing studio and the photo's replay video. Battery and temperature show on the
+ * viewfinder only when they matter ([PowerWarning]).
+ */
 @Composable
-private fun TopRow(vm: StarCamViewModel) {
-    val thermal by vm.thermal.status.collectAsState()
-    val lenses by vm.lenses.collectAsState()
-    val camInfo by vm.camInfo.collectAsState()
-    val battery = rememberBatteryPercent()
-    // Thermal silence is the normal state; colour only speaks when it matters.
-    val tone = when {
-        thermal >= 3 -> Tone.Error
-        thermal >= 2 || battery in 0..20 -> Tone.Warning
-        else -> Tone.Normal
-    }
-    Row(
-        Modifier.fillMaxWidth().height(54.dp).padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        ScStatusPill(
-            text = (if (battery >= 0) "Battery $battery%" else "Battery") + " · " + vm.thermal.label(),
-            tone = tone,
-            icon = if (tone == Tone.Normal) null else ScIcons.Heat,
-        )
-        Spacer(Modifier.weight(1f))
-        // Lens chips only with 2+ RAW-capable back cameras.
-        if (lenses.size >= 2) {
-            LensSwitch(lenses, camInfo) { vm.switchLens(it) }
+private fun QuickBar(
+    vm: StarCamViewModel,
+    idle: Boolean,
+    onOpenTonight: () -> Unit,
+    onOpenStudio: (File) -> Unit,
+    onOpenVideo: (File) -> Unit,
+) {
+    val context = LocalContext.current
+    var latest by remember { mutableStateOf(LatestShots()) }
+    // Looked up again whenever the screen returns to idle, so a session just finished counts.
+    LaunchedEffect(idle) { if (idle) latest = withContext(Dispatchers.IO) { latestShots(vm.repo) } }
+    val making by StackReplay.making.collectAsState()
+    val tonight = rememberTonightText()
+
+    val replayDir = latest.replay
+    val state = replayDir?.let { making[it.absolutePath] }
+    val video = replayDir?.let { File(it, "out/${StackReplay.VIDEO}") }
+    val hasVideo = remember(replayDir, state) { video?.isFile == true }
+    val progress = state?.progress
+    // A video asked for here plays as soon as it is made.
+    var playWhenMade by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(state) {
+        if (state != null && state.progress == null && playWhenMade == replayDir?.absolutePath) {
+            playWhenMade = null
+            if (video?.isFile == true) onOpenVideo(video)
         }
+    }
+
+    Row(
+        Modifier.fillMaxWidth().height(58.dp).padding(horizontal = 12.dp, vertical = 7.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        QuickAction(ScIcons.Moon, tonight, "Tonight planner: $tonight", Modifier.weight(1.25f),
+            onClick = onOpenTonight)
+        QuickAction(ScIcons.Edit, "Edit", "Edit the last photo", Modifier.weight(1f),
+            enabled = latest.studio != null) { latest.studio?.let(onOpenStudio) }
+        QuickAction(
+            ScIcons.Play,
+            progress?.let { "${(it * 100).roundToInt()}%" } ?: "Video",
+            "Video of the last session building up",
+            Modifier.weight(1f),
+            enabled = replayDir != null && progress == null,
+        ) {
+            val dir = replayDir ?: return@QuickAction
+            if (hasVideo && video != null) {
+                onOpenVideo(video)
+            } else {
+                playWhenMade = dir.absolutePath
+                StackReplay.make(context, dir, latest.replayCaption)
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuickAction(
+    icon: ImageVector,
+    text: String,
+    description: String,
+    modifier: Modifier,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    val c = Sc.colors
+    Row(
+        modifier.fillMaxHeight().alpha(if (enabled) 1f else 0.4f).clip(CircleShape)
+            .background(c.buttonSecondary).border(1.dp, c.hairline, CircleShape)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = description }
+            .padding(horizontal = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        Icon(icon, null, Modifier.size(16.dp), tint = c.accent)
+        Spacer(Modifier.width(6.dp))
+        Text(text, style = ScType.bodySmall.copy(fontWeight = FontWeight.Medium), color = c.text,
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+
+/**
+ * Battery and temperature, on the viewfinder only when they matter: a low battery ends a long
+ * session early, and a hot phone slows the frames down.
+ */
+@Composable
+private fun PowerWarning(vm: StarCamViewModel, modifier: Modifier) {
+    val c = Sc.colors
+    val thermal by vm.thermal.status.collectAsState()
+    val battery = rememberBatteryPercent()
+    val hot = thermal >= 2
+    val low = battery in 0..20
+    if (!hot && !low) return
+    ScGlass(modifier) {
+        Icon(if (hot) ScIcons.Heat else ScIcons.Warning, null, Modifier.size(15.dp),
+            tint = if (thermal >= 3) c.error else c.warning)
+        Text(
+            listOfNotNull(
+                if (low) "Battery $battery%" else null,
+                if (hot) "phone ${vm.thermal.label()}" else null,
+            ).joinToString(" · ").replaceFirstChar { it.uppercase() },
+            style = ScType.caption, color = c.text,
+        )
     }
 }
 
@@ -311,7 +417,7 @@ private fun TopRow(vm: StarCamViewModel) {
 private fun LensSwitch(lenses: List<CamInfo>, current: CamInfo?, onSwitch: (String) -> Unit) {
     val c = Sc.colors
     Row(
-        Modifier.height(44.dp).clip(CircleShape).background(c.sunken)
+        Modifier.height(38.dp).clip(CircleShape).background(c.glass)
             .border(1.dp, c.hairline, CircleShape).padding(3.dp),
         horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
@@ -351,7 +457,6 @@ private fun Viewfinder(
     onBoostOff: () -> Unit,
     onOpenPro: () -> Unit,
     onOpenSession: (File) -> Unit,
-    onOpenTonight: () -> Unit,
     modifier: Modifier,
 ) {
     val c = Sc.colors
@@ -372,8 +477,7 @@ private fun Viewfinder(
                 Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(10.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                // Tonight at a glance, and the way into the planner.
-                TonightChip(onOpenTonight, Modifier.align(Alignment.End))
+                PowerWarning(vm, Modifier.align(Alignment.End))
                 // After a crash or a kill the app used to come back to a plain viewfinder, with
                 // the cut-off session's frames sitting unannounced in Sessions.
                 interrupted?.let { s ->
@@ -434,12 +538,16 @@ private fun Viewfinder(
                 LevelOverlay(roll)
             }
 
-            PlanChip(
-                plan = plan,
-                mode = settings.mode,
-                onClick = onOpenPro,
-                modifier = Modifier.align(Alignment.BottomCenter).padding(10.dp),
-            )
+            // The lenses sit where the system camera keeps its zoom, above the plan.
+            Column(
+                Modifier.align(Alignment.BottomCenter).padding(10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                // Lens chips only with 2+ RAW-capable back cameras.
+                if (lenses.size >= 2) LensSwitch(lenses, camInfo) { vm.switchLens(it) }
+                PlanChip(plan = plan, mode = settings.mode, onClick = onOpenPro, modifier = Modifier)
+            }
         }
     }
 }

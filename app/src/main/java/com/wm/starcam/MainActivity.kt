@@ -51,6 +51,7 @@ import com.wm.starcam.ui.SettingsTab
 import com.wm.starcam.ui.StudioScreen
 import com.wm.starcam.ui.TonightScreen
 import com.wm.starcam.ui.UiPrefs
+import com.wm.starcam.ui.VideoScreen
 import com.wm.starcam.ui.theme.LocalNightDim
 import com.wm.starcam.ui.theme.StarCamTheme
 import com.wm.starcam.util.AppLog
@@ -61,6 +62,7 @@ sealed class Screen {
     data object Sessions : Screen()
     data class SessionDetail(val dir: File) : Screen()
     data class Studio(val dir: File) : Screen()
+    data class Video(val file: File) : Screen()
     data object Tonight : Screen()
     data object Settings : Screen()
     data object Probe : Screen()
@@ -72,6 +74,7 @@ sealed class Screen {
         get() = when (this) {
             is SessionDetail -> "detail:${dir.path}"
             is Studio -> "studio:${dir.path}"
+            is Video -> "video:${file.path}"
             else -> javaClass.simpleName
         }
 }
@@ -328,6 +331,8 @@ private fun App(
                                 onOpenSettings = { push(Screen.Settings) },
                                 onOpenProbe = { push(Screen.Probe) },
                                 onOpenTonight = { push(Screen.Tonight) },
+                                onOpenStudio = { dir -> push(Screen.Studio(dir)) },
+                                onOpenVideo = { file -> push(Screen.Video(file)) },
                             )
                             Screen.Sessions -> SessionsScreen(
                                 repo = vm.repo,
@@ -339,8 +344,10 @@ private fun App(
                                 vm = vm,
                                 onBack = ::pop,
                                 onEdit = { push(Screen.Studio(sc.dir)) },
+                                onPlayVideo = { file -> push(Screen.Video(file)) },
                             )
                             is Screen.Studio -> StudioScreen(dir = sc.dir, vm = vm, onBack = ::pop)
+                            is Screen.Video -> VideoScreen(file = sc.file, onBack = ::pop)
                             Screen.Tonight -> TonightScreen(onBack = ::pop)
                             Screen.Settings -> SettingsScreen(
                                 vm = vm,

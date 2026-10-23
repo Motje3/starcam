@@ -138,44 +138,36 @@ private fun placeLabel(p: GeoLocation): String = String.format(
     abs(p.latDeg), if (p.latDeg >= 0) "N" else "S", abs(p.lonDeg), if (p.lonDeg >= 0) "E" else "W",
 )
 
-/** Short state of tonight for the capture screen's pill: "Dark 20:21", "Dark until 05:58". */
+/** Short state of tonight for the capture screen's button: "Dark 20:21", "Dark now". */
 private fun pillText(p: NightPlan?, nowMs: Long, zone: ZoneId): String {
     if (p == null) return "Tonight"
     val dusk = p.astroDuskMs
     val dawn = p.astroDawnMs
     return when {
-        dusk == null || dawn == null -> "No dark night"
+        dusk == null || dawn == null -> "Tonight"  // no full darkness: the planner says so
         nowMs < dusk -> "Dark ${hm(dusk, zone)}"
-        nowMs < dawn -> "Dark until ${hm(dawn, zone)}"
+        nowMs < dawn -> "Dark now"
         else -> "Tonight"
     }
 }
 
 /**
- * The capture screen's way in, on the viewfinder: tonight's darkness at a glance, computed from
- * the place last used in the planner (no location request from here).
+ * Tonight's darkness at a glance for the capture screen, from the place last used in the planner
+ * (no location request from here).
  */
 @Composable
-fun TonightChip(onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val c = Sc.colors
+fun rememberTonightText(): String {
     val context = LocalContext.current
-    val zone = remember { ZoneId.systemDefault() }
     var text by remember { mutableStateOf("Tonight") }
     LaunchedEffect(Unit) {
         text = withContext(Dispatchers.Default) {
             val place = SkyPlaceStore(context).load()
-            val z = place?.let { planZone(it.loc) } ?: zone
+            val z = place?.let { planZone(it.loc) } ?: ZoneId.systemDefault()
             val plan = place?.let { runCatching { NightPlanner.plan(tonightDate(z), z, it.loc) }.getOrNull() }
             pillText(plan, System.currentTimeMillis(), z)
         }
     }
-    ScGlass(
-        modifier.clip(ScShapes.pill).clickable(role = Role.Button, onClick = onClick)
-            .semantics { contentDescription = "Tonight planner: $text" },
-    ) {
-        Icon(ScIcons.Moon, null, Modifier.size(14.dp), tint = c.accent)
-        Text(text, style = ScType.caption, color = c.text)
-    }
+    return text
 }
 
 // -------------------------------------------------------------------------------- screen

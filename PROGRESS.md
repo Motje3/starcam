@@ -83,6 +83,18 @@ the session page neither stops it nor starts a second one over the same files; b
 its progress. Star trails sessions get their trails growing. The first slice of the "photo and
 video from one session" idea.
 
+### The capture screen's top bar: the best features, one tap each
+
+(After the first phone test, on the user's call.) The top of the capture screen showed battery,
+temperature and the lens switch, which nobody needs at a glance. It now holds three buttons:
+**Tonight** ("Dark 20:21", "Dark now"; the planner), **Edit** (the studio on the newest photo
+with a master) and **Video** (the newest session's replay: played if made, else made with its
+progress on the button and played when done). Videos play in the app (VideoScreen, on a loop,
+with Share) instead of Android's "Open with" question; the session page's replay card has Play
+too. The lens switch moved into the viewfinder above the shooting plan, where the system camera
+keeps its zoom. Battery and temperature show on the viewfinder only when they matter (battery
+20% or less, phone warm or hot).
+
 ### The live stack looks like the photo it is becoming
 
 The capture screen's live stack (and so the replay video) stretched each channel on its own from
