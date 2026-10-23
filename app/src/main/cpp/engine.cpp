@@ -15,6 +15,7 @@
 #include "mask.h"
 #include "post.h"
 #include "post_options.h"
+#include "preview.h"
 #include "stack.h"
 #include "stars.h"
 #include "tiffout.h"
@@ -665,71 +666,8 @@ bool EngineSession::getPreview(uint32_t* argbOut, int outW, int outH) {
             src = &liveSum_;
             cnt = &liveCnt_;
         }
-        const int sw = src->w, sh = src->h;
-        if (sw <= 0 || sh <= 0 || src->ch != 3) return false;
-
-        auto fetch = [src, cnt, sw](int x, int y, float rgb[3]) {
-            const float* p = src->px(x, y);
-            if (cnt) {
-                const float c = cnt->d[(size_t)y * sw + x];
-                if (c > 0.0f) {
-                    rgb[0] = p[0] / c; rgb[1] = p[1] / c; rgb[2] = p[2] / c;
-                } else {
-                    rgb[0] = rgb[1] = rgb[2] = 0.0f;
-                }
-            } else {
-                rgb[0] = p[0]; rgb[1] = p[1]; rgb[2] = p[2];
-            }
-        };
-
-        // Black point: 10th percentile of subsampled mean-luma.
-        const size_t total = (size_t)sw * sh;
-        size_t step = total / 20000;
-        if (step < 1) step = 1;
-        std::vector<float> samples;
-        samples.reserve(total / step + 1);
-        for (size_t i = 0; i < total; i += step) {
-            const int x = (int)(i % (size_t)sw);
-            const int y = (int)(i / (size_t)sw);
-            float rgb[3];
-            fetch(x, y, rgb);
-            samples.push_back((rgb[0] + rgb[1] + rgb[2]) * (1.0f / 3.0f));
-        }
-        const float black = percentile_of(samples, 0.10f);
-        const float inv = 1.0f / std::asinh(200.0f);
-
-        // Aspect-fit with black bars, nearest neighbor, turned upright like the final photo.
-        const int rot = cfg_.rotation;
-        int rw, rh;
-        rotated_size(rot, sw, sh, &rw, &rh);
-        const double scale = std::min((double)outW / rw, (double)outH / rh);
-        int drawW = std::max(1, (int)std::lround(rw * scale));
-        int drawH = std::max(1, (int)std::lround(rh * scale));
-        if (drawW > outW) drawW = outW;
-        if (drawH > outH) drawH = outH;
-        const int ox = (outW - drawW) / 2;
-        const int oy = (outH - drawH) / 2;
-
-        std::fill(argbOut, argbOut + (size_t)outW * outH, 0xFF000000u);
-        parallel_for(0, drawH, [&](int yy) {
-            const int ry = std::min(rh - 1, (int)(((int64_t)yy * rh) / drawH));
-            uint32_t* dst = argbOut + (size_t)(oy + yy) * outW + ox;
-            for (int xx = 0; xx < drawW; ++xx) {
-                const int rx = std::min(rw - 1, (int)(((int64_t)xx * rw) / drawW));
-                int sx, sy;
-                rotated_source(rot, sw, sh, rx, ry, &sx, &sy);
-                float rgb[3];
-                fetch(sx, sy, rgb);
-                uint32_t px = 0xFF000000u;
-                for (int c = 0; c < 3; ++c) {
-                    float v = std::asinh(200.0f * std::max(0.0f, rgb[c] - black)) * inv;
-                    v = clampf(v, 0.0f, 1.0f);
-                    px |= (uint32_t)(uint8_t)(v * 255.0f + 0.5f) << (16 - 8 * c);
-                }
-                dst[xx] = px;
-            }
-        });
-        return true;
+        // Area-averaged, neutral sky at the photo's level, turned upright like the photo.
+        return render_preview(*src, cnt, cfg_.rotation, argbOut, outW, outH);
     } catch (...) {
         SLOGE("getPreview: exception");
         return false;

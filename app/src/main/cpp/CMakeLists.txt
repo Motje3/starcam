@@ -14,6 +14,7 @@ add_library(starcam SHARED
         stack.cpp
         post.cpp
         post2.cpp
+        preview.cpp
         mask.cpp
         trails.cpp
         meteor.cpp

@@ -156,7 +156,8 @@ window in plain sky (a bright or dark outline along silhouettes; both near 0 is 
 starSat = colour of clearly red / blue stars; noise = pixel-scale luma and chroma noise.
 `-LabArgs` passes options: `--nofg`, `--nomw`, `--nograd`, `--noise 2.5` (times a 20-frame stack's
 noise), `--seed 11`, `--rot90` (landscape on the left; measured turned back, so its numbers should
-match the upright scene's), a variant list (`classic`, `v2`) and post parameters (`sky=0.14
+match the upright scene's), a variant list (`classic`, `v2`, and `preview` / `preview_old` for
+the capture screen's live-stack preview now / until 0.4) and post parameters (`sky=0.14
 gap=0.2 ground=0.05 gs=1 nr=0.8 starc=0.6 style=1 sharpen=1 order=3 down=0`). `-NoBuild` reruns
 the last build. `-Tiff <session>\out\master_linear16.tiff` develops a real session's master
 instead: the way to judge a change on real sky data.

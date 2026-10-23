@@ -6,9 +6,12 @@
 //   postlab scene <outdir> [variants] [--nofg] [--nomw] [--nograd] [--noise X] [--seed N]
 //   postlab tiff <master_linear16.tiff> <outdir> [variants]
 //
-// variants: comma list of classic,v2 (default both). key=value pairs override PostParams fields.
+// variants: comma list of classic,v2 (default both), preview / preview_old (the live-stack preview
+// now / until 0.4.0). key=value pairs override PostParams fields.
 
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -16,6 +19,7 @@
 
 #include "common.h"
 #include "post.h"
+#include "preview.h"
 #include "scene.h"
 
 using starcam::ImageF;
@@ -222,6 +226,33 @@ Metrics measure(const ImageF& img, const lab::Scene& s) {
     return m;
 }
 
+// The live preview as it was until 0.4.0 (engine.cpp getPreview), for comparison: per-channel
+// asinh(200x) from the 10th percentile of the luma, nearest-neighbour.
+bool old_preview(const ImageF& src, uint32_t* out, int outW, int outH) {
+    const int sw = src.w, sh = src.h;
+    std::vector<float> samples;
+    const size_t total = (size_t)sw * sh, step = std::max<size_t>(1, total / 20000);
+    for (size_t i = 0; i < total; i += step) {
+        const float* p = &src.d[i * 3];
+        samples.push_back((p[0] + p[1] + p[2]) / 3.0f);
+    }
+    const float black = starcam::percentile_of(samples, 0.10f);
+    const float inv = 1.0f / std::asinh(200.0f);
+    for (int y = 0; y < outH; ++y) {
+        for (int x = 0; x < outW; ++x) {
+            const float* p = src.px(std::min(sw - 1, (int)((int64_t)x * sw / outW)),
+                                    std::min(sh - 1, (int)((int64_t)y * sh / outH)));
+            uint32_t px = 0xFF000000u;
+            for (int c = 0; c < 3; ++c) {
+                const float v = starcam::clampf(std::asinh(200.0f * std::max(0.0f, p[c] - black)) * inv, 0.0f, 1.0f);
+                px |= (uint32_t)(uint8_t)(v * 255.0f + 0.5f) << (16 - 8 * c);
+            }
+            out[(size_t)y * outW + x] = px;
+        }
+    }
+    return true;
+}
+
 starcam::PostParams params_for(const std::string& variant, const std::vector<std::string>& kv) {
     starcam::PostParams p;  // the engine's defaults are the classic look
     if (variant == "v2") p.version = 2;
@@ -321,6 +352,23 @@ int main(int argc, char** argv) {
         const std::string v = variants.substr(start, comma - start);
         start = comma + 1;
         if (v.empty()) continue;
+        if (v == "preview" || v == "preview_old") {
+            // The capture screen's live-stack preview of the same data, at the 1/4 size.
+            const int pw = base.w / 4, ph = base.h / 4;
+            std::vector<uint32_t> argb((size_t)pw * ph);
+            const auto t0 = std::chrono::steady_clock::now();
+            const bool ok = v == "preview" ? starcam::render_preview(base, nullptr, 0, argb.data(), pw, ph)
+                                           : old_preview(base, argb.data(), pw, ph);
+            const long ms = (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::steady_clock::now() - t0).count();
+            ImageF shown;
+            shown.init(pw, ph, 3);
+            for (size_t i = 0; i < argb.size(); ++i)
+                for (int c = 0; c < 3; ++c) shown.d[i * 3 + c] = (float)((argb[i] >> (16 - 8 * c)) & 0xFF) / 255.0f;
+            write_bmp(outDir + "/" + v + ".bmp", shown, 0, 0, pw, ph, 1);
+            std::printf("%-11s %4ld ms  %s\n", v.c_str(), ms, ok ? "" : "FAILED");
+            continue;
+        }
         ImageF img = base;
         const auto t0 = std::chrono::steady_clock::now();
         starcam::postprocess(img, params_for(v, kv), nullptr);

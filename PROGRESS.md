@@ -80,6 +80,19 @@ third-party code), read back with the platform decoder before it counts, kept in
 (`out/stack_replay.mp4`), copied to Movies/StarCam and shareable. Star trails sessions get their
 trails growing. The first slice of the "photo and video from one session" idea.
 
+### The live stack looks like the photo it is becoming
+
+The capture screen's live stack (and so the replay video) stretched each channel on its own from
+the frame's 10th percentile - on a nightscape that is the ground, so the sky showed as grey fog
+with a colour cast - and sampled the stack nearest-neighbour, showing all of its noise. It is now
+the photo's sky stretch in miniature (preview.cpp): area-averaged down to the screen, the sky
+background neutral and at the photo's level a few noise sigmas above black, an asinh on the
+luminance that keeps colours, a little extra saturation (the live stack has no colour matrix).
+The Milky Way and star colours show from the first frames; the landscape is a silhouette until
+the photo develops it. A twilight or moonlit sky already brighter than that level gets a nearly
+linear curve. Judged in the lab (`preview_old,preview` variants) on the synthetic nightscape at a
+20-frame stack's noise and at one frame's.
+
 ### Sky watch
 
 While the lights come in (ASTRO, PRO), the first two frames with a real star field set a bar;
