@@ -48,6 +48,7 @@ import com.wm.starcam.ui.SessionDetailScreen
 import com.wm.starcam.ui.SessionsScreen
 import com.wm.starcam.ui.SettingsScreen
 import com.wm.starcam.ui.SettingsTab
+import com.wm.starcam.ui.SkyViewRequest
 import com.wm.starcam.ui.StudioScreen
 import com.wm.starcam.ui.TonightScreen
 import com.wm.starcam.ui.UiPrefs
@@ -348,7 +349,13 @@ private fun App(
                             )
                             is Screen.Studio -> StudioScreen(dir = sc.dir, vm = vm, onBack = ::pop)
                             is Screen.Video -> VideoScreen(file = sc.file, onBack = ::pop)
-                            Screen.Tonight -> TonightScreen(onBack = ::pop)
+                            Screen.Tonight -> TonightScreen(
+                                onBack = ::pop,
+                                onShowSky = { atMs ->
+                                    vm.skyView.value = SkyViewRequest(atMs)
+                                    stack = listOf(Screen.Capture)
+                                },
+                            )
                             Screen.Settings -> SettingsScreen(
                                 vm = vm,
                                 initialTab = settingsTab,

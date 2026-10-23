@@ -95,6 +95,43 @@ too. The lens switch moved into the viewfinder above the shooting plan, where th
 keeps its zoom. Battery and temperature show on the viewfinder only when they matter (battery
 20% or less, phone warm or hot).
 
+### Sky view: the night sky over the viewfinder
+
+(After the first phone test, on the user's call: the planner gathered the right things but did not
+show them in a way that read, and "like those star apps, on the camera preview" was the ask.) The
+"Sky view" chip on the viewfinder, and "Show me the sky" in the planner, draw the sky over the
+camera's picture where it really is: the Milky Way as a soft band that brightens towards the core,
+the core itself ringed (an arrow to it when it is out of the picture, "below the horizon" before
+it rises), stick figures of the constellations a night photographer steers by (the Sagittarius
+teapot beside the core, Scorpius, the Summer Triangle, Orion, the Plough, Cassiopeia, the Southern
+Cross...), 1630 stars down to magnitude 5 in their colours with the brightest named, the five
+bright planets, the Moon with how much of it is lit, the Sun in twilight, the horizon and the
+compass points. It follows the phone (rotation-vector sensor, smoothed), uses the camera's real
+field of view (focal length and sensor size) and corrects the compass with the magnetic
+declination at the place; a note asks for a figure of eight when the phone says its compass is
+more than 20 degrees unsure. A slider moves the sky up to 12 hours ahead in 10-minute steps, so a
+frame can be planned by daylight: aim at the trees, slide to 01:30, see where the core will stand.
+Red with the red night UI. Nothing is drawn below the horizon but the arrow to the core.
+
+All of it is worked out on the phone (sky/StarCatalog.kt, Planets.kt, SkyScene.kt): the Yale
+Bright Star Catalogue (public domain; `tools\make-star-table.ps1` makes the 62 KB table in the
+assets), the Milky Way's outline from galactic coordinates, the planets from JPL's Keplerian
+elements (Standish, 1800-2050, well within a degree). JUnit checks it against SkyMath's Meeus
+reduction (every star's altitude to 0.005 degrees), Meeus' Sun (0.03 degrees), the 2022-23
+oppositions of Mars, Jupiter and Saturn, Venus never more than 47 degrees from the Sun, and the
+projection's centre and edges. The planner's old sight (a crosshair onto the core) is gone: the
+sky view does that and the rest.
+
+### The Tonight planner answers first
+
+It opens with the answer in one line ("A good night for the Milky Way", "Milky Way time: now",
+"The core is down while it is dark", "The core stays low tonight", "The Moon is up while the core
+is", ...), judged on the dark hours only (late in the year the core's highest point is in
+daylight: "It sets at 20:20, before the sky is fully dark at 20:22"), the best window in large
+type, three facts (dark from, the Moon, the core) and "Show me the sky at 01:30", which opens the
+sky view at that time. Under it a bar of the night: twilight, moonlight and dark, the best
+window, now. The timeline, the Moon card and all the times are one tap away under "Details".
+
 ### The live stack looks like the photo it is becoming
 
 The capture screen's live stack (and so the replay video) stretched each channel on its own from
@@ -130,12 +167,11 @@ slice of the "adaptive autopilot" idea.
 
 ### Tonight planner
 
-The viewfinder's "Tonight" chip (it reads "Dark 20:21" once a place is known) opens the planner:
-when it is properly dark, the Moon's phase and when it is up, when and how high the Milky Way's
-core stands, the best moon-free window for it, a timeline of the night (twilight shading, core
-and Moon altitude curves, the best window, now), all the times, and a sight that brings the
-phone onto the core (rotation-vector sensor, corrected to true north with the phone's own
-magnetic model). Other nights with the arrows. The sky maths (sky/SkyMath.kt, NightPlanner.kt)
+The "Tonight" button (it reads "Dark 20:21" once a place is known) opens the planner: when it is
+properly dark, the Moon's phase and when it is up, when and how high the Milky Way's core stands,
+the best moon-free window for it, a timeline of the night (twilight shading, core and Moon
+altitude curves, the best window, now) and all the times; since the phone test it leads with the
+answer and hands over to the sky view (above). Other nights with the arrows. The sky maths (sky/SkyMath.kt, NightPlanner.kt)
 is pure Kotlin checked by JUnit against the Meeus examples, JPL Horizons and USNO: event times to
 seconds. Location is coarse, asked for only in the planner, optional (coordinates can be typed
 in) and never leaves the phone: StarCam still has no internet permission.
@@ -200,15 +236,16 @@ A second review, of the replay video and the live preview, found more, also fixe
 
 ### Tested
 
-Emulator, Android 14 (the phone's screen): the suite's 9 checks pass - self-test, session flow,
+Emulator, Android 14 (the phone's screen): the suite's 10 checks pass - self-test, session flow,
 cut-off notice, synthetic stack (7 of 8 frames, portrait, with its single-frame comparison),
 studio (open, restyle, save as a new photo), replay video (made, in the session and the gallery,
-three frames read back: first frame, mid-build, the finished photo), Tonight planner, camera
-released on Home, session surviving a swipe from recents. A live session on the emulator's camera
+three frames read back: first frame, mid-build, the finished photo), Tonight planner, sky view
+(from the planner, closed, from its chip), camera released on Home, session surviving a swipe
+from recents. A live session on the emulator's camera
 keeps its replay pictures. Android 16 with 16 KB pages: self-test, session, stack, studio,
 replay and planner pass (there the video is made from a live session's pictures: Android 16
 does not let an app open pictures adb put into its folder, so the synthetic session's cannot be
-used), no crashes. 51 JVM unit tests; lint without errors. The lab: identical output over repeated runs; upright, turned, noisier, other
+used), no crashes. 58 JVM unit tests; lint without errors. The lab: identical output over repeated runs; upright, turned, noisier, other
 seeds and no landscape all measured. Not yet on the OnePlus 15: the processing on real night
 data, the rotation on the phone's own sensor orientation, the compass, location, the replay
 pictures from a real live stack and the phone's own video encoder.

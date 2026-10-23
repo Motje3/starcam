@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -461,6 +462,7 @@ private fun Viewfinder(
 ) {
     val c = Sc.colors
     val lenses by vm.lenses.collectAsState()
+    val sky by vm.skyView.collectAsState()
     val interrupted by vm.interrupted.collectAsState()
     val context = LocalContext.current
     val uiPrefs = remember { UiPrefs(context) }
@@ -470,14 +472,36 @@ private fun Viewfinder(
         Box(Modifier.aspectRatio(previewAspect(camInfo))) {
             CameraPreview(vm, Modifier.fillMaxSize())
             if (c.night) Box(Modifier.fillMaxSize().background(NightPreviewTint))
-            ViewfinderGuides()
+            if (sky == null) ViewfinderGuides()
             RoundedMask(radius = 22.dp, color = c.background, border = c.hairline)
+            sky?.let { request ->
+                SkyOverlay(
+                    request = request,
+                    cam = camInfo,
+                    onTime = { vm.skyView.value = SkyViewRequest(it) },
+                    onClose = { vm.skyView.value = null },
+                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(22.dp)),
+                )
+            }
 
             Column(
                 Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(10.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                PowerWarning(vm, Modifier.align(Alignment.End))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                    // The sky view: where the Milky Way, the stars and the Moon are, over the preview.
+                    if (sky == null) {
+                        ScGlass(
+                            Modifier.clip(ScShapes.pill).clickable(role = Role.Button) { vm.skyView.value = SkyViewRequest() }
+                                .semantics { contentDescription = "Sky view" },
+                        ) {
+                            Icon(ScIcons.Astro, null, Modifier.size(14.dp), tint = c.accent)
+                            Text("Sky view", style = ScType.caption, color = c.text)
+                        }
+                    }
+                    Spacer(Modifier.weight(1f))
+                    PowerWarning(vm, Modifier)
+                }
                 // After a crash or a kill the app used to come back to a plain viewfinder, with
                 // the cut-off session's frames sitting unannounced in Sessions.
                 interrupted?.let { s ->
@@ -538,15 +562,18 @@ private fun Viewfinder(
                 LevelOverlay(roll)
             }
 
-            // The lenses sit where the system camera keeps its zoom, above the plan.
-            Column(
-                Modifier.align(Alignment.BottomCenter).padding(10.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                // Lens chips only with 2+ RAW-capable back cameras.
-                if (lenses.size >= 2) LensSwitch(lenses, camInfo) { vm.switchLens(it) }
-                PlanChip(plan = plan, mode = settings.mode, onClick = onOpenPro, modifier = Modifier)
+            // The lenses sit where the system camera keeps its zoom, above the plan. The sky view
+            // puts its clock there instead.
+            if (sky == null) {
+                Column(
+                    Modifier.align(Alignment.BottomCenter).padding(10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    // Lens chips only with 2+ RAW-capable back cameras.
+                    if (lenses.size >= 2) LensSwitch(lenses, camInfo) { vm.switchLens(it) }
+                    PlanChip(plan = plan, mode = settings.mode, onClick = onOpenPro, modifier = Modifier)
+                }
             }
         }
     }

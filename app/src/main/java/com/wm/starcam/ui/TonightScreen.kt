@@ -6,7 +6,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,9 +24,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -50,15 +47,11 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import com.wm.starcam.sensors.DeviceLocation
-import com.wm.starcam.sensors.PointingSensor
 import com.wm.starcam.sensors.SkyPlace
 import com.wm.starcam.sensors.SkyPlaceStore
 import com.wm.starcam.sky.GeoLocation
@@ -70,14 +63,11 @@ import com.wm.starcam.ui.components.ScButton
 import com.wm.starcam.ui.components.ScButtonKind
 import com.wm.starcam.ui.components.ScCard
 import com.wm.starcam.ui.components.ScDialog
-import com.wm.starcam.ui.components.ScGlass
 import com.wm.starcam.ui.components.ScIconButton
 import com.wm.starcam.ui.components.ScLabel
-import com.wm.starcam.ui.components.ScNotice
 import com.wm.starcam.ui.components.ScScreen
 import com.wm.starcam.ui.components.ScSpinner
 import com.wm.starcam.ui.components.ScTopBar
-import com.wm.starcam.ui.components.Tone
 import com.wm.starcam.ui.theme.Sc
 import com.wm.starcam.ui.theme.ScIcons
 import com.wm.starcam.ui.theme.ScShapes
@@ -96,7 +86,6 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.cos
-import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
@@ -178,7 +167,7 @@ fun rememberTonightText(): String {
  * worked out on the phone (sky/NightPlanner.kt); the location never leaves it.
  */
 @Composable
-fun TonightScreen(onBack: () -> Unit) {
+fun TonightScreen(onBack: () -> Unit, onShowSky: (Long?) -> Unit) {
     val c = Sc.colors
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -188,6 +177,7 @@ fun TonightScreen(onBack: () -> Unit) {
     var locating by remember { mutableStateOf(false) }
     var locateFailed by remember { mutableStateOf(false) }
     var showManual by remember { mutableStateOf(false) }
+    var showDetails by rememberSaveable { mutableStateOf(false) }
     var dayOffset by rememberSaveable { mutableIntStateOf(0) }
     var plan by remember { mutableStateOf<NightPlan?>(null) }
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -277,11 +267,19 @@ fun TonightScreen(onBack: () -> Unit) {
             if (pl == null) {
                 Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) { ScSpinner(size = 28.dp) }
             } else {
-                SummaryCard(pl, zone)
-                TimelineCard(pl, if (dayOffset == 0) nowMs else null, zone)
-                if (dayOffset == 0) PointCard(pl, p.loc, nowMs, zone)
-                MoonCard(pl, zone)
-                TimesCard(pl, zone)
+                // The answer first, the night at a glance, the sky itself one tap away; the
+                // numbers behind it only on request.
+                TonightAnswer(pl, if (dayOffset == 0) nowMs else null, zone, onShowSky)
+                NightBar(pl, if (dayOffset == 0) nowMs else null, zone)
+                ScButton(
+                    if (showDetails) "Hide the details" else "Details: heights, the Moon, all the times",
+                    { showDetails = !showDetails }, Modifier.fillMaxWidth(), kind = ScButtonKind.Text, height = 40.dp,
+                )
+                if (showDetails) {
+                    TimelineCard(pl, if (dayOffset == 0) nowMs else null, zone)
+                    MoonCard(pl, zone)
+                    TimesCard(pl, zone)
+                }
             }
             // ---- where
             ScCard(Modifier.fillMaxWidth()) {
@@ -326,66 +324,191 @@ fun TonightScreen(onBack: () -> Unit) {
 
 // --------------------------------------------------------------------------------- cards
 
+/**
+ * Tonight in one card: a verdict, the best time in big type, where to look, the darkness and the
+ * Moon in a line each, and the sky view. [nowMs] is null for other nights than tonight.
+ */
 @Composable
-private fun SummaryCard(p: NightPlan, zone: ZoneId) {
+private fun TonightAnswer(p: NightPlan, nowMs: Long?, zone: ZoneId, onShowSky: (Long?) -> Unit) {
     val c = Sc.colors
+    val best = p.bestCoreWindow
+    // Where the core stands matters only while the sky is fully dark (the transit itself can be
+    // in daylight): its highest point then.
+    val darkPeak = p.samples.filter { it.sunAlt < NightPlanner.ASTRONOMICAL_TWILIGHT_ALT_DEG }.maxByOrNull { it.coreAlt }
+    val moonLit = "${(p.moonPhase.illuminated * 100).roundToInt()}% lit"
+    val verdict = when {
+        best != null && nowMs != null && nowMs in best.startMs..best.endMs -> "Milky Way time: now"
+        best != null && (nowMs == null || nowMs < best.endMs) -> "A good night for the Milky Way"
+        best != null -> "Tonight's Milky Way window is over"
+        p.coreMaxAltDeg < 0 -> "The Milky Way's core never rises here"
+        darkPeak == null -> "It never gets fully dark tonight"
+        darkPeak.coreAlt < 0 -> "The core is down while it is dark"
+        darkPeak.coreAlt < NightPlanner.CORE_MIN_ALT_DEG -> "The core stays low tonight"
+        p.darkWindows.isEmpty() -> "Too bright for the Milky Way tonight"
+        else -> "The Moon is up while the core is"
+    }
+    val advice = when {
+        best != null -> {
+            // Highest in the window: at the transit if it falls inside, else at an end.
+            val peak = listOfNotNull(best.startMs, best.endMs, p.coreTransitMs?.takeIf { it in best.startMs..best.endMs })
+                .maxOf { SkyMath.galacticCenter(it, p.location).altDeg }
+            "${durationText(best.durationMs / 1000)} of dark sky with the core up: look " +
+                "${compass(coreAzimuthAt(p, best.startMs))}, up to ${peak.roundToInt()}° high."
+        }
+        p.coreMaxAltDeg < 0 ->
+            "The band of the Milky Way still crosses the sky: shoot it higher up, or stars and trails."
+        darkPeak == null ->
+            "The Sun stays less than 18° below the horizon, so a glow lingers all night and the Milky " +
+                "Way is faint. Try another night with the arrows above."
+        darkPeak.coreAlt < 0 -> {
+            val set = p.coreSetMs
+            val rise = p.coreRiseMs
+            val dusk = p.astroDuskMs
+            val dawn = p.astroDawnMs
+            when {
+                set != null && dusk != null && set <= dusk ->
+                    "It sets at ${hm(set, zone)}, before the sky is fully dark at ${hm(dusk, zone)}. "
+                rise != null && dawn != null && rise >= dawn ->
+                    "It rises at ${hm(rise, zone)}, after the dark ends at ${hm(dawn, zone)}. "
+                else -> "It is below the horizon through the dark hours. "
+            } + "The rest of the Milky Way is up: the sky view shows where."
+        }
+        darkPeak.coreAlt < NightPlanner.CORE_MIN_ALT_DEG ->
+            "At most ${darkPeak.coreAlt.roundToInt()}° up while it is dark, around ${hm(darkPeak.epochMs, zone)}: " +
+                "you need an open view to the ${compass(darkPeak.coreAz)}."
+        p.darkWindows.isEmpty() ->
+            "The Moon ($moonLit) is up all through the dark hours. Try another night with the arrows " +
+                "above, or shoot moonlit landscapes and trails."
+        else ->
+            "The core is highest in the dark at ${hm(darkPeak.epochMs, zone)}, with the Moon up ($moonLit); " +
+                "the dark hours without the Moon come when the core is down."
+    }
     ScCard(Modifier.fillMaxWidth()) {
+        Text(verdict, style = ScType.title, color = c.text)
+        if (best != null) {
+            Text("${hm(best.startMs, zone)} – ${hm(best.endMs, zone)}", style = ScType.readout,
+                color = c.accentText, modifier = Modifier.padding(top = 6.dp))
+        }
+        Text(advice, style = ScType.body, color = c.text2, modifier = Modifier.padding(top = 4.dp))
+        Spacer(Modifier.height(12.dp))
         val dusk = p.astroDuskMs
         val dawn = p.astroDawnMs
-        Text(
-            when {
-                dusk != null && dawn != null -> "Dark from ${hm(dusk, zone)} to ${hm(dawn, zone)}"
-                p.nauticalDuskMs != null -> "Never fully dark tonight"
-                else -> "No real darkness tonight"
-            },
-            style = ScType.titleSmall, color = c.text,
+        Fact(ScIcons.Night, "Dark",
+            if (dusk != null && dawn != null) "${hm(dusk, zone)} – ${hm(dawn, zone)}" else "never fully dark")
+        Fact(ScIcons.Moon, "Moon",
+            listOfNotNull(
+                moonLit,
+                p.moonriseMs?.let { "rises ${hm(it, zone)}" },
+                p.moonsetMs?.let { "sets ${hm(it, zone)}" },
+            ).joinToString(" · "))
+        Fact(ScIcons.Astro, "Core",
+            if (p.coreMaxAltDeg < 0) "below the horizon all night"
+            else listOfNotNull(
+                p.coreRiseMs?.let { "rises ${hm(it, zone)}" },
+                "highest ${hm(p.coreTransitMs, zone)}",
+                p.coreSetMs?.let { "sets ${hm(it, zone)}" },
+            ).joinToString(" · "))
+        // The sky view: at the start of the best window when that is still ahead, or when the
+        // core stands highest in the dark; else now.
+        val target = (best?.startMs ?: darkPeak?.takeIf { it.coreAlt > 0 }?.epochMs)?.takeIf { nowMs == null || it > nowMs }
+        ScButton(
+            if (target != null) "Show me the sky at ${hm(target, zone)}" else "Show me the sky now",
+            { onShowSky(target) }, Modifier.fillMaxWidth().padding(top = 14.dp),
+            kind = ScButtonKind.Primary, icon = ScIcons.Astro, height = 52.dp,
         )
         Text(
-            when {
-                dusk != null && dawn != null -> "The Sun is more than 18° down: as dark as the sky gets."
-                p.nauticalDuskMs != null && p.nauticalDawnMs != null ->
-                    "Midsummer twilight: darkest from ${hm(p.nauticalDuskMs, zone)} to ${hm(p.nauticalDawnMs, zone)}."
-                p.nauticalDuskMs != null -> "Midsummer twilight: the sky stays light all night."
-                else -> "The Sun stays too close to the horizon."
-            },
-            style = ScType.bodySmall, color = c.text2, modifier = Modifier.padding(top = 2.dp),
+            "Hold the phone up: the Milky Way, the stars and the Moon are drawn over the camera where " +
+                "they are.",
+            style = ScType.caption, color = c.text3, modifier = Modifier.padding(top = 6.dp),
         )
-        Spacer(Modifier.height(12.dp))
-        val best = p.bestCoreWindow
-        val (icon, tone, text) = when {
-            best != null -> Triple(
-                ScIcons.Astro, Tone.Accent,
-                "Best for the Milky Way: ${hm(best.startMs, zone)} - ${hm(best.endMs, zone)} " +
-                    "(${durationText(best.durationMs / 1000)}), the core up to ${p.coreMaxAltDeg.roundToInt()}° " +
-                    "in the ${compass(coreAzimuthAt(p, p.coreTransitMs))}.",
-            )
-            p.coreMaxAltDeg < 0 -> Triple(
-                ScIcons.Info, Tone.Normal,
-                "The Milky Way's core never rises here. The band itself still crosses the sky: " +
-                    "shoot it higher up, or stars and trails.",
-            )
-            p.coreMaxAltDeg < NightPlanner.CORE_MIN_ALT_DEG -> Triple(
-                ScIcons.Info, Tone.Normal,
-                "The core stays low tonight: at most ${p.coreMaxAltDeg.roundToInt()}° up, around " +
-                    "${hm(p.coreTransitMs, zone)}. Find a clear southern horizon, or shoot the band higher up.",
-            )
-            p.darkWindows.isEmpty() -> Triple(
-                ScIcons.Info, Tone.Normal,
-                "No moon-free darkness tonight. Bright moonlight drowns the Milky Way; try a later night " +
-                    "(the arrows above), or shoot moonlit landscapes and trails.",
-            )
-            else -> Triple(
-                ScIcons.Info, Tone.Normal,
-                "The core is up, but only in twilight or moonlight. Try a later night with the arrows above.",
-            )
+    }
+}
+
+@Composable
+private fun Fact(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, value: String) {
+    val c = Sc.colors
+    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, null, Modifier.size(16.dp), tint = c.accent)
+        Text(label, style = ScType.bodySmall, color = c.text2, modifier = Modifier.padding(start = 8.dp).width(54.dp))
+        Text(value, style = ScType.bodySmall, color = c.text, modifier = Modifier.weight(1f))
+    }
+}
+
+/**
+ * The night at a glance, sunset to sunrise: twilight, moonlight, true darkness, and the best
+ * window for the Milky Way on top; a line for now.
+ */
+@Composable
+private fun NightBar(p: NightPlan, nowMs: Long?, zone: ZoneId) {
+    val c = Sc.colors
+    val measurer = rememberTextMeasurer()
+    val start = p.sunsetMs ?: p.windowStartMs
+    val end = p.sunriseMs ?: p.windowEndMs
+    if (end <= start) return
+    val twilight = c.text.copy(alpha = 0.14f)
+    val moonlight = c.text.copy(alpha = 0.32f)
+    val dark = c.accent.copy(alpha = 0.22f)
+    val bestColor = c.accent
+    ScCard(Modifier.fillMaxWidth()) {
+        ScLabel("The night")
+        val labelStyle = ScType.data.copy(color = c.text3)
+        Canvas(Modifier.fillMaxWidth().height(58.dp).padding(top = 8.dp)) {
+            val barH = 26.dp.toPx()
+            fun x(t: Long) = ((t - start).toFloat() / (end - start).toFloat()).coerceIn(0f, 1f) * size.width
+            // One block per stretch of the same light (translucent blocks side by side striped).
+            var runColor: Color? = null
+            var runStart = start
+            fun flush(until: Long) {
+                runColor?.let { drawRect(it, Offset(x(runStart), 0f), Size(x(until) - x(runStart), barH)) }
+            }
+            for (s in p.samples) {
+                if (s.epochMs + 600_000L < start || s.epochMs > end) continue
+                val col = when {
+                    s.sunAlt > -18 -> twilight
+                    s.moonAlt > 0 && p.moonPhase.illuminated >= NightPlanner.DIM_MOON_FRACTION -> moonlight
+                    else -> dark
+                }
+                if (col != runColor) {
+                    flush(s.epochMs.coerceAtLeast(start))
+                    runColor = col
+                    runStart = s.epochMs.coerceAtLeast(start)
+                }
+            }
+            flush(end)
+            p.bestCoreWindow?.let { b ->
+                drawRect(bestColor.copy(alpha = 0.85f), Offset(x(b.startMs), barH * 0.25f),
+                    Size(x(b.endMs) - x(b.startMs), barH * 0.5f))
+            }
+            nowMs?.let { n ->
+                if (n in start..end) drawLine(c.warning, Offset(x(n), -3.dp.toPx()), Offset(x(n), barH + 3.dp.toPx()), 2.dp.toPx())
+            }
+            fun timeLabel(t: Long, align: Float) {
+                val l = measurer.measure(hm(t, zone), labelStyle)
+                val lx = (x(t) - l.size.width * align).coerceIn(0f, size.width - l.size.width)
+                drawText(l, topLeft = Offset(lx, barH + 6.dp.toPx()))
+            }
+            timeLabel(start, 0f)
+            timeLabel(end, 1f)
+            p.bestCoreWindow?.let { b ->
+                val mid = (b.startMs + b.endMs) / 2
+                if (x(mid) > size.width * 0.18f && x(mid) < size.width * 0.82f) timeLabel(mid, 0.5f)
+            }
         }
-        ScNotice(text, tone = tone, icon = icon)
-        if (p.darkWindows.isNotEmpty()) {
-            Text(
-                "Moon-free dark: " + p.darkWindows.joinToString(", ") { "${hm(it.startMs, zone)}-${hm(it.endMs, zone)}" },
-                style = ScType.bodySmall, color = c.text2, modifier = Modifier.padding(top = 10.dp),
-            )
+        Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Legend(twilight, "Twilight")
+            Legend(moonlight, "Moonlight")
+            Legend(dark, "Dark")
+            Legend(bestColor, "Best")
         }
+    }
+}
+
+@Composable
+private fun Legend(color: Color, text: String) {
+    val c = Sc.colors
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(10.dp).clip(ScShapes.chip).background(color).border(1.dp, c.hairline, ScShapes.chip))
+        Text(text, style = ScType.caption, color = c.text2, modifier = Modifier.padding(start = 5.dp))
     }
 }
 
@@ -397,7 +520,7 @@ private fun TimelineCard(p: NightPlan, nowMs: Long?, zone: ZoneId) {
     val c = Sc.colors
     val measurer = rememberTextMeasurer()
     ScCard(Modifier.fillMaxWidth()) {
-        ScLabel("The night")
+        ScLabel("How high, hour by hour")
         val start = ((p.sunsetMs ?: (p.windowStartMs + 5 * 3_600_000L)) - 30 * 60_000L).coerceAtLeast(p.windowStartMs)
         var end = ((p.sunriseMs ?: (p.windowEndMs - 5 * 3_600_000L)) + 30 * 60_000L).coerceAtMost(p.windowEndMs)
         if (end <= start + 3_600_000L) end = p.windowEndMs
@@ -500,96 +623,6 @@ private fun DrawScope.altitudeCurve(
 private fun LegendSwatch(color: Color) {
     Box(Modifier.size(width = 14.dp, height = 3.dp).background(color))
     Spacer(Modifier.width(5.dp))
-}
-
-/** Where the core is now, and a sight to bring the phone onto it. */
-@Composable
-private fun PointCard(p: NightPlan, loc: GeoLocation, nowMs: Long, zone: ZoneId) {
-    val c = Sc.colors
-    val context = LocalContext.current
-    val sensor = remember { PointingSensor(context) }
-    DisposableEffect(loc) {
-        sensor.setPlace(loc.latDeg, loc.lonDeg)
-        sensor.start()
-        onDispose { sensor.stop() }
-    }
-    val aim by sensor.aim.collectAsState()
-    val core = remember(nowMs, loc) { SkyMath.galacticCenter(nowMs, loc) }
-    val moon = remember(nowMs, loc) { SkyMath.moon(nowMs, loc) }
-    ScCard(Modifier.fillMaxWidth()) {
-        ScLabel("Point the phone")
-        if (core.altDeg < 0) {
-            val rise = p.coreRiseMs?.takeIf { it > nowMs }
-            Text(
-                if (rise != null) "The core is below the horizon. It rises at ${hm(rise, zone)} in the " +
-                    "${compass(SkyMath.galacticCenter(rise, loc).azDeg)}."
-                else "The core is below the horizon now.",
-                style = ScType.body, color = c.text, modifier = Modifier.padding(top = 4.dp),
-            )
-        } else {
-            Text(
-                "The core is ${core.altDeg.roundToInt()}° up in the ${compass(core.azDeg)} " +
-                    "(${core.azDeg.roundToInt()}°).",
-                style = ScType.body, color = c.text, modifier = Modifier.padding(top = 4.dp),
-            )
-            val a = aim
-            if (sensor.available && a != null) {
-                var dAz = core.azDeg - a.azDeg
-                while (dAz > 180) dAz -= 360.0
-                while (dAz < -180) dAz += 360.0
-                val dAlt = core.altDeg - a.altDeg
-                Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Sight(dAz, dAlt, Modifier.size(132.dp))
-                    Spacer(Modifier.width(14.dp))
-                    Column(Modifier.weight(1f)) {
-                        val onTarget = abs(dAz) < 6 && abs(dAlt) < 6
-                        Text(
-                            if (onTarget) "On the core" else listOfNotNull(
-                                if (abs(dAz) >= 3) "Turn ${if (dAz > 0) "right" else "left"} ${abs(dAz).roundToInt()}°" else null,
-                                if (abs(dAlt) >= 3) "tilt ${if (dAlt > 0) "up" else "down"} ${abs(dAlt).roundToInt()}°" else null,
-                            ).joinToString(", "),
-                            style = ScType.headline, color = if (onTarget) c.accentText else c.text,
-                        )
-                        Text(
-                            "Move the phone until the dot is in the middle. Compass readings drift near metal and " +
-                                "indoors; a figure-of-eight wave recalibrates it.",
-                            style = ScType.caption, color = c.text3, modifier = Modifier.padding(top = 4.dp),
-                        )
-                    }
-                }
-            }
-        }
-        if (moon.altDeg > 0) {
-            Text(
-                "Moon: ${moon.altDeg.roundToInt()}° up in the ${compass(moon.azDeg)}. Keep it out of the frame; " +
-                    "its glare spreads far.",
-                style = ScType.bodySmall, color = c.text2, modifier = Modifier.padding(top = 10.dp),
-            )
-        }
-    }
-}
-
-/** The target's offset from where the phone points: centre = on target, the ring = 45° away. */
-@Composable
-private fun Sight(dAz: Double, dAlt: Double, modifier: Modifier) {
-    val c = Sc.colors
-    Canvas(modifier.clip(ScShapes.card).background(c.sunken).border(1.dp, c.hairline, ScShapes.card)) {
-        val center = Offset(size.width / 2f, size.height / 2f)
-        val r = min(size.width, size.height) * 0.42f
-        drawCircle(c.hairlineStrong, r, center, style = Stroke(1.dp.toPx()))
-        drawCircle(c.hairline, r * 0.33f, center, style = Stroke(1.dp.toPx()))
-        drawLine(c.hairline, Offset(center.x - r, center.y), Offset(center.x + r, center.y), 1.dp.toPx())
-        drawLine(c.hairline, Offset(center.x, center.y - r), Offset(center.x, center.y + r), 1.dp.toPx())
-        var tx = (dAz / 45.0).toFloat() * r
-        var ty = (-dAlt / 45.0).toFloat() * r
-        val d = kotlin.math.sqrt(tx * tx + ty * ty)
-        val outside = d > r
-        if (outside) {
-            tx *= r / d
-            ty *= r / d
-        }
-        drawCircle(c.accent, if (outside) 6.dp.toPx() else 9.dp.toPx(), Offset(center.x + tx, center.y + ty))
-    }
 }
 
 @Composable

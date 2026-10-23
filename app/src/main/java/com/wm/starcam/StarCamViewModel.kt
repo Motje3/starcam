@@ -21,6 +21,7 @@ import com.wm.starcam.session.SessionRepository
 import com.wm.starcam.session.SessionSummary
 import com.wm.starcam.session.SettingsStore
 import com.wm.starcam.session.stackPhoto
+import com.wm.starcam.ui.SkyViewRequest
 import com.wm.starcam.util.AppLog
 import com.wm.starcam.util.DebugBundle
 import com.wm.starcam.util.Fmt
@@ -82,6 +83,9 @@ class StarCamViewModel(app: Application) : AndroidViewModel(app) {
     fun dismissInterrupted() {
         _interrupted.value = null
     }
+
+    /** The sky view over the viewfinder: shown while set, for now or a time tonight. */
+    val skyView = MutableStateFlow<SkyViewRequest?>(null)
 
     init {
         // No session can be running in a fresh view model, so any "running" marker on disk is

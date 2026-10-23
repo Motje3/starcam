@@ -119,7 +119,8 @@ AVD (API 34, the phone's screen, a back camera that delivers RAW): the engine se
 through the adb hook (Back asks before stopping, Finish, the result screen), the app killed
 mid-session, a synthetic starfield session stacked from Sessions (recorded as shot upright: the
 photo must come out portrait), that session opened in the editing studio and saved as a new photo,
-the Tonight planner opened from the viewfinder (the emulator placed in Amsterdam with `geo fix`),
+its replay video made, the Tonight planner opened from the viewfinder (the emulator placed in
+Amsterdam with `geo fix`), the sky view (opened from the planner, closed, opened from its chip),
 the camera released on Home and reopened, and a session surviving a swipe out of recents.
 `-Clean` empties the emulator's sessions first, `-Only stack,studio` runs a subset (studio needs
 stack in the same run). JVM unit tests (sky maths, rotation, studio settings) run with
@@ -129,6 +130,11 @@ its sessions end on "no reference frame"; that is expected.
 `tools\make-test-session.ps1 -Push` writes that synthetic session (8 drifting starfield frames with
 hot pixels, a satellite trail and one frame recorded as bumped: it should stack 7 of 8) and pushes
 it to a connected device - the phone too, to try re-stacking there.
+
+The sky view's stars (`app/src/main/assets/sky/stars.txt`) come from the Yale Bright Star
+Catalogue, 5th edition (`bsc5.dat`, public domain, from CDS V/50): `tools\make-star-table.ps1
+-Catalog <path>\bsc5.dat` writes the table (to V 5.0). The constellation figures name stars by
+Bayer letter (StarCatalog.FIGURES); `SkySceneTest` fails if one of them is missing from the table.
 
 An Android 16 AVD with 16 KB pages (`starcam_a16`, image `android-36.1;google_apis_ps16k`) checks
 the target-SDK behaviour and the native library's page alignment. On this PC its screenshots and

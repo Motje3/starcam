@@ -9,8 +9,10 @@ detail, star colour, wavelet noise reduction) → finished JPG in the gallery, u
 phone was held + 16-bit linear TIFF master + optional DNGs of every frame for PC stacking
 (Siril/PixInsight/Sequator).
 
-Around the shot: a **Tonight planner** (when it gets dark, the Moon, when and where the Milky
-Way's core stands, a sight that brings the phone onto it — all computed on the phone), an
+Around the shot: a **sky view** that draws the Milky Way and its core, the constellations, the
+planets and the Moon over the viewfinder where they really are — now, or slid ahead to plan a
+frame by daylight — and a **Tonight planner** (whether tonight is a Milky Way night, the best
+window, when it gets dark, the Moon, how high the core climbs), all computed on the phone; an
 **editing studio** that develops a session's master again with your own sky/landscape
 brightness, contrast, colour and noise settings (saved as a new photo), **1 frame vs
 stacked**, a drag-to-compare view of what the stacking did, and **watch it build up**, a short

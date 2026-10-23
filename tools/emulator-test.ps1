@@ -8,6 +8,7 @@
 #   studio      that session opened in the editing studio, restyled and saved as a new photo
 #   replay      that session's "watch it build up" video made, kept in the session and the gallery
 #   tonight     the Tonight planner opened from the viewfinder, for a place set with geo fix
+#   sky         the sky view: from the planner onto the viewfinder, closed, and from its own chip
 #   background  Home releases the camera, coming back reopens it
 #   swipe       swiping the app out of recents mid-session leaves the session running
 #
@@ -279,12 +280,47 @@ if (Wanted 'tonight') {
     if ($chip) {
         $c = Center $chip
         A shell input tap $c[0] $c[1]
-        $planned = WaitFor 'Dark from|Never fully dark|No real darkness' 40
+        $planned = WaitFor 'Show me the sky' 40
         Start-Sleep -Seconds 1
         Shot 'tonight'
         Back
     }
     Check 'tonight' ([bool]$chip -and $planned) "chip=$([bool]$chip) planned=$planned"
+}
+
+# ---- the sky view: from the planner's button onto the viewfinder, closed, and from its own chip
+if (Wanted 'sky') {
+    A shell pm grant com.wm.starcam android.permission.ACCESS_COARSE_LOCATION 2>&1 | Out-Null
+    Launch | Out-Null
+    $chip = Nodes | Where-Object { $_.'content-desc' -like 'Tonight planner*' } | Select-Object -First 1
+    $fromPlanner = $false
+    if ($chip) {
+        $c = Center $chip
+        A shell input tap $c[0] $c[1]
+        if (WaitFor 'Show me the sky' 40) {
+            $b = Nodes | Where-Object { $_.text -like 'Show me the sky*' } | Select-Object -First 1
+            $c = Center $b
+            A shell input tap $c[0] $c[1]
+            $fromPlanner = WaitFor 'The sky (now|at)' 20
+            Start-Sleep -Seconds 2
+            Shot 'sky'
+        }
+    }
+    $closed = $null -ne (Nodes | Where-Object { $_.'content-desc' -eq 'Close the sky view' } | Select-Object -First 1)
+    if ($closed) {
+        $n = Nodes | Where-Object { $_.'content-desc' -eq 'Close the sky view' } | Select-Object -First 1
+        $c = Center $n
+        A shell input tap $c[0] $c[1]
+        Start-Sleep -Seconds 1
+        $closed = -not ((AllText) -match 'The sky (now|at)')
+    }
+    $fromChip = $false
+    if (Tap 'Sky view') {
+        $fromChip = WaitFor 'The sky now' 15
+        $n = Nodes | Where-Object { $_.'content-desc' -eq 'Close the sky view' } | Select-Object -First 1
+        if ($n) { $c = Center $n; A shell input tap $c[0] $c[1] }
+    }
+    Check 'sky' ($fromPlanner -and $closed -and $fromChip) "planner=$fromPlanner closed=$closed chip=$fromChip"
 }
 
 # ---- Home releases the camera, return reopens it
