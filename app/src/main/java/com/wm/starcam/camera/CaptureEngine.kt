@@ -292,22 +292,26 @@ class CaptureEngine(
     private fun keepReplayFrame(session: File, stacked: Int) {
         val portrait = _rotation.value == 90 || _rotation.value == 270
         replayWriter.execute {
-            val bmp = runCatching {
-                Bitmap.createBitmap(if (portrait) 720 else 960, if (portrait) 960 else 720, Bitmap.Config.ARGB_8888)
-            }.getOrNull() ?: return@execute
+            // An exception thrown out of an executor's task would take the app down with it.
             try {
-                // After the screen has taken its own picture of this frame (it gives up on a busy
-                // engine sooner), then a few tries of its own.
-                Thread.sleep(800)
-                var filled = false
-                for (attempt in 0 until 5) {
-                    filled = fillPreview(bmp)
-                    if (filled || engineHandle == 0L) break
-                    Thread.sleep(150)
+                val bmp = Bitmap.createBitmap(if (portrait) 720 else 960, if (portrait) 960 else 720,
+                    Bitmap.Config.ARGB_8888)
+                try {
+                    // After the screen has taken its own picture of this frame (it gives up on a
+                    // busy engine sooner), then a few tries of its own.
+                    Thread.sleep(800)
+                    var filled = false
+                    for (attempt in 0 until 5) {
+                        filled = fillPreview(bmp)
+                        if (filled || engineHandle == 0L) break
+                        Thread.sleep(150)
+                    }
+                    if (filled) StackReplay.saveFrame(session, stacked, bmp)
+                } finally {
+                    bmp.recycle()
                 }
-                if (filled) StackReplay.saveFrame(session, stacked, bmp)
-            } finally {
-                bmp.recycle()
+            } catch (t: Throwable) {
+                AppLog.e(TAG, "replay frame $stacked not kept", t)
             }
         }
     }

@@ -79,28 +79,34 @@ object StackReplay {
         }
         val app = context.applicationContext
         scope.launch {
-            val t0 = SystemClock.elapsedRealtime()
-            val video = File(session, "out/$VIDEO")
-            // Debug builds keep the frames read back from the video, for a look from the PC.
-            val debuggable = app.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
-            val keep = if (debuggable) File(app.cacheDir, "replay_check") else null
-            val n = frames(session)
-            var shown = -1
-            val ok = encode(n, stackPhoto(session), caption, video, keep) { p ->
-                val pct = (p * 100).toInt()
-                if (pct != shown) {
-                    shown = pct
-                    _making.update { it + (key to Making(p)) }
+            // Nothing may escape this coroutine: it would take the app down, mid-session even.
+            val result = try {
+                val t0 = SystemClock.elapsedRealtime()
+                val video = File(session, "out/$VIDEO")
+                // Debug builds keep the frames read back from the video, for a look from the PC.
+                val debuggable = app.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+                val keep = if (debuggable) File(app.cacheDir, "replay_check") else null
+                val n = frames(session)
+                var shown = -1
+                val ok = encode(n, stackPhoto(session), caption, video, keep) { p ->
+                    val pct = (p * 100).toInt()
+                    if (pct != shown) {
+                        shown = pct
+                        _making.update { it + (key to Making(p)) }
+                    }
                 }
-            }
-            val result = if (!ok) {
+                if (!ok) {
+                    Making(null, "The video could not be made on this phone.")
+                } else {
+                    val uri = saveToGallery(app, video, "starcam_${session.name}_replay.mp4")
+                    AppLog.i("replay", "made ${video.name}: ${n.size} frames, ${video.length() / 1024} KB in " +
+                        "${SystemClock.elapsedRealtime() - t0} ms, gallery: ${uri ?: "FAILED"}")
+                    if (uri != null) Making(null, "Saved to the gallery (Movies › StarCam).", good = true)
+                    else Making(null, "Made, but the gallery copy failed: share it from here.")
+                }
+            } catch (t: Throwable) {
+                AppLog.e("stack replay failed", t)
                 Making(null, "The video could not be made on this phone.")
-            } else {
-                val uri = saveToGallery(app, video, "starcam_${session.name}_replay.mp4")
-                AppLog.i("replay", "made ${video.name}: ${n.size} frames, ${video.length() / 1024} KB in " +
-                    "${SystemClock.elapsedRealtime() - t0} ms, gallery: ${uri ?: "FAILED"}")
-                if (uri != null) Making(null, "Saved to the gallery (Movies › StarCam).", good = true)
-                else Making(null, "Made, but the gallery copy failed: share it from here.")
             }
             _making.update { it + (key to result) }
         }
@@ -184,7 +190,8 @@ object StackReplay {
         val part = File(out.parentFile, "${out.name}.${SystemClock.elapsedRealtimeNanos()}.part")
         var codec: MediaCodec? = null
         var muxer: MediaMuxer? = null
-        val canvasBitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val canvasBitmap = runCatching { Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888) }.getOrNull()
+            ?: return false
         val loaded = HashMap<Int, Bitmap>()
         try {
             val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, w, h).apply {
