@@ -63,10 +63,12 @@ data class NightPlan(
     val coreMaxAltDeg: Double,
     /** Sun below -18 deg, and the Moon down or less than 10% lit: a truly dark sky. */
     val darkWindows: List<TimeRange>,
-    /** The longest part of [darkWindows] with the core at least 10 deg up, if any. */
+    /** The longest part of [darkWindows] with the core at least [coreMinAltDeg] up, if any. */
     val bestCoreWindow: TimeRange?,
     /** Every 10 minutes from [windowStartMs] to [windowEndMs], for drawing a timeline. */
     val samples: List<NightSample>,
+    /** How high the core must stand to count here ([NightPlanner.coreMinAltDeg]). */
+    val coreMinAltDeg: Double = NightPlanner.CORE_MIN_ALT_DEG,
 )
 
 /**
@@ -94,6 +96,16 @@ object NightPlanner {
 
     /** The core has to clear this altitude (deg) to be worth shooting through the haze. */
     const val CORE_MIN_ALT_DEG = 10.0
+
+    /**
+     * The core's working minimum at [latDeg]: [CORE_MIN_ALT_DEG], or 3 deg under the highest it
+     * ever gets where that is lower - in the Netherlands, Germany or England the core culminates
+     * at 5-9 deg and is shot low over an open southern horizon all summer; no lower than 3 deg.
+     */
+    fun coreMinAltDeg(latDeg: Double): Double {
+        val highest = 90.0 - kotlin.math.abs(latDeg - SkyMath.GALACTIC_CENTER_DEC_J2000)
+        return minOf(CORE_MIN_ALT_DEG, highest - 3.0).coerceAtLeast(3.0)
+    }
 
     /**
      * Refraction at the horizon (deg), the standard 34'. Rise and set are the moment the top of
@@ -155,7 +167,8 @@ object NightPlanner {
         val moonHorizon = Track(grid, moonUp) { moonAboveHorizon(SkyMath.moonView(it, loc)) }
         val moonBright = Track(grid, moonLit) { SkyMath.moonIlluminated(it) - DIM_MOON_FRACTION }
         val coreHorizon = coreTrack(-HORIZON_REFRACTION_DEG)
-        val coreHigh = coreTrack(CORE_MIN_ALT_DEG)
+        val coreMin = coreMinAltDeg(loc.latDeg)
+        val coreHigh = coreTrack(coreMin)
 
         val astroNight = astronomical.below()
         val darkWindows = intersect(astroNight, union(moonHorizon.below(), moonBright.below()))
@@ -197,6 +210,7 @@ object NightPlanner {
             darkWindows = darkWindows,
             bestCoreWindow = bestCoreWindow,
             samples = samples,
+            coreMinAltDeg = coreMin,
         )
     }
 

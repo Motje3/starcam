@@ -15,6 +15,9 @@
          are. Coarse is plenty for the sky; it is asked for only from the planner, the planner
          works with a typed-in place without it, and it never leaves the phone (no internet). -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Night alerts (sky calendar): the afternoon check and reminders are alarms, which a reboot
+         clears; they are set again when the phone starts. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <uses-feature android:name="android.hardware.camera.any" android:required="true" />
     <!-- Not required: some phones deliver RAW through Camera2 without declaring these features,
@@ -46,6 +49,17 @@
             android:name=".CaptureService"
             android:exported="false"
             android:foregroundServiceType="camera" />
+
+        <!-- Exported for the system's boot and update broadcasts only; it acts on nothing else
+             than its own alarms, the reboot and the update. -->
+        <receiver
+            android:name=".alerts.NightAlertReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <!-- Hands the debug bundle zip to the share sheet (mail, Drive, chat) from the field. -->
         <provider

@@ -97,7 +97,7 @@ import kotlin.math.sin
  * (planning somewhere else, a phone set to another zone) - then that place's own solar time, so
  * "tonight" is that place's night and not a noon-to-noon window cut through the middle of it.
  */
-private fun planZone(loc: GeoLocation): ZoneId {
+internal fun planZone(loc: GeoLocation): ZoneId {
     val phone = ZoneId.systemDefault()
     val phoneHours = phone.rules.getOffset(Instant.now()).totalSeconds / 3600.0
     val solarHours = loc.lonDeg / 15.0
@@ -107,7 +107,7 @@ private fun planZone(loc: GeoLocation): ZoneId {
 }
 
 /** The night that is "tonight": until noon it is the one that began yesterday evening. */
-private fun tonightDate(zone: ZoneId): LocalDate {
+internal fun tonightDate(zone: ZoneId): LocalDate {
     val now = ZonedDateTime.now(zone)
     return if (now.hour < 12) now.toLocalDate().minusDays(1) else now.toLocalDate()
 }
@@ -123,7 +123,7 @@ private val CompassPoints = listOf(
 
 private fun compass(azDeg: Double): String = CompassPoints[((azDeg / 22.5).roundToInt() % 16 + 16) % 16]
 
-private fun placeLabel(p: GeoLocation): String = String.format(
+internal fun placeLabel(p: GeoLocation): String = String.format(
     Locale.US, "%.2f°%s %.2f°%s",
     abs(p.latDeg), if (p.latDeg >= 0) "N" else "S", abs(p.lonDeg), if (p.lonDeg >= 0) "E" else "W",
 )
@@ -175,6 +175,9 @@ fun TonightScreen(
     there: GeoLocation? = null,
     thereLabel: String? = null,
     onOpenDarkSky: (() -> Unit)? = null,
+    onOpenCalendar: (() -> Unit)? = null,
+    /** Open on this night instead of tonight (from the sky calendar). */
+    initialDate: LocalDate? = null,
 ) {
     val c = Sc.colors
     val context = LocalContext.current
@@ -188,7 +191,9 @@ fun TonightScreen(
     var locateFailed by remember { mutableStateOf(false) }
     var showManual by remember { mutableStateOf(false) }
     var showDetails by rememberSaveable { mutableStateOf(false) }
-    var dayOffset by rememberSaveable { mutableIntStateOf(0) }
+    var dayOffset by rememberSaveable {
+        mutableIntStateOf(initialDate?.let { java.time.temporal.ChronoUnit.DAYS.between(tonightDate(zone), it).toInt() } ?: 0)
+    }
     var plan by remember { mutableStateOf<NightPlan?>(null) }
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
@@ -239,7 +244,7 @@ fun TonightScreen(
                 if (place != null) {
                     ScIconButton(ScIcons.ChevronLeft, "Night before", { dayOffset-- }, enabled = dayOffset > -1)
                     Spacer(Modifier.width(6.dp))
-                    ScIconButton(ScIcons.ChevronRight, "Night after", { dayOffset++ }, enabled = dayOffset < 30)
+                    ScIconButton(ScIcons.ChevronRight, "Night after", { dayOffset++ }, enabled = dayOffset < 400)
                 }
             },
         )
@@ -291,6 +296,7 @@ fun TonightScreen(
                     TimesCard(pl, zone)
                 }
             }
+            if (onOpenCalendar != null) CalendarCard(p.loc, onOpenCalendar)
             if (onOpenDarkSky != null) DarkSkyCard(p.loc, onOpenDarkSky)
             // ---- where
             if (there != null) {
@@ -398,7 +404,7 @@ private fun TonightAnswer(p: NightPlan, nowMs: Long?, zone: ZoneId, onShowSky: (
         p.coreMaxAltDeg < 0 -> "The Milky Way's core never rises here"
         darkPeak == null -> "It never gets fully dark tonight"
         darkPeak.coreAlt < 0 -> "The core is down while it is dark"
-        darkPeak.coreAlt < NightPlanner.CORE_MIN_ALT_DEG -> "The core stays low tonight"
+        darkPeak.coreAlt < p.coreMinAltDeg -> "The core stays low tonight"
         p.darkWindows.isEmpty() -> "Too bright for the Milky Way tonight"
         else -> "The Moon is up while the core is"
     }
@@ -408,7 +414,8 @@ private fun TonightAnswer(p: NightPlan, nowMs: Long?, zone: ZoneId, onShowSky: (
             val peak = listOfNotNull(best.startMs, best.endMs, p.coreTransitMs?.takeIf { it in best.startMs..best.endMs })
                 .maxOf { SkyMath.galacticCenter(it, p.location).altDeg }
             "${durationText(best.durationMs / 1000)} of dark sky with the core up: look " +
-                "${compass(coreAzimuthAt(p, best.startMs))}, up to ${peak.roundToInt()}° high."
+                "${compass(coreAzimuthAt(p, best.startMs))}, up to ${peak.roundToInt()}° high" +
+                if (peak < NightPlanner.CORE_MIN_ALT_DEG) " - low, so find an open horizon that way." else "."
         }
         p.coreMaxAltDeg < 0 ->
             "The band of the Milky Way still crosses the sky: shoot it higher up, or stars and trails."
@@ -428,7 +435,7 @@ private fun TonightAnswer(p: NightPlan, nowMs: Long?, zone: ZoneId, onShowSky: (
                 else -> "It is below the horizon through the dark hours. "
             } + "The rest of the Milky Way is up: the sky view shows where."
         }
-        darkPeak.coreAlt < NightPlanner.CORE_MIN_ALT_DEG ->
+        darkPeak.coreAlt < p.coreMinAltDeg ->
             "At most ${darkPeak.coreAlt.roundToInt()}° up while it is dark, around ${hm(darkPeak.epochMs, zone)}: " +
                 "you need an open view to the ${compass(darkPeak.coreAz)}."
         p.darkWindows.isEmpty() ->
@@ -607,7 +614,7 @@ private fun TimelineCard(p: NightPlan, nowMs: Long?, zone: ZoneId) {
                 drawRect(c.accent.copy(alpha = 0.16f), Offset(x0, 0f), Size(x1 - x0, plotH))
             }
             // The core's working minimum, and the horizon.
-            drawLine(c.hairline, Offset(0f, y(NightPlanner.CORE_MIN_ALT_DEG)), Offset(size.width, y(NightPlanner.CORE_MIN_ALT_DEG)),
+            drawLine(c.hairline, Offset(0f, y(p.coreMinAltDeg)), Offset(size.width, y(p.coreMinAltDeg)),
                 strokeWidth = 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f)))
             drawLine(c.hairlineStrong, Offset(0f, plotH), Offset(size.width, plotH), strokeWidth = 1.dp.toPx())
             altitudeCurve(p, start, end, ::x, ::y, { it.moonAlt }, c.text2.copy(alpha = 0.7f), 2.dp.toPx())
@@ -642,7 +649,8 @@ private fun TimelineCard(p: NightPlan, nowMs: Long?, zone: ZoneId) {
             Spacer(Modifier.width(5.dp))
             Text("best", style = ScType.caption, color = c.text2)
         }
-        Text("Height above the horizon; the dashed line is 10°. Shading: twilight.",
+        Text("Height above the horizon; the dashed line is ${p.coreMinAltDeg.roundToInt()}°, the core's working height " +
+            "here. Shading: twilight.",
             style = ScType.caption, color = c.text3, modifier = Modifier.padding(top = 2.dp))
     }
 }

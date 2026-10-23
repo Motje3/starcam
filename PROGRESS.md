@@ -2,6 +2,38 @@
 
 ## The second night, 0.5.0 (2026-10-24)
 
+### Sky calendar and night alerts
+
+Planner › "Sky calendar": the next twelve months of what the sky does where you are, by month,
+each with a rating and a line that says why, filters (Milky Way, meteors, eclipses, Moon,
+planets) and, opened, the details plus **Sky view** (the sky view at that very moment, any date),
+**Plan night** (the planner on that night) and **Remind me**. Computed on the phone (sky/SkyCalendar.kt,
+about 2.5 s for a year on the emulator):
+- **Meteor showers** (the IMO's 13 main ones, peaks by solar longitude so any year works): the
+  peak night, the radiant's height and the Moon hour by hour, the best moment, the rate under a
+  dark sky - and from your own sky, through the dark-sky map's estimate and the limiting
+  magnitude ("from your sky about 36 an hour; a dark site sees up to 141").
+- **Milky Way nights**: every stretch of nights with the core up in a dark, moonless sky, the best
+  one with its window; the season's start and end.
+- **New and full moons** (supermoons named), **lunar eclipses** (type, magnitude, contacts, whether
+  the Moon is up here) and **solar eclipses** as seen from your place (how much of the Sun, when,
+  how high; "not visible from here" otherwise).
+- **Planets**: oppositions and Venus's and Mercury's best showings (how high at twilight), and
+  close pairings of the Moon and the bright planets or two planets, at the moment they can be seen.
+**Night alerts** (switch at the top): at 15:00 a notification when tonight has a Milky Way
+window, a good meteor peak, an eclipse or a close pairing; reminders for single events at 17:00
+on their evening. Inexact alarms (no special permission), restored after a reboot or an update.
+Checked against published facts: the 2026 moon phases, NASA's 2026 lunar eclipses (greatest
+within 4 min, magnitudes 1.151 and 0.932 to 0.02, totality 58 min), the 12 Aug 2026 solar eclipse
+for Reykjavik (maximum 17:48:40 vs 17:48:48 published), León (total), London (91%) and Berlin
+(84%), the IMO's 2026 peak dates, Jupiter's and Saturn's 2026 oppositions and Venus's greatest
+elongation (45.9 deg, 15 Aug).
+
+The planner (and so the calendar) now judges the core by where you are: 10 deg, or 3 deg under
+the highest it ever gets where that is lower - from the Netherlands the core culminates at 8.6
+deg, so the old 10 deg rule said "never" all year; now it finds the short spring windows low in
+the south-east and says to look for an open horizon.
+
 ### Dark skies near you (the map)
 
 Planner › "Find a darker sky" opens a light-pollution map around you: the whole sky's artificial

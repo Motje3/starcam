@@ -185,6 +185,16 @@ object ScIcons {
         path("M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15z")
         path("M10 20.5a2 2 0 0 0 4 0")
     }
+    /** A planet with its ring. */
+    val Planet by icon {
+        circle(12f, 12f, 5f)
+        path("M4.2 15.2c-1.6 1.8-1.9 3.2-.9 3.8 1.9 1.1 7.4-1.3 12.3-5.3s7.4-8 5.5-9.1c-.9-.5-2.4-.1-4.3 1")
+    }
+    /** An eclipse: two discs overlapping. */
+    val Eclipse by icon {
+        circle(10f, 12f, 6.5f)
+        path("M13.5 6.6a6.5 6.5 0 1 1 0 10.8")
+    }
     val MoreVert by icon {
         circle(12f, 5f, 1.8f)
         circle(12f, 12f, 1.8f)

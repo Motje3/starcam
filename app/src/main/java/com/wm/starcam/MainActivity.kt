@@ -40,6 +40,7 @@ import androidx.core.view.WindowCompat
 import com.wm.starcam.camera.CameraTest
 import com.wm.starcam.camera.SkySim
 import com.wm.starcam.sky.GeoLocation
+import com.wm.starcam.ui.CalendarScreen
 import com.wm.starcam.ui.CaptureScreen
 import com.wm.starcam.ui.DarkSkyScreen
 import com.wm.starcam.ui.DiagnosticsScreen
@@ -70,7 +71,10 @@ sealed class Screen {
     data object Tonight : Screen()
     /** The planner for a place from the dark-sky map, not saved as yours. */
     data class TonightThere(val lat: Double, val lon: Double, val label: String) : Screen()
+    /** The planner on a given night (from the sky calendar). */
+    data class TonightOn(val date: java.time.LocalDate) : Screen()
     data object DarkSky : Screen()
+    data object Calendar : Screen()
     data object Settings : Screen()
     data object Probe : Screen()
     data object SelfTest : Screen()
@@ -83,6 +87,7 @@ sealed class Screen {
             is Studio -> "studio:${dir.path}"
             is Video -> "video:${file.path}"
             is TonightThere -> "tonight:$lat,$lon"
+            is TonightOn -> "tonight:$date"
             else -> javaClass.simpleName
         }
 }
@@ -367,6 +372,23 @@ private fun App(
                                     stack = listOf(Screen.Capture)
                                 },
                                 onOpenDarkSky = { push(Screen.DarkSky) },
+                                onOpenCalendar = { push(Screen.Calendar) },
+                            )
+                            is Screen.TonightOn -> TonightScreen(
+                                onBack = ::pop,
+                                onShowSky = { atMs ->
+                                    vm.skyView.value = SkyViewRequest(atMs)
+                                    stack = listOf(Screen.Capture)
+                                },
+                                initialDate = sc.date,
+                            )
+                            Screen.Calendar -> CalendarScreen(
+                                onBack = ::pop,
+                                onShowSky = { atMs ->
+                                    vm.skyView.value = SkyViewRequest(atMs)
+                                    stack = listOf(Screen.Capture)
+                                },
+                                onPlanNight = { date -> push(Screen.TonightOn(date)) },
                             )
                             is Screen.TonightThere -> TonightScreen(
                                 onBack = ::pop,

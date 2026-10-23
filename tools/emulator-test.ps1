@@ -10,6 +10,7 @@
 #   tonight     the Tonight planner opened from the viewfinder, for a place set with geo fix
 #   sky         the sky view: from the planner onto the viewfinder, closed, and from its own chip
 #   darksky     the dark-sky map from the planner: your sky, a suggested spot, planned for there
+#   calendar    the sky calendar: a year listed, the Geminids opened in the sky view
 #   autopilot   two sessions under a simulated sky (SkySim): cloud left out, waited out and
 #               replaced, a focus drift refocused, the planned 12 good frames stacked; then dawn
 #               ending a session early
@@ -352,6 +353,39 @@ if (Wanted 'darksky') {
         }
     }
     Check 'darksky' ($opened -and $spot -and $planned) "opened=$opened spot=$spot planned=$planned"
+}
+
+# ---- the sky calendar from the planner: a year of events, the meteor filter, the Geminids opened
+# in the sky view at their best moment
+if (Wanted 'calendar') {
+    Launch | Out-Null
+    $chip = Nodes | Where-Object { $_.'content-desc' -like 'Tonight planner*' } | Select-Object -First 1
+    $listed = $false; $opened = $false; $sky = $false
+    if ($chip) {
+        $c = Center $chip
+        A shell input tap $c[0] $c[1]
+        WaitFor 'Show me the sky' 40 | Out-Null
+        for ($k = 0; $k -lt 6 -and -not ((AllText) -match 'Sky calendar'); $k++) { A shell input swipe 636 2200 636 900 300; Start-Sleep -Milliseconds 700 }
+        if (Tap 'Sky calendar') {
+            $listed = WaitFor 'New moon' 40
+            Shot 'calendar'
+            if (Tap 'Meteors') {
+                Start-Sleep -Seconds 1
+                for ($k = 0; $k -lt 8 -and -not ((AllText) -match '\|Geminids\|'); $k++) { A shell input swipe 636 2000 636 900 300; Start-Sleep -Milliseconds 700 }
+                if (Tap 'Geminids') {
+                    $opened = WaitFor 'From your sky|Radiant in Gemini' 10
+                    Shot 'calendar-geminids'
+                    # The opened card's buttons sit below the fold.
+                    A shell input swipe 636 2000 636 1200 400
+                    Start-Sleep -Seconds 1
+                    if (Tap 'Sky view') { $sky = WaitFor 'The sky at' 20 }
+                    $n = Nodes | Where-Object { $_.'content-desc' -eq 'Close the sky view' } | Select-Object -First 1
+                    if ($n) { $c = Center $n; A shell input tap $c[0] $c[1] }
+                }
+            }
+        }
+    }
+    Check 'calendar' ($listed -and $opened -and $sky) "listed=$listed geminids=$opened sky view=$sky"
 }
 
 # ---- the autopilot under a simulated sky (camera/SkySim.kt): cloud over light attempts 5-8, the

@@ -314,7 +314,8 @@ class NightPlannerTest {
                     assertTrue(what, inDark)
                     val mid = best.startMs + best.durationMs / 2
                     val coreAlt = SkyMath.galacticCenter(mid, loc).altDeg
-                    assertTrue(what, coreAlt >= NightPlanner.CORE_MIN_ALT_DEG)
+                    assertTrue(what, coreAlt >= plan.coreMinAltDeg)
+                    assertEquals(NightPlanner.coreMinAltDeg(loc.latDeg), plan.coreMinAltDeg, 0.0)
                 }
                 assertTrue(what, plan.coreMaxAltDeg.isFinite())
                 assertTrue(what, plan.samples.all { it.sunAlt.isFinite() && it.moonAlt.isFinite() })

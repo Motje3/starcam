@@ -9,6 +9,11 @@ detail, star colour, wavelet noise reduction) → finished JPG in the gallery, u
 phone was held + 16-bit linear TIFF master + optional DNGs of every frame for PC stacking
 (Siril/PixInsight/Sequator).
 
+A **sky calendar** lays out the next twelve months where you are - meteor showers rated for the
+Moon and your own sky, the Milky Way's nights and season, eclipses as seen from your place,
+planets at their best - each one a tap from the sky view at that moment, with an afternoon alert
+on nights worth going out for.
+
 A **dark-sky map** shows the light pollution around you (built into the app from 2025 satellite
 night lights and a published sky-glow model, so it works offline), how dark your own sky is, and
 the darker places within reach - with the way there in your maps app and the night planned there.
