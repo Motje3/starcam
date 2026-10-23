@@ -123,6 +123,8 @@ private data class DetailData(
     /** Live-stack snapshots kept during capture, for the replay video. */
     val replayFrames: Int = 0,
     val replayBytes: Long = 0L,
+    /** What the autopilot did while shooting (session.json "autopilot"); empty when nothing. */
+    val autopilot: List<String> = emptyList(),
 )
 
 /** Blocking; reads session.json, the photo and the file sizes. */
@@ -183,6 +185,9 @@ private fun loadDetail(dir: File, repo: SessionRepository): DetailData {
         stackedFile = stackJpg,
         replayFrames = replay.size,
         replayBytes = replay.sumOf { it.length() },
+        autopilot = json?.optJSONObject("autopilot")?.optJSONArray("report")?.let { a ->
+            (0 until a.length()).mapNotNull { a.optString(it).takeIf { s -> s.isNotEmpty() } }
+        } ?: emptyList(),
     )
 }
 
@@ -375,6 +380,7 @@ fun SessionDetailScreen(
                     )
                     ScStatTile("${d.bumpedCount}", "bumped (gyro)", Modifier.weight(1f))
                 }
+                if (d.autopilot.isNotEmpty()) AutopilotReport(d.autopilot)
                 if (st == null) {
                     ScNotice("Not stacked — the session did not finish, or stacking on the phone was off.",
                         tone = Tone.Normal, icon = ScIcons.Info)

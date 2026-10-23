@@ -341,7 +341,9 @@ class SessionRepository(private val context: Context) {
 
     fun appendFrame(
         paths: SessionPaths, stats: FrameStats, exposureNs: Long, iso: Int,
-        gyroPeak: Float, bumped: Boolean, dngFile: String?
+        gyroPeak: Float, bumped: Boolean, dngFile: String?,
+        /** Why the autopilot left the frame out ("cloud", "soft stars"); null when used. */
+        leftOut: String? = null,
     ) {
         val root = loadForUpdate(paths)
         val frames = root.optJSONArray("frames") ?: JSONArray().also { root.put("frames", it) }
@@ -360,7 +362,15 @@ class SessionRepository(private val context: Context) {
             put("gyroPeak", gyroPeak.toDouble())
             put("bumped", bumped)
             if (dngFile != null) put("dng", dngFile)
+            if (leftOut != null) put("autopilot", leftOut)
         })
+        writeJson(paths, root)
+    }
+
+    /** The autopilot's account of the session ([com.wm.starcam.camera.Autopilot.report]). */
+    fun writeAutopilot(paths: SessionPaths, report: JSONObject) {
+        val root = loadForUpdate(paths)
+        root.put("autopilot", report)
         writeJson(paths, root)
     }
 

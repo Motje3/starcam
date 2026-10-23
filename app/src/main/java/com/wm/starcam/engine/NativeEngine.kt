@@ -40,6 +40,15 @@ object NativeEngine {
         metaJson: String
     ): String
 
+    /**
+     * Measures a light frame against the session's reference without keeping it (the autopilot's
+     * cloud checks): {starCount, medianFwhm, bgFrac, inliers, aligned}. Same metaJson as [addFrame].
+     */
+    external fun checkFrame(
+        handle: Long, bayer: ByteBuffer, width: Int, height: Int, rowStrideBytes: Int,
+        metaJson: String
+    ): String
+
     /** Drops every dark frame added so far; the stack then runs without a master dark. */
     external fun discardDarks(handle: Long)
 
@@ -66,6 +75,14 @@ object NativeEngine {
 
     /** Synthetic end-to-end pipeline validation. Returns JSON report. Blocking (~1 min). */
     external fun runSelfTest(tmpDir: String): String
+
+    /**
+     * Debug builds: renders a synthetic night sky as RAW16 into the direct [buffer] (see
+     * camera/SkySim.kt). paramsJson: {cfa, black, white, drift, seed, stars, sky, cloud, blurPx, dark}.
+     */
+    external fun simulateSky(
+        buffer: ByteBuffer, width: Int, height: Int, rowStrideBytes: Int, paramsJson: String
+    ): Boolean
 
     // ---- Editing studio: a session's linear master developed again with new settings ----
 

@@ -465,21 +465,22 @@ class StarCamViewModel(app: Application) : AndroidViewModel(app) {
                 // recorded fall back to today's settings, without a foreground blend.
                 val base = header?.optJSONObject("stackConfig")?.let { StackConfig.fromJson(it) }
                     ?: settingsStore.settings.value.stackConfig().copy(foregroundComposite = false)
-                // The live stack left out the frames the gyro saw bumped (TRAILS keeps them).
-                val bumped = HashSet<Int>()
+                // The live stack left out the frames the gyro saw bumped (TRAILS keeps them) and
+                // the ones the autopilot left out for cloud or soft stars.
+                val leftOut = HashSet<Int>()
                 if (mode != Mode.TRAILS) {
                     repo.readSessionJson(dir)?.optJSONArray("frames")?.let { frames ->
                         for (k in 0 until frames.length()) {
                             val f = frames.optJSONObject(k) ?: continue
-                            if (f.optBoolean("bumped")) bumped += f.optInt("index", -1)
+                            if (f.optBoolean("bumped") || f.has("autopilot")) leftOut += f.optInt("index", -1)
                         }
                     }
                 }
                 // A re-stack is developed with the look chosen now (Settings › Look › Processing).
                 val cfg = adjust(base).copy(version = settingsStore.settings.value.look)
                 AppLog.i(TAG, "re-stack ${dir.name}: ${repo.cacheFrames(dir).size} frames, " +
-                    "${bumped.size} bumped left out, options ${cfg.toJson()}")
-                val result = Restacker.restack(dir, repo.cacheFrames(dir), cfg, mode.ordinal, bumped) {
+                    "${leftOut.size} left out at capture, options ${cfg.toJson()}")
+                val result = Restacker.restack(dir, repo.cacheFrames(dir), cfg, mode.ordinal, leftOut) {
                     stage, percent -> _restack.value = _restack.value?.copy(stage = stage, percent = percent)
                 }
                 if (!result.ok) error(result.error.ifEmpty { "re-stack failed" })

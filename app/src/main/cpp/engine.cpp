@@ -582,6 +582,45 @@ std::string EngineSession::addFrame(const uint16_t* bayer, int w, int h, int str
     }
 }
 
+std::string EngineSession::checkFrame(const uint16_t* bayer, int w, int h, int strideElems,
+                                      const FrameMeta& meta) {
+    jsonmini::Builder b;
+    try {
+        std::lock_guard<std::mutex> lk(mu_);
+        if (!bayer || w < 2 || h < 2 || strideElems < w) {
+            b.add("starCount", 0).add("medianFwhm", 0.0).add("bgFrac", 0.0).add("inliers", 0).add("aligned", false);
+            return b.build();
+        }
+        ImageF luma;
+        superpixel_luma(bayer, w, h, strideElems, cfg_.sensor, meta.wbGain, &luma);
+        std::vector<Star> stars;
+        SkyStats stats;
+        detect_stars(luma, DetectParams(), &stars, &stats);
+        int inliers = 0;
+        bool aligned = false;
+        if (refIndex_ >= 0 && !refStars_.empty()) {
+            AlignParams ap;
+            AlignResult ar = align_stars(refStars_, stars, prevT_, ap);
+            if (!ar.ok) ar = align_bootstrap(refStars_, stars, ap);
+            if (ar.ok) {
+                aligned = true;
+                inliers = ar.inliers;
+            }
+        }
+        b.add("starCount", (int)stars.size())
+            .add("medianFwhm", (double)median_fwhm_of(stars))
+            .add("bgFrac", (double)stats.bgMedian)
+            .add("inliers", inliers)
+            .add("aligned", aligned);
+        return b.build();
+    } catch (...) {
+        SLOGE("checkFrame: exception");
+        jsonmini::Builder e;
+        e.add("starCount", 0).add("medianFwhm", 0.0).add("bgFrac", 0.0).add("inliers", 0).add("aligned", false);
+        return e.build();
+    }
+}
+
 std::string EngineSession::addDark(const uint16_t* bayer, int w, int h, int strideElems,
                                    const FrameMeta& meta) {
     try {

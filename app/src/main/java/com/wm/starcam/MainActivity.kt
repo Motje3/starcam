@@ -38,6 +38,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import com.wm.starcam.camera.CameraTest
+import com.wm.starcam.camera.SkySim
 import com.wm.starcam.ui.CaptureScreen
 import com.wm.starcam.ui.DiagnosticsScreen
 import com.wm.starcam.ui.OnboardingScreen
@@ -209,6 +210,8 @@ class MainActivity : ComponentActivity() {
      *   adb shell am start -n com.wm.starcam/.MainActivity --ez session true
      *
      * starts a real session with the current settings, exactly as the shutter button does.
+     * [--es sim "frames=12;exp=300;clouds=5-8;drift=12:0.06;dawn=20"] runs it under a simulated
+     * sky instead of the camera's picture (camera/SkySim.kt): the emulator's camera shows no stars.
      *
      * Honoured in debuggable builds only: the activity is exported, and no other app should be
      * able to start the camera through it.
@@ -219,6 +222,8 @@ class MainActivity : ComponentActivity() {
         if (i.getBooleanExtra("session", false)) {
             i.removeExtra("session")  // a configuration change must not start it again
             if (!debuggable) return
+            SkySim.armed = i.getStringExtra("sim")?.let { SkySim.parse(it) }
+            i.removeExtra("sim")
             requestedScreen.value = Screen.Capture
             vm.startSessionWhenReady()
             return

@@ -62,6 +62,8 @@ sealed class CaptureState {
         val frameStartedAtMs: Long = 0L,
         /** The sky watch's warning (clouds, soft stars), see [SkyWatch]; null while all is well. */
         val skyNote: String? = null,
+        /** What the autopilot is doing (ASTRO); null when it is off. */
+        val autopilot: AutopilotStatus? = null,
     ) : CaptureState()
     data class AwaitingDarkCover(val secondsLeft: Int) : CaptureState()
     data class CapturingDarks(val current: Int, val total: Int) : CaptureState()
@@ -75,6 +77,8 @@ sealed class CaptureState {
          * were stacked, or it needed repairs along the way. Said out loud, never hidden.
          */
         val warning: String? = null,
+        /** What the autopilot did ([Autopilot.report]); empty when it had nothing to do or was off. */
+        val autopilot: List<String> = emptyList(),
     ) : CaptureState()
     data class Error(
         val message: String,
@@ -82,6 +86,18 @@ sealed class CaptureState {
         val framesCaptured: Int = 0,
     ) : CaptureState()
 }
+
+/** The autopilot as the capture screen shows it (see [Autopilot]). */
+data class AutopilotStatus(
+    /** What it is doing now, or the last thing it did; null while there has been nothing to do. */
+    val note: String?,
+    /** elapsedRealtime since when it has been waiting for cloud to pass; 0 when not waiting. */
+    val waitingSinceMs: Long = 0L,
+    val goodFrames: Int = 0,
+    val refocusing: Boolean = false,
+    /** elapsedRealtime when "Shoot for" runs out; 0 without a time limit. */
+    val endsAtMs: Long = 0L,
+)
 
 /**
  * What the session is doing *right now*, inside a phase that otherwise sits on a single
@@ -423,6 +439,13 @@ class CaptureEngine(
             val rawSize = cam.rawSize(s.fullResRaw)
             step("preparing the sensor") { prepareSensor(rawSize, s) }
 
+            // Debug builds only: a simulated sky armed from adb stands in for the camera's pixels
+            // in every frame of this session (SkySim), so the whole loop can be tested indoors.
+            val debuggable = context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0
+            val skySim = SkySim.armed?.takeIf { debuggable }?.let { SkySim(it, cam, rawSize.width, rawSize.height) }
+            SkySim.armed = null
+            if (skySim != null) AppLog.w(TAG, "SIMULATED SKY for this session: ${skySim.scenario}")
+
             // ---- Probe frame: exposure decision + white balance lock ----
             setState(CaptureState.Probing)
             val probeExp = minOf(1_000_000_000L, cam.exposureRangeNs.upper)
@@ -462,13 +485,10 @@ class CaptureEngine(
                 wbLock = if (gains != null) WbLock(gains, transform) else null
                 ccm = CamMeta.ccmToFloatArray(transform)
                 if (s.lensShading) shading = CamMeta.shadingMap(cam, probeShot.result)
-                val plane = probeShot.image.planes[0]
+                val px = skySim?.render(SkySim.Kind.PROBE, focusForProbe) ?: probeShot.pixels()
                 beginBusy("measuring the sky")
                 probeStats = AnalyzeStats.fromJson(
-                    NativeEngine.analyzeFrame(
-                        plane.buffer, probeShot.image.width, probeShot.image.height,
-                        plane.rowStride, analyzeMetaJson(cam, wbLock)
-                    )
+                    NativeEngine.analyzeFrame(px.buffer, px.width, px.height, px.rowStride, analyzeMetaJson(cam, wbLock))
                 )
             } finally {
                 probeShot.close()
@@ -480,7 +500,7 @@ class CaptureEngine(
             if (stopRequested()) return finishCancelled()
 
             // ---- Exposure decision ----
-            val decision = if (s.manualExposure || s.mode == Mode.PRO) {
+            val decided = if (s.manualExposure || s.mode == Mode.PRO) {
                 AutoExposure.Decision(
                     s.exposureNs.coerceIn(cam.exposureRangeNs.lower, cam.exposureRangeNs.upper),
                     s.iso.coerceIn(cam.isoRange.lower, cam.isoRange.upper),
@@ -495,16 +515,31 @@ class CaptureEngine(
                     baseFrames = s.effectiveFrames(), trailCapSec = cap,
                 )
             }
+            // A simulated sky may ask for its own frame count and exposure, to keep tests short.
+            val decision = skySim?.scenario?.let { sc ->
+                decided.copy(
+                    exposureNs = sc.exposureMs?.let { (it * 1_000_000L).coerceIn(cam.exposureRangeNs.lower, cam.exposureRangeNs.upper) }
+                        ?: decided.exposureNs,
+                    frames = sc.frames ?: decided.frames,
+                    reasoning = "simulated sky · " + decided.reasoning,
+                )
+            } ?: decided
             _decision.value = decision
             AppLog.i(TAG, "exposure decision: ${decision.reasoning}")
 
+            // The autopilot's "Shoot for": as many frames as fit in the time (it stops on time).
+            val autopilotOn = s.mode == Mode.ASTRO && s.autopilot
+            val timeBudgetMs = if (autopilotOn) s.autopilotMinutes * 60_000L else 0L
             // Long modes ignore the frame preset: frames = duration / exposure.
             val requestedFrames = when (s.mode) {
                 Mode.TRAILS -> ((s.trailsMinutes * 60.0) / (decision.exposureNs / 1e9)).toInt()
                     .coerceIn(10, 900)
                 Mode.METEOR -> ((s.meteorMinutes * 60.0) / (decision.exposureNs / 1e9)).toInt()
                     .coerceIn(10, 900)
-                else -> decision.frames
+                else -> if (timeBudgetMs > 0L) {
+                    val perFrameSec = decision.exposureNs / 1e9 + s.cooldownSec + FRAME_OVERHEAD_SEC
+                    ((timeBudgetMs / 1000.0) / perFrameSec).toInt().coerceIn(decision.frames, 900)
+                } else decision.frames
             }
             // Every light frame writes a full-res raw cache file (and optionally a DNG). A 2-hour
             // meteor session would otherwise try to write tens of GB and fill the phone.
@@ -535,7 +570,8 @@ class CaptureEngine(
                     // within it too, when the phone has warmed or cooled since (out of a pocket
                     // into the cold): the lens's infinity position moves with temperature.
                     val nowTemp = Diagnostics.batteryTempC(context)
-                    val saved = if (s.reuseLastFocus) settingsStore.lastFocus(cam.cameraId) else null
+                    // A simulated sky always sweeps: its lens is not the one the saved focus was for.
+                    val saved = if (s.reuseLastFocus && skySim == null) settingsStore.lastFocus(cam.cameraId) else null
                     val tempShift = if (saved?.tempC != null && nowTemp != null)
                         kotlin.math.abs(nowTemp - saved.tempC) else 0f
                     val last = saved?.takeIf {
@@ -561,7 +597,8 @@ class CaptureEngine(
                         )
                     } else {
                         val res = FocusSweep.run(
-                            controller, wbLock, isCancelled = { stopRequested() }
+                            controller, wbLock, isCancelled = { stopRequested() },
+                            simulate = skySim?.let { sim -> { d: Float -> sim.render(SkySim.Kind.FOCUS, d) } },
                         ) { stepIdx, total, label ->
                             setState(CaptureState.Focusing(stepIdx, total, label))
                             // Each sweep point is a 2 s exposure plus a native measure. Without a
@@ -570,7 +607,7 @@ class CaptureEngine(
                         }
                         _focus.value = res
                         focusDistance = res.diopters
-                        if (res.ok) settingsStore.saveLastFocus(res.diopters, cam.cameraId, nowTemp)
+                        if (res.ok && skySim == null) settingsStore.saveLastFocus(res.diopters, cam.cameraId, nowTemp)
                     }
                     AppLog.i(TAG, "focus: ${_focus.value?.message}")
                 }
@@ -678,6 +715,22 @@ class CaptureEngine(
             // Clouds and soft stars said while it can still be helped (ASTRO, PRO).
             val skyWatch = SkyWatch()
             val watchSky = s.mode == Mode.ASTRO || s.mode == Mode.PRO
+            // The autopilot (ASTRO): leaves out and replaces spoiled frames, waits out cloud,
+            // refocuses, finishes at dawn or on time. It says what it does; the sky watch's
+            // warnings are its job then.
+            val pilot = if (autopilotOn) Autopilot(totalFrames, Autopilot.Config(
+                maxWaitMs = s.autopilotWaitMin * 60_000L,
+                refocus = s.autopilotRefocus && s.focusMode == FocusMode.AUTO_STAR &&
+                    (cam.minFocusDistance > 0f || skySim != null),
+                finishWhenBright = s.autopilotFinishBright,
+                timeBudgetMs = timeBudgetMs,
+                maxExtraFrames = maxOf(4, totalFrames / 2),
+            )) else null
+            if (pilot != null) {
+                AppLog.i(TAG, "autopilot on: wait for cloud ${s.autopilotWaitMin} min, refocus " +
+                    "${s.autopilotRefocus && s.focusMode == FocusMode.AUTO_STAR}, finish when bright " +
+                    "${s.autopilotFinishBright}, shoot for ${if (timeBudgetMs > 0L) "${s.autopilotMinutes} min" else "the preset"}")
+            }
             var darksCaptured = 0
             // Set when the camera could not be brought back mid-burst: the frames already on disk
             // are still stacked rather than thrown away with the session.
@@ -694,6 +747,15 @@ class CaptureEngine(
                 Mode.TRAILS -> s.trailsMinutes * 60_000L
                 Mode.METEOR -> s.meteorMinutes * 60_000L
                 else -> 0L
+            }
+            fun pilotStatus(refocusing: Boolean = false): AutopilotStatus? = pilot?.let {
+                AutopilotStatus(
+                    note = it.note,
+                    waitingSinceMs = if (it.waiting) burstStart + it.waitStartedAtMs else 0L,
+                    goodFrames = it.goodFrames,
+                    refocusing = refocusing,
+                    endsAtMs = if (timeBudgetMs > 0L) burstStart + timeBudgetMs else 0L,
+                )
             }
             var i = 0
             while (i < planned) {
@@ -720,11 +782,14 @@ class CaptureEngine(
                 val cooldown = if (isTrails) 0f
                 else s.cooldownSec + if (thermal.needsCooldown) 2f else 0f
                 val frameStart = SystemClock.elapsedRealtime()
+                // While the autopilot waits for cloud to pass, an exposure is only a check.
+                val checking = pilot?.waiting == true
                 setState(CaptureState.CapturingLights(
                     i + 1, planned, decision.exposureNs, decision.iso, null, rejected,
                     cappedByStorage = storageCapped, interFrameGapMs = (cooldown * 1000).toLong(),
                     frameStartedAtMs = frameStart,
-                    skyNote = skyWatch.note,
+                    skyNote = if (pilot != null) null else skyWatch.note,
+                    autopilot = pilotStatus(),
                 ))
                 if (i > 0 && cooldown > 0f) {
                     step("cooling the sensor", (cooldown * 1000).toLong()) {
@@ -747,9 +812,11 @@ class CaptureEngine(
                 val exposureMs = decision.exposureNs / 1_000_000L
                 val shot = try {
                     captureFrame(
-                        "light ${i + 1}/$planned", decision.exposureNs, decision.iso,
+                        if (checking) "cloud check ${pilot!!.checks + 1}" else "light ${i + 1}/$planned",
+                        decision.exposureNs, decision.iso,
                         focusDistance, wbLock, rawSize, s,
-                        busyLabel = "exposing frame ${i + 1}/$planned", expectedMs = exposureMs,
+                        busyLabel = if (checking) "checking for clear sky" else "exposing frame ${i + 1}/$planned",
+                        expectedMs = exposureMs,
                         wantShadingMap = s.lensShading && s.debugShadingEveryFrame,
                         // Per attempt: a knock during a failed attempt or a camera repair says
                         // nothing about the retry that succeeds afterwards.
@@ -773,38 +840,58 @@ class CaptureEngine(
                 if (motion.hasGyro && motionWindow.samples == 0) {
                     AppLog.w(TAG, "light ${i + 1}: no gyro readings during the exposure — bumps cannot be detected")
                 }
+                val px = skySim?.render(SkySim.Kind.LIGHT, focusDistance) ?: shot.pixels()
+                val metaJson = JSONObject().apply {
+                    put("index", i)
+                    put("exposureNs", decision.exposureNs)
+                    put("iso", decision.iso)
+                    put("timestampNs", shot.image.timestamp)
+                    put("wbGains", JSONArray(wbRaster.map { it.toDouble() }))
+                    put("ccm", JSONArray(ccm.map { it.toDouble() }))
+                    put("gyroRms", rms.toDouble())
+                    // Dynamic black level: drifts as the sensor warms; engine prefers it over
+                    // the static characteristics value when present.
+                    shot.result.get(CaptureResult.SENSOR_DYNAMIC_BLACK_LEVEL)?.let { dyn ->
+                        if (dyn.size >= 4) {
+                            put("blackLevel", JSONArray(dyn.take(4).map { it.toDouble() }))
+                        }
+                    }
+                }.toString()
+
+                if (checking) {
+                    // Measured against the reference, never kept: is the sky clear again?
+                    val check = try {
+                        beginBusy("checking for clear sky")
+                        JSONObject(NativeEngine.checkFrame(engineHandle, px.buffer, px.width, px.height, px.rowStride, metaJson))
+                    } catch (t: Throwable) {
+                        shot.close()
+                        throw t
+                    }
+                    val stars = check.optInt("starCount", 0)
+                    val matched = if (check.optBoolean("aligned")) check.optInt("inliers", 0) else 0
+                    val bg = check.optDouble("bgFrac", 0.0).toFloat()
+                    val verdict = pilot!!.onCheck(stars, matched, bg, SystemClock.elapsedRealtime() - burstStart)
+                    AppLog.i(TAG, "autopilot: cloud check ${pilot.checks}: %d stars, %d matched, bg %.2f%% -> %s".format(
+                        stars, matched, bg * 100, verdict))
+                    if (verdict != Autopilot.Check.CLEAR) {
+                        shot.close()
+                        if (verdict == Autopilot.Check.GIVE_UP) break
+                        continue
+                    }
+                    // Clear: this very exposure becomes the next light frame.
+                }
 
                 val stats: FrameStats
                 var dngName: String? = null
                 var ingestMs = 0L
                 var dngMs = 0L
                 try {
-                    val plane = shot.image.planes[0]
-                    val metaJson = JSONObject().apply {
-                        put("index", i)
-                        put("exposureNs", decision.exposureNs)
-                        put("iso", decision.iso)
-                        put("timestampNs", shot.image.timestamp)
-                        put("wbGains", JSONArray(wbRaster.map { it.toDouble() }))
-                        put("ccm", JSONArray(ccm.map { it.toDouble() }))
-                        put("gyroRms", rms.toDouble())
-                        // Dynamic black level: drifts as the sensor warms; engine prefers it over
-                        // the static characteristics value when present.
-                        shot.result.get(CaptureResult.SENSOR_DYNAMIC_BLACK_LEVEL)?.let { dyn ->
-                            if (dyn.size >= 4) {
-                                put("blackLevel", JSONArray(dyn.take(4).map { it.toDouble() }))
-                            }
-                        }
-                    }.toString()
                     // Demosaic + star detect + align + accumulate. Several seconds a frame on
                     // a 12.6 MP sensor - the single longest stretch of dead air in the old UI.
                     beginBusy("aligning & stacking frame ${i + 1}")
                     val t0 = SystemClock.elapsedRealtime()
                     stats = FrameStats.fromJson(
-                        NativeEngine.addFrame(
-                            engineHandle, plane.buffer, shot.image.width, shot.image.height,
-                            plane.rowStride, metaJson
-                        )
+                        NativeEngine.addFrame(engineHandle, px.buffer, px.width, px.height, px.rowStride, metaJson)
                     )
                     ingestMs = SystemClock.elapsedRealtime() - t0
                     if (s.saveDngs) {
@@ -840,6 +927,8 @@ class CaptureEngine(
                     peak, if (bumped) " BUMPED" else "",
                     Diagnostics.snapshot(context)))
 
+                var pilotAction: Autopilot.Action? = null
+                var leftOut: String? = null
                 if (bumped && !isTrails) {
                     // TRAILS keeps bumped frames: a lighten composite is inherently outlier-tolerant,
                     // and rejecting would punch an exposure-length gap into every star arc.
@@ -856,19 +945,74 @@ class CaptureEngine(
                         val note = skyWatch.add(stats.starCount, stats.medianFwhm)
                         if (note != before) AppLog.i(TAG, "sky watch: ${note ?: "clear again"}")
                     }
+                    if (pilot != null) {
+                        // The engine's reference frame matches itself (identity, every star): unknown.
+                        val isReference = stats.aligned && stats.inliers == stats.starCount &&
+                            stats.dx == 0f && stats.dy == 0f && stats.rotDeg == 0f
+                        val matched = when {
+                            isReference -> -1
+                            stats.aligned -> stats.inliers
+                            else -> 0
+                        }
+                        val action = pilot.onFrame(i, stats.starCount, matched, stats.medianFwhm, stats.bgFrac,
+                            SystemClock.elapsedRealtime() - burstStart)
+                        pilotAction = action
+                        val drop = when (action) {
+                            is Autopilot.Action.Replace -> action
+                            is Autopilot.Action.Wait -> Autopilot.Action.Replace(Autopilot.Reason.CLOUD, action.extra)
+                            is Autopilot.Action.Refocus -> action.replace
+                            else -> null
+                        }
+                        if (drop != null) {
+                            // Rejected now, so the stack never sees it; replaced at the end.
+                            leftOut = drop.reason.label
+                            NativeEngine.rejectFrame(engineHandle, i, "autopilot: ${drop.reason.label}")
+                            rejected++
+                            if (drop.extra) planned++
+                        }
+                        if (action != Autopilot.Action.Keep) AppLog.i(TAG, "autopilot: frame ${i + 1} -> $action")
+                    }
                 }
-                repo.appendFrame(paths, stats, decision.exposureNs, decision.iso, peak, bumped, dngName)
+                repo.appendFrame(paths, stats, decision.exposureNs, decision.iso, peak, bumped, dngName, leftOut)
                 captured++
                 buzz()
                 _previewTick.value = _previewTick.value + 1
-                if (s.livePreview && !(bumped && !isTrails)) keepReplayFrame(paths.dir, captured - rejected)
+                if (s.livePreview && !(bumped && !isTrails) && leftOut == null) keepReplayFrame(paths.dir, captured - rejected)
                 setState(CaptureState.CapturingLights(
                     i + 1, planned, decision.exposureNs, decision.iso, stats, rejected,
                     cappedByStorage = storageCapped, interFrameGapMs = (cooldown * 1000).toLong(),
                     frameStartedAtMs = frameStart,   // same slot: the countdown must not restart
-                    skyNote = skyWatch.note,
+                    skyNote = if (pilot != null) null else skyWatch.note,
+                    autopilot = pilotStatus(),
                 ))
                 i++
+                when (pilotAction) {
+                    is Autopilot.Action.Finish -> {
+                        buzz(longArrayOf(0, 60, 120, 60))
+                        break
+                    }
+                    is Autopilot.Action.Refocus -> if (!stopRequested()) {
+                        // Between frames, on the frames' own camera settings afterwards.
+                        setState(CaptureState.CapturingLights(
+                            i, planned, decision.exposureNs, decision.iso, stats, rejected,
+                            cappedByStorage = storageCapped, interFrameGapMs = (cooldown * 1000).toLong(),
+                            frameStartedAtMs = frameStart, autopilot = pilotStatus(refocusing = true),
+                        ))
+                        val before = focusDistance
+                        val res = FocusSweep.refine(
+                            controller, wbLock, focusDistance, isCancelled = { stopRequested() },
+                            simulate = skySim?.let { sim -> { d: Float -> sim.render(SkySim.Kind.FOCUS, d) } },
+                        ) { k, n, _ -> beginBusy("refocusing $k/$n", FocusSweep.STEP_DURATION_MS) }
+                        AppLog.i(TAG, "autopilot: ${res.message}")
+                        if (res.ok) {
+                            focusDistance = res.diopters
+                            _focus.value = res
+                            if (skySim == null) settingsStore.saveLastFocus(res.diopters, cam.cameraId, Diagnostics.batteryTempC(context))
+                        }
+                        pilot!!.onRefocused(res.ok, before, focusDistance)
+                    }
+                    else -> Unit
+                }
                 // Duration modes promise wall-clock minutes, but each frame also spends time on
                 // ingest and saving that the exposure-based count left out, so a "20 minute" trail
                 // ran well past 20. Once the real frame period is known, the plan shrinks to what
@@ -884,6 +1028,23 @@ class CaptureEngine(
                         planned = capped
                     }
                 }
+            }
+            // What the autopilot did goes into the session file and onto the result screen.
+            val autopilotReport = pilot?.report() ?: emptyList()
+            if (pilot != null) {
+                AppLog.i(TAG, "autopilot: " + if (autopilotReport.isEmpty()) "nothing needed fixing" else autopilotReport.joinToString(" · "))
+                repo.writeAutopilot(paths, JSONObject().apply {
+                    put("goodFrames", pilot.goodFrames)
+                    put("extraFrames", pilot.extraFrames)
+                    put("leftOutCloud", pilot.replaced[Autopilot.Reason.CLOUD] ?: 0)
+                    put("leftOutSoft", pilot.replaced[Autopilot.Reason.SOFT] ?: 0)
+                    put("waitedMs", pilot.waitedMs)
+                    put("checks", pilot.checks)
+                    put("refocused", pilot.refocusCount)
+                    pilot.finished?.let { put("finished", it) }
+                    put("report", JSONArray(autopilotReport))
+                    put("events", JSONArray(pilot.events))
+                })
             }
             // Hard cancel always returns to Idle — frames already on disk stay there, and the
             // separate "Finish & stack now" button is the path for stack-what-we-have.
@@ -929,6 +1090,7 @@ class CaptureEngine(
                     elapsedMs = SystemClock.elapsedRealtime() - sessionStart,
                     warning = addSentence(warning, "Only $captured frame was taken, and stacking needs " +
                         "at least $MIN_FRAMES_TO_STACK."),
+                    autopilot = autopilotReport,
                 ))
                 return
             }
@@ -949,6 +1111,8 @@ class CaptureEngine(
                 _busy.value = null
                 val gate = CompletableDeferred<Boolean>()
                 darkGate = gate
+                // A simulated sky answers for the photographer (its lens is "covered" at once).
+                if (skySim != null) gate.complete(skySim.scenario.autoDarks)
                 val doDarks = run {
                     var confirmed: Boolean? = null
                     for (sec in 60 downTo 1) {
@@ -991,11 +1155,10 @@ class CaptureEngine(
                         }
                         var lit = false
                         try {
-                            val plane = shot.image.planes[0]
+                            val px = skySim?.render(SkySim.Kind.DARK, focusDistance) ?: shot.pixels()
                             beginBusy("checking dark frame ${d + 1}")
                             val check = AnalyzeStats.fromJson(NativeEngine.analyzeFrame(
-                                plane.buffer, shot.image.width, shot.image.height, plane.rowStride,
-                                analyzeMetaJson(cam, wbLock),
+                                px.buffer, px.width, px.height, px.rowStride, analyzeMetaJson(cam, wbLock),
                             ))
                             lit = check.bgFrac > litAbove
                             if (lit) {
@@ -1023,10 +1186,7 @@ class CaptureEngine(
                                     }
                                 }.toString()
                                 beginBusy("ingesting dark frame ${d + 1}")
-                                NativeEngine.addDarkFrame(
-                                    engineHandle, plane.buffer, shot.image.width, shot.image.height,
-                                    plane.rowStride, metaJson
-                                )
+                                NativeEngine.addDarkFrame(engineHandle, px.buffer, px.width, px.height, px.rowStride, metaJson)
                                 // Counted here, not at the top of the loop: only frames that
                                 // actually reached the accumulator belong in the master dark.
                                 darksCaptured++
@@ -1060,6 +1220,7 @@ class CaptureEngine(
                     null, null, null, paths.dir, captured,
                     elapsedMs = SystemClock.elapsedRealtime() - sessionStart,
                     warning = warning,
+                    autopilot = autopilotReport,
                 ))
                 return
             }
@@ -1141,6 +1302,7 @@ class CaptureEngine(
                 result, paths.finalJpg, saved.galleryUri, paths.dir, captured,
                 elapsedMs = SystemClock.elapsedRealtime() - sessionStart,
                 warning = warning,
+                autopilot = autopilotReport,
             ))
         } catch (t: Throwable) {
             AppLog.e(TAG, "session failed — ${controller.dumpState()}", t)
@@ -1359,5 +1521,8 @@ class CaptureEngine(
 
         /** A reused focus is trusted only while the phone stays within this of its temperature then. */
         private const val FOCUS_REUSE_MAX_TEMP_SHIFT_C = 5f
+
+        /** Per-frame time besides the exposure (readout, ingest, DNG), for "Shoot for" planning. */
+        private const val FRAME_OVERHEAD_SEC = 2.5
     }
 }

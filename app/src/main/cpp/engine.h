@@ -38,6 +38,13 @@ public:
     std::string addFrame(const uint16_t* bayer, int w, int h, int strideElems,
                          const FrameMeta& meta);
 
+    // Measures a frame against the reference without keeping it: nothing written, nothing
+    // accumulated (the autopilot's cloud checks). Cloud dims the stars below the alignment's
+    // flux gate, so the matched count falls even when hot pixels keep the star count up.
+    // Returns {"starCount":n,"medianFwhm":f,"bgFrac":f,"inliers":n,"aligned":bool}
+    std::string checkFrame(const uint16_t* bayer, int w, int h, int strideElems,
+                           const FrameMeta& meta);
+
     // Dark frames: accumulated into a running mean (masterDark); no alignment, not stacked.
     // Returns {"index":i,"darkCount":n,"meanLevel":f}
     std::string addDark(const uint16_t* bayer, int w, int h, int strideElems, const FrameMeta& meta);

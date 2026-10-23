@@ -1,5 +1,48 @@
 # StarCam build progress (PLAN.md §10)
 
+## The second night, 0.5.0 (2026-10-24)
+
+### Autopilot (ASTRO)
+
+The capture used to shoot its plan and find out at the end what the sky had done. The autopilot
+(camera/Autopilot.kt) now judges every light frame against the first clear ones and does what a
+photographer next to the tripod would:
+
+- **Cloud**: a frame with far fewer stars, or far fewer of the reference stars matched by the
+  alignment, is left out at once (the stacker would drop it anyway) and an extra frame is added
+  to the plan. The match count is the reliable signal: the star detector keeps only the
+  brightest 300, and under cloud hot pixels fill that list (found with the simulator below), but
+  cloud dims the stars below the alignment's flux gate, so the matches fall. Two cloudy frames
+  in a row and it **waits**: the next exposures are checks, measured against the reference by
+  the engine (`checkFrame`) and never kept, until the stars are back; then it carries on. After
+  15 minutes (Settings › Autopilot) it finishes with the frames it has.
+- **Soft stars** with as many stars still matched: the focus drifting as the lens cools. A frame
+  past 1.7× the reference star size is left out and replaced; two soft frames in a row and it
+  refocuses: FocusSweep.refine, five points around the current focus, walking further while the
+  sharpest is at an end, then the parabola's vertex (about half a full sweep). Still soft right
+  after: dew or wind, which it says, and it stops refocusing.
+- **Dawn, the Moon, lights**: three frames in a row with the sky 2.5× brighter than at the start
+  end the burst with the good frames (the darks are still taken). A brief bright spell does not.
+- **Shoot for** 10/20/30/60 minutes instead of a frame count: as many frames as fit, finished on
+  time with the good ones.
+- The capture screen says what it is doing ("Checking whether the cloud has passed", with a wait
+  clock; "Refocusing on the stars"), the result screen and the session page list what it did
+  ("Left out 2 frames with cloud and 2 with soft stars and shot 4 extra · Waited 3 min for cloud
+  to pass · Refocused from 0.100 to 0.160 dpt · ..."), and session.json keeps it. A re-stack
+  leaves the same frames out.
+
+Tested with a **simulated sky** (debug builds, camera/SkySim.kt + cpp/sim.cpp): armed from adb
+(`--es sim "frames=12;exp=300;clouds=5-8;drift=13:0.06;dawn=20"`), every frame of a session - probe,
+star focus, lights, darks - is replaced by a rendered star field with drift, hot pixels, cloud
+over chosen light attempts, a focus error that blurs with distance from a "true" focus that can
+move mid-session, and a brightening sky. On the emulator the whole loop runs as under a real sky:
+cloud left out, waited out (3 checks) and replaced, the focus drift caught and refocused to
+exactly the simulated new focus (0.160 dpt), the planned 12 good frames stacked with exactly the
+4 spoiled ones rejected; dawn ending a 16-frame plan after 12. 17 JVM tests cover the decisions
+frame by frame (hot pixels, dew, budgets, the time limit, dawn while waiting). Not yet under a
+real sky: the thresholds (30% of the reference matches, 1.45×/1.7× star size, 2.5× sky) are
+first guesses to check against real cloud and dew.
+
 ## The overnight session, 0.4.0 (2026-10-23)
 
 ### StarCam 2 processing (Settings › Look › Processing; Classic kept)

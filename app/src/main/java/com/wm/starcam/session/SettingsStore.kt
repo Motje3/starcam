@@ -47,6 +47,14 @@ data class AppSettings(
     val darkLibraryDays: Int = 14,
     val autoReshoot: Boolean = true,
     val cooldownSec: Float = 0.5f,
+    // Autopilot (ASTRO, camera/Autopilot.kt)
+    val autopilot: Boolean = true,
+    /** How long it waits for cloud to pass before finishing; 0 = never waits, only replaces. */
+    val autopilotWaitMin: Int = 15,
+    val autopilotRefocus: Boolean = true,
+    val autopilotFinishBright: Boolean = true,
+    /** "Shoot for" this many minutes instead of the preset's frame count; 0 = the preset. */
+    val autopilotMinutes: Int = 0,
     // Stacking
     val stackOnDevice: Boolean = true,
     val sigmaFinal: Float = 2.8f,
@@ -192,6 +200,11 @@ class SettingsStore(context: Context) {
                 darkLibraryDays = prefs.getInt("darkLibraryDays", d.darkLibraryDays),
                 autoReshoot = prefs.getBoolean("autoReshoot", d.autoReshoot),
                 cooldownSec = prefs.getFloat("cooldownSec", d.cooldownSec),
+                autopilot = prefs.getBoolean("autopilot", d.autopilot),
+                autopilotWaitMin = prefs.getInt("autopilotWaitMin", d.autopilotWaitMin).coerceIn(0, 60),
+                autopilotRefocus = prefs.getBoolean("autopilotRefocus", d.autopilotRefocus),
+                autopilotFinishBright = prefs.getBoolean("autopilotFinishBright", d.autopilotFinishBright),
+                autopilotMinutes = prefs.getInt("autopilotMinutes", d.autopilotMinutes).coerceIn(0, 240),
                 stackOnDevice = prefs.getBoolean("stackOnDevice", d.stackOnDevice),
                 sigmaFinal = prefs.getFloat("sigmaFinal", d.sigmaFinal),
                 hotPixelFix = prefs.getBoolean("hotPixelFix", d.hotPixelFix),
@@ -254,6 +267,11 @@ class SettingsStore(context: Context) {
             .putInt("darkLibraryDays", s.darkLibraryDays)
             .putBoolean("autoReshoot", s.autoReshoot)
             .putFloat("cooldownSec", s.cooldownSec)
+            .putBoolean("autopilot", s.autopilot)
+            .putInt("autopilotWaitMin", s.autopilotWaitMin)
+            .putBoolean("autopilotRefocus", s.autopilotRefocus)
+            .putBoolean("autopilotFinishBright", s.autopilotFinishBright)
+            .putInt("autopilotMinutes", s.autopilotMinutes)
             .putBoolean("stackOnDevice", s.stackOnDevice)
             .putFloat("sigmaFinal", s.sigmaFinal)
             .putBoolean("hotPixelFix", s.hotPixelFix)

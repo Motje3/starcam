@@ -76,6 +76,7 @@ enum class SettingsTab(val label: String, val blurb: String) {
     Exposure("Exposure", "How long each frame is, at what ISO, and how many."),
     Focus("Focus", "How the lens is focused before shooting."),
     Capture("Capture", "What gets recorded, and the cover-the-lens step."),
+    Autopilot("Autopilot", "What ASTRO fixes by itself while it shoots: cloud, focus, dawn, time."),
     Stacking("Stacking", "How the frames are combined on the phone."),
     Look("Look", "How finished photos are toned. Applies to new and re-stacked photos."),
     Motion("Motion", "Tripod stillness, knock detection and how long the long modes run."),
@@ -370,6 +371,78 @@ private val Defs: List<Def> = listOf(
         range = 0f..5f,
         get = { it.cooldownSec },
         set = { s, v -> s.copy(cooldownSec = v) },
+    ),
+
+    // ---------------------------------------------------------------- Autopilot
+    Toggle(
+        SettingsTab.Autopilot, "Autopilot",
+        "While ASTRO shoots, the autopilot looks at every frame the way you would if you stood " +
+            "next to the tripod. A frame spoiled by cloud or soft stars is left out and an extra " +
+            "one is shot at the end, so you still get the frames you asked for. When cloud comes " +
+            "over, it waits for the stars to come back and then carries on. When the stars soften " +
+            "because the lens cooled and the focus drifted, it focuses on them again. When dawn " +
+            "or the Moon brightens the sky for good, it finishes with the good frames it has. " +
+            "Everything it did is listed with the photo.",
+        value = { s, _ -> if (s.autopilot) "On · watches every frame and fixes what it can" else "Off · shoots the plan as it is" },
+        get = { it.autopilot },
+        set = { s, v -> s.copy(autopilot = v) },
+    ),
+    Choice(
+        SettingsTab.Autopilot, "Wait for cloud",
+        "How long to wait for a passing cloud before finishing with the frames already shot. While " +
+            "it waits, every exposure is only a check: measured, never stacked. Off: cloudy frames " +
+            "are still left out and replaced, but it does not wait.",
+        value = { s, _ -> if (s.autopilotWaitMin == 0) "Off · replaces cloudy frames, never waits" else "Up to ${s.autopilotWaitMin} min" },
+        options = { listOf("Off", "5 min", "15 min", "30 min") },
+        selected = { s, _ -> listOf(0, 5, 15, 30).indexOf(s.autopilotWaitMin) },
+        select = { s, _, i -> s.copy(autopilotWaitMin = listOf(0, 5, 15, 30)[i]) },
+        mono = true,
+        show = { it.autopilot },
+    ),
+    Toggle(
+        SettingsTab.Autopilot, "Refocus when stars soften",
+        "A phone lens's sharpest point moves as it cools through the night. When the stars grow " +
+            "soft but as many are still visible (cloud would hide them instead), the autopilot runs " +
+            "a short star focus around the current position, about half a minute, and carries on. " +
+            "If they stay soft after that it is dew or wind, which focusing cannot fix: it tells " +
+            "you. Only with Focus › Auto (stars).",
+        value = { s, _ ->
+            when {
+                s.focusMode != FocusMode.AUTO_STAR -> "Needs Focus › Auto (stars)"
+                s.autopilotRefocus -> "On · up to twice a session"
+                else -> "Off"
+            }
+        },
+        get = { it.autopilotRefocus },
+        set = { s, v -> s.copy(autopilotRefocus = v) },
+        show = { it.autopilot },
+    ),
+    Toggle(
+        SettingsTab.Autopilot, "Finish when the sky brightens",
+        "Once the sky stays more than two and a half times as bright as at the start - dawn, the " +
+            "Moon rising, lights coming on - more frames only add noise. The session then finishes " +
+            "with the good frames it has, and still takes its dark frames.",
+        value = { s, _ -> if (s.autopilotFinishBright) "On" else "Off · shoots on regardless" },
+        get = { it.autopilotFinishBright },
+        set = { s, v -> s.copy(autopilotFinishBright = v) },
+        show = { it.autopilot },
+    ),
+    Choice(
+        SettingsTab.Autopilot, "Shoot for",
+        "Instead of a number of frames, give it the time you have. It shoots as many frames as fit, " +
+            "replaces the spoiled ones, and finishes on time with the good ones. The preset (Fast, " +
+            "Best, Insane) then only sets the least it aims for.",
+        value = { s, _ -> if (s.autopilotMinutes == 0) "The preset's frame count" else "${s.autopilotMinutes} minutes, then stack" },
+        options = { listOf("Preset", "10 min", "20 min", "30 min", "60 min") },
+        selected = { s, _ -> listOf(0, 10, 20, 30, 60).indexOf(s.autopilotMinutes) },
+        select = { s, _, i -> s.copy(autopilotMinutes = listOf(0, 10, 20, 30, 60)[i]) },
+        mono = true,
+        show = { it.autopilot },
+    ),
+    Note(
+        SettingsTab.Autopilot,
+        "The autopilot runs in ASTRO. TRAILS keeps every frame on purpose (a gap would break the " +
+            "trails), METEOR shoots until you stop it, and PRO does exactly what you set.",
     ),
 
     // ---------------------------------------------------------------- Stacking

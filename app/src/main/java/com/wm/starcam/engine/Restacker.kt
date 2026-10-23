@@ -23,8 +23,8 @@ object Restacker {
 
     /**
      * Blocking; call on a background dispatcher. Returns the engine result. [rejectIndices] are
-     * capture indices to exclude again, e.g. the frames the gyro flagged as bumped during capture
-     * (the live stack left them out, so a re-stack must too).
+     * capture indices to exclude again: the frames the gyro flagged as bumped and the ones the
+     * autopilot left out during capture (the live stack left them out, so a re-stack must too).
      */
     fun restack(
         sessionDir: File,
@@ -91,7 +91,7 @@ object Restacker {
                 }.toString()
                 NativeEngine.addFrame(handle, buffer, info.width, info.height, info.width * 2, metaJson)
                 if (index in rejectIndices) {
-                    NativeEngine.rejectFrame(handle, index, "gyro bump (recorded at capture)")
+                    NativeEngine.rejectFrame(handle, index, "left out at capture (bump or autopilot)")
                 }
                 progressFn("reload", (i + 1) * 100 / lights.size)
             }

@@ -69,6 +69,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.wm.starcam.StarCamViewModel
 import com.wm.starcam.camera.AutoExposure
+import com.wm.starcam.camera.AutopilotStatus
 import com.wm.starcam.camera.Busy
 import com.wm.starcam.camera.CaptureEngine
 import com.wm.starcam.camera.CaptureState
@@ -696,12 +697,13 @@ private fun CapturingStep(
         FrameTape(st, completed, rejectedIdx)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "$kept kept · ${st.rejectedSoFar} bumped" +
+                "$kept kept · ${st.rejectedSoFar} left out" +
                     " · " + exposureText(st.exposureNs) + " · ISO ${st.iso}",
                 style = ScType.caption, color = c.text2, modifier = Modifier.weight(1f),
             )
             SessionClock(sessionStart)
         }
+        st.autopilot?.let { AutopilotLine(it) }
         if (st.cappedByStorage) {
             ScNotice("Fewer frames than planned: the phone is low on storage.", tone = Tone.Warning,
                 icon = ScIcons.Warning)
@@ -725,6 +727,9 @@ private fun NowLine(busy: Busy?, st: CaptureState.CapturingLights, pending: Stop
     val (text, warn) = when {
         pending == StopRequest.Cancel -> "Stopping once this frame is in" to false
         pending == StopRequest.Finish -> "Stacking once this frame is in" to false
+        st.autopilot?.refocusing == true || label.startsWith("refocusing") ->
+            "Refocusing on the stars — they had gone soft" to false
+        label.startsWith("checking for clear") -> "Checking whether the cloud has passed" to false
         label.startsWith("exposing") -> "Exposing frame ${st.current} — hands off the tripod" to false
         label.startsWith("aligning") -> "Aligning and stacking frame ${st.current}" to false
         label.startsWith("writing DNG") -> "Saving the RAW file" to false
@@ -750,6 +755,8 @@ private fun ExposureRing(busy: Busy?, st: CaptureState.CapturingLights) {
     val label = busy?.label ?: ""
     val title = when {
         label.startsWith("exposing") -> "Exposing"
+        label.startsWith("checking for clear") -> "Checking"
+        label.startsWith("refocusing") -> "Focusing"
         label.startsWith("aligning") -> "Stacking"
         label.startsWith("writing") -> "Saving"
         label.startsWith("cooling") -> "Cooling"
@@ -759,7 +766,7 @@ private fun ExposureRing(busy: Busy?, st: CaptureState.CapturingLights) {
     BusyRing(busy, 132.dp, stroke = 6.dp) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             ScLabel(title, color = if (title == "Repairing") c.warning else c.text3)
-            if (busy != null && label.startsWith("exposing") && busy.expectedMs > 0L) {
+            if (busy != null && (label.startsWith("exposing") || label.startsWith("checking for clear")) && busy.expectedMs > 0L) {
                 val elapsed = rememberElapsedMs(busy.startedAtMs)
                 val secs = (elapsed / 1000.0).coerceAtMost(busy.expectedMs / 1000.0 + 99.0)
                 Text(String.format(Locale.US, "%.1f", secs), style = ScType.readout, color = c.text)
@@ -784,8 +791,66 @@ private fun RemainingTime(st: CaptureState.CapturingLights) {
     val thisFrameLeft =
         if (st.frameStartedAtMs == 0L) perFrameSec
         else (perFrameSec - inFrameMs / 1000.0).coerceIn(0.0, perFrameSec)
-    val remainingSec = (st.total - st.current) * perFrameSec + thisFrameLeft
+    var remainingSec = (st.total - st.current) * perFrameSec + thisFrameLeft
+    // "Shoot for": the autopilot finishes on time, whatever the frame count says.
+    val endsAt = st.autopilot?.endsAtMs ?: 0L
+    if (endsAt > 0L) {
+        val now = rememberElapsedMs(0L)
+        remainingSec = remainingSec.coerceAtMost(((endsAt - now) / 1000.0).coerceAtLeast(0.0))
+    }
     Text("~" + durationText(remainingSec.toLong()), style = ScType.stat, color = Sc.colors.text)
+}
+
+/** What the autopilot did during the session, on the result screen and the session page. */
+@Composable
+fun AutopilotReport(lines: List<String>, modifier: Modifier = Modifier) {
+    val c = Sc.colors
+    Column(
+        modifier.fillMaxWidth().clip(ScShapes.card).background(c.raised).border(1.dp, c.hairline, ScShapes.card)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(ScIcons.Autopilot, null, Modifier.size(18.dp), tint = c.accent)
+            Spacer(Modifier.width(8.dp))
+            Text("What the autopilot did", style = ScType.bodySmall.copy(fontWeight = FontWeight.SemiBold), color = c.text)
+        }
+        lines.forEach { line ->
+            Row {
+                Text("•", style = ScType.bodySmall, color = c.accent, modifier = Modifier.width(14.dp))
+                Text(line, style = ScType.bodySmall, color = c.text2)
+            }
+        }
+    }
+}
+
+/**
+ * The autopilot under the frame tape: what it is doing (waiting for cloud, with a clock), or the
+ * last thing it did, or that it is watching.
+ */
+@Composable
+private fun AutopilotLine(p: AutopilotStatus) {
+    val c = Sc.colors
+    val waiting = p.waitingSinceMs > 0L
+    Row(
+        Modifier.fillMaxWidth().clip(ScShapes.card).background(c.raised).padding(horizontal = 12.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(ScIcons.Autopilot, null, Modifier.size(18.dp), tint = if (waiting) c.warning else c.accent)
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text("Autopilot", style = ScType.caption.copy(fontWeight = FontWeight.SemiBold), color = c.text2)
+            Text(
+                p.note ?: "Watching every frame for cloud, soft stars and a brightening sky",
+                style = ScType.bodySmall, color = c.text, maxLines = 2,
+            )
+        }
+        if (waiting) {
+            val elapsed = rememberElapsedMs(p.waitingSinceMs)
+            Text(durationClock(elapsed / 1000L), style = ScType.data, color = c.warning,
+                modifier = Modifier.padding(start = 8.dp))
+        }
+    }
 }
 
 @Composable
@@ -1153,6 +1218,7 @@ private fun DoneStep(
                         icon = ScIcons.Warning)
                 }
                 st.warning?.let { ScNotice(it, tone = Tone.Warning, icon = ScIcons.Warning) }
+                if (st.autopilot.isNotEmpty()) AutopilotReport(st.autopilot)
                 if (comparing && result != null && single != null) {
                     ScButton("Share 1 frame vs stacked", {
                         scope.launch {

@@ -90,7 +90,19 @@ class CapturedRaw(
             onRelease()
         }
     }
+
+    /** The RAW plane as the engine reads it. */
+    fun pixels(): RawPixels {
+        val plane = image.planes[0]
+        return RawPixels(plane.buffer, image.width, image.height, plane.rowStride)
+    }
 }
+
+/**
+ * A RAW16 Bayer frame for the native engine: a capture's own plane ([CapturedRaw.pixels]), or a
+ * simulated sky in its place ([SkySim]). [rowStride] is in bytes.
+ */
+class RawPixels(val buffer: java.nio.ByteBuffer, val width: Int, val height: Int, val rowStride: Int)
 
 /**
  * Thin Camera2 wrapper: owns the camera thread, device, session, RAW ImageReader. All suspend

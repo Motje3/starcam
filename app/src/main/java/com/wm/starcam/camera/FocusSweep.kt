@@ -36,16 +36,18 @@ object FocusSweep {
     /**
      * Coarse 7 points over [0, 0.30] diopters, then 3-point fine pass around the vertex.
      * [isCancelled] is polled between exposures so tapping Cancel doesn't wait out the whole
-     * ~30 s sweep.
+     * ~30 s sweep. [simulate] (debug: [SkySim]) supplies the pixels measured at a focus position
+     * instead of the camera's.
      */
     suspend fun run(
         controller: CameraController,
         wb: WbLock?,
         isCancelled: () -> Boolean = { false },
+        simulate: ((Float) -> RawPixels)? = null,
         onProgress: (step: Int, total: Int, label: String) -> Unit,
     ): Result {
         val cam = controller.cam
-        if (cam.minFocusDistance <= 0f) {
+        if (cam.minFocusDistance <= 0f && simulate == null) {
             return Result(0f, 0f, 0, false, "fixed-focus lens; using infinity")
         }
         val coarse = FloatArray(7) { it * 0.05f }  // 0.00 .. 0.30
@@ -62,7 +64,7 @@ object FocusSweep {
                     "no stars visible (clouds? blocked?) — using infinity")
             }
             onProgress(i + 1, total, "coarse %.2f".format(d))
-            val stats = measureAt(controller, d, wb) ?: continue
+            val stats = measureAt(controller, d, wb, simulate) ?: continue
             if (stats.starCount >= MIN_STARS) measured.add(d to stats)
         }
         if (measured.size < 3) {
@@ -80,7 +82,7 @@ object FocusSweep {
         for ((i, d) in fine.withIndex()) {
             if (isCancelled()) break
             onProgress(coarse.size + i + 1, total, "fine %.3f".format(d))
-            val stats = measureAt(controller, d, wb) ?: continue
+            val stats = measureAt(controller, d, wb, simulate) ?: continue
             if (stats.starCount >= MIN_STARS) measured.add(d to stats)
         }
         val best = measured.minByOrNull { it.second.medianFwhm }!!
@@ -90,6 +92,68 @@ object FocusSweep {
                 .format(best.first, best.second.medianFwhm, best.second.starCount)
         )
     }
+
+    /**
+     * Refocus mid-session (the autopilot, when the stars soften as the lens cools): five points
+     * [REFINE_STEP] apart around [around], walking further out while the sharpest is at an end
+     * (a drift bigger than the window), then the parabola's vertex. About half a full sweep.
+     */
+    suspend fun refine(
+        controller: CameraController,
+        wb: WbLock?,
+        around: Float,
+        isCancelled: () -> Boolean = { false },
+        simulate: ((Float) -> RawPixels)? = null,
+        onProgress: (step: Int, total: Int, label: String) -> Unit,
+    ): Result {
+        val measured = ArrayList<Pair<Float, AnalyzeStats>>()
+        val positions = (-2..2).map { (around + it * REFINE_STEP).coerceAtLeast(0f) }.distinct().toMutableList()
+        var step = 0
+        val total = positions.size + REFINE_MAX_EXTRA
+        suspend fun measure(d: Float) {
+            step++
+            onProgress(step, total, "refocus %.3f".format(d))
+            val stats = measureAt(controller, d, wb, simulate) ?: return
+            if (stats.starCount >= MIN_STARS) measured.add(d to stats)
+        }
+        for (d in positions) {
+            if (isCancelled()) return Result(around, 0f, 0, false, "refocus cancelled")
+            measure(d)
+        }
+        // The sharpest at an end of the window: the best focus may lie beyond it.
+        var extra = 0
+        while (extra < REFINE_MAX_EXTRA && measured.size >= 2 && !isCancelled()) {
+            val sorted = measured.sortedBy { it.first }
+            val bestD = sorted.minByOrNull { it.second.medianFwhm }!!.first
+            val next = when (bestD) {
+                sorted.last().first -> bestD + REFINE_STEP
+                sorted.first().first -> (bestD - REFINE_STEP).takeIf { it >= 0f && bestD > 0f }
+                else -> null
+            } ?: break
+            measure(next)
+            extra++
+        }
+        if (measured.size < 3) {
+            return Result(around, 0f, measured.maxOfOrNull { it.second.starCount } ?: 0, false,
+                "refocus: not enough stars, kept %.3f dpt".format(around))
+        }
+        val sorted = measured.sortedBy { it.first }
+        val bestIdx = sorted.indices.minByOrNull { sorted[it].second.medianFwhm }!!
+        val vertex = parabolaVertex(sorted, bestIdx)
+            .coerceIn(sorted.first().first, sorted.last().first)
+        val best = sorted[bestIdx]
+        // The vertex is where the sharpest focus lies between the measured points; take it when it
+        // stays close to the best one measured.
+        val chosen = if (kotlin.math.abs(vertex - best.first) <= REFINE_STEP) vertex else best.first
+        return Result(
+            chosen, best.second.medianFwhm, best.second.starCount, true,
+            "refocused at %.3f dpt (was %.3f), FWHM %.2f px".format(chosen, around, best.second.medianFwhm),
+        )
+    }
+
+    /** Refocus window spacing (diopters) and how far beyond the window it may walk. */
+    private const val REFINE_STEP = 0.02f
+    private const val REFINE_MAX_EXTRA = 3
 
     private fun parabolaVertex(pts: List<Pair<Float, AnalyzeStats>>, bestIdx: Int): Float {
         val i0 = (bestIdx - 1).coerceAtLeast(0)
@@ -106,7 +170,8 @@ object FocusSweep {
     }
 
     private suspend fun measureAt(
-        controller: CameraController, diopters: Float, wb: WbLock?
+        controller: CameraController, diopters: Float, wb: WbLock?,
+        simulate: ((Float) -> RawPixels)? = null,
     ): AnalyzeStats? {
         val cam = controller.cam
         return runCatching {
@@ -141,7 +206,7 @@ object FocusSweep {
                 )
             }
             try {
-                val plane = shot.image.planes[0]
+                val px = simulate?.invoke(diopters) ?: shot.pixels()
                 val gains = CamMeta.rasterWbGains(wb?.gains, cam.cfa)
                 val meta = JSONObject().apply {
                     put("cfa", cam.cfa)
@@ -149,9 +214,7 @@ object FocusSweep {
                     put("blackLevel", JSONArray(cam.blackLevelRaster.map { it.toDouble() }))
                     put("wbGains", JSONArray(gains.map { it.toDouble() }))
                 }.toString()
-                val json = NativeEngine.analyzeFrame(
-                    plane.buffer, shot.image.width, shot.image.height, plane.rowStride, meta
-                )
+                val json = NativeEngine.analyzeFrame(px.buffer, px.width, px.height, px.rowStride, meta)
                 AnalyzeStats.fromJson(json).also {
                     AppLog.i("focus", "%.3f dpt: %d stars, fwhm %.2f px, bg %.2f%%".format(
                         diopters, it.starCount, it.medianFwhm, it.bgFrac * 100))

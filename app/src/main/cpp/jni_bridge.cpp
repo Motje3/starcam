@@ -14,6 +14,7 @@
 #include "json_mini.h"
 #include "post_options.h"
 #include "selftest.h"
+#include "sim.h"
 #include "studio.h"
 
 namespace {
@@ -176,6 +177,30 @@ JNIEXPORT jstring JNICALL Java_com_wm_starcam_engine_NativeEngine_addFrame(
     } catch (...) {
         SLOGE("addFrame: native exception");
         return toJString(env, errJson("native exception in addFrame"));
+    }
+}
+
+// ---------- checkFrame ----------
+
+JNIEXPORT jstring JNICALL Java_com_wm_starcam_engine_NativeEngine_checkFrame(
+        JNIEnv* env, jobject /*thiz*/, jlong handle, jobject bayer, jint width, jint height,
+        jint rowStrideBytes, jstring metaJson) {
+    try {
+        EngineSession* s = sess(handle);
+        if (s == nullptr) return toJString(env, errJson("null handle"));
+        int strideElems = 0;
+        const char* err = nullptr;
+        const uint16_t* px = bayerPtr(env, bayer, width, height, rowStrideBytes, &strideElems, &err);
+        if (px == nullptr) return toJString(env, errJson(err ? err : "bad buffer"));
+        jsonmini::Obj o;
+        if (!jsonmini::Obj::parse(jstr(env, metaJson), &o)) {
+            return toJString(env, errJson("meta JSON parse failed"));
+        }
+        FrameMeta meta = parseFrameMeta(o);
+        return toJString(env, s->checkFrame(px, (int)width, (int)height, strideElems, meta));
+    } catch (...) {
+        SLOGE("checkFrame: native exception");
+        return toJString(env, errJson("native exception in checkFrame"));
     }
 }
 
@@ -379,6 +404,42 @@ JNIEXPORT jstring JNICALL Java_com_wm_starcam_engine_NativeEngine_analyzeFrame(
     } catch (...) {
         SLOGE("analyzeFrame: native exception");
         return toJString(env, errJson("native exception in analyzeFrame"));
+    }
+}
+
+// ---------- simulateSky (debug builds: SkySim.kt) ----------
+
+// paramsJson: {cfa, black, white, drift, seed, stars, sky, cloud, blurPx, dark}
+JNIEXPORT jboolean JNICALL Java_com_wm_starcam_engine_NativeEngine_simulateSky(
+        JNIEnv* env, jobject /*thiz*/, jobject buffer, jint width, jint height, jint rowStrideBytes,
+        jstring paramsJson) {
+    try {
+        int strideElems = 0;
+        const char* err = nullptr;
+        // bayerPtr checks the buffer is direct and large enough; the sky is written into it.
+        const uint16_t* px = bayerPtr(env, buffer, width, height, rowStrideBytes, &strideElems, &err);
+        if (px == nullptr) {
+            SLOGE("simulateSky: %s", err ? err : "bad buffer");
+            return JNI_FALSE;
+        }
+        jsonmini::Obj o;
+        if (!jsonmini::Obj::parse(jstr(env, paramsJson), &o)) return JNI_FALSE;
+        starcam::SimParams p;
+        p.cfa = o.numi("cfa", 0);
+        p.black = (float)o.num("black", 64.0);
+        p.white = (float)o.num("white", 1023.0);
+        p.drift = o.numi("drift", 0);
+        p.seed = (uint32_t)o.num("seed", 1.0);
+        p.stars = o.numi("stars", 700);
+        p.sky = (float)o.num("sky", 0.04);
+        p.cloud = (float)o.num("cloud", 0.0);
+        p.blurPx = (float)o.num("blurPx", 0.0);
+        p.dark = o.boolean("dark", false);
+        return starcam::simulate_sky(const_cast<uint16_t*>(px), (int)width, (int)height, strideElems, p)
+            ? JNI_TRUE : JNI_FALSE;
+    } catch (...) {
+        SLOGE("simulateSky: native exception");
+        return JNI_FALSE;
     }
 }
 

@@ -162,6 +162,29 @@ object ScIcons {
     val RotateLeft by icon { path("M4 12a8 8 0 1 0 2.3-5.7M4 4v5h5") }
     val Edit by icon { path("M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4") }
     val Play by icon { path("M8 5.5v13l10.5-6.5z") }
+    /** The autopilot: a steering wheel. */
+    val Autopilot by icon {
+        circle(12f, 12f, 8.5f)
+        circle(12f, 12f, 2.25f)
+        path("M3.6 10.5h6.2M14.2 10.5h6.2M12 14.25v7.2")
+    }
+    /** The dark-sky map: a folded map. */
+    val Map by icon { path("M9 4.5L3.5 6.5v13l5.5-2 6 2 5.5-2v-13l-5.5 2-6-2zM9 4.5v13M15 6.5v13") }
+    val Calendar by icon {
+        rect(3.5f, 5f, 17f, 15.5f, 2.5f)
+        path("M3.5 10h17M8 3v4M16 3v4")
+    }
+    /** A place on the map. */
+    val Pin by icon {
+        path("M12 21s-6.5-6.2-6.5-11.2a6.5 6.5 0 0 1 13 0C18.5 14.8 12 21 12 21z")
+        circle(12f, 9.8f, 2.3f)
+    }
+    /** Go there: a direction arrow. */
+    val Navigate by icon { path("M4.5 11l15-6.5-6.5 15-2-6.5z") }
+    val Bell by icon {
+        path("M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15z")
+        path("M10 20.5a2 2 0 0 0 4 0")
+    }
     val MoreVert by icon {
         circle(12f, 5f, 1.8f)
         circle(12f, 12f, 1.8f)

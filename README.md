@@ -19,6 +19,11 @@ stacked**, a drag-to-compare view of what the stacking did, and **watch it build
 video of the live stack growing from the first noisy frame into the finished photo (made on the
 phone, saved to the gallery).
 
+While ASTRO shoots, an **autopilot** watches every frame: frames spoiled by cloud or soft stars are
+left out and replaced, passing cloud is waited out, a drifting focus is refocused on the stars,
+dawn or moonrise ends the session with the good frames, and "shoot for 30 minutes" replaces the
+frame count when time is what you have.
+
 ## Modes
 - **ASTRO** — Fast (8 frames) / Best (20 + darks) / Insane (40 + darks + foreground composite)
 - **TRAILS** — star-trail lighten compositing over 5–60 minutes

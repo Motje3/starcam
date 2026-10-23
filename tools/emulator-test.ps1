@@ -9,6 +9,9 @@
 #   replay      that session's "watch it build up" video made, kept in the session and the gallery
 #   tonight     the Tonight planner opened from the viewfinder, for a place set with geo fix
 #   sky         the sky view: from the planner onto the viewfinder, closed, and from its own chip
+#   autopilot   two sessions under a simulated sky (SkySim): cloud left out, waited out and
+#               replaced, a focus drift refocused, the planned 12 good frames stacked; then dawn
+#               ending a session early
 #   background  Home releases the camera, coming back reopens it
 #   swipe       swiping the app out of recents mid-session leaves the session running
 #
@@ -321,6 +324,36 @@ if (Wanted 'sky') {
         if ($n) { $c = Center $n; A shell input tap $c[0] $c[1] }
     }
     Check 'sky' ($fromPlanner -and $closed -and $fromChip) "planner=$fromPlanner closed=$closed chip=$fromChip"
+}
+
+# ---- the autopilot under a simulated sky (camera/SkySim.kt): cloud over light attempts 5-8, the
+# lens's focus drifting at attempt 13; then a second session into dawn
+function NewestSession {
+    $name = ((A shell ls -t /sdcard/Android/media/com.wm.starcam/StarCam/sessions) | Select-Object -First 1).Trim()
+    $raw = (A shell cat "/sdcard/Android/media/com.wm.starcam/StarCam/sessions/$name/meta/session.json") -join ''
+    try { $raw | ConvertFrom-Json } catch { $null }
+}
+if (Wanted 'autopilot') {
+    Launch | Out-Null
+    A shell am start -n com.wm.starcam/.MainActivity --ez session true --es sim "'frames=12;exp=300;clouds=5-8;drift=13:0.06;darks=auto'" 2>&1 | Out-Null
+    $done = WaitFor 'Saved to Gallery|Couldn''t stack' 300
+    $said = (AllText) -match 'What the autopilot did'
+    Shot 'autopilot'
+    $s = NewestSession
+    $ap = $s.autopilot
+    $used = $s.result.framesUsed
+    $cloud = [int]$ap.leftOutCloud; $soft = [int]$ap.leftOutSoft; $refocused = [int]$ap.refocused; $checks = [int]$ap.checks
+    Back
+    # Dawn: the sky brightening 60% a frame from attempt 8 ends a 16-frame plan early.
+    Launch | Out-Null
+    A shell am start -n com.wm.starcam/.MainActivity --ez session true --es sim "'frames=16;exp=300;dawn=8;darks=auto'" 2>&1 | Out-Null
+    WaitFor 'Saved to Gallery|Couldn''t stack' 300 | Out-Null
+    $d = NewestSession
+    $dawn = [string]$d.autopilot.finished -match 'brighter'
+    $dawnUsed = $d.result.framesUsed
+    Back
+    $ok = $done -and $said -and $used -eq 12 -and $cloud -eq 2 -and $soft -eq 2 -and $refocused -eq 1 -and $checks -ge 2 -and $dawn -and $dawnUsed -lt 16
+    Check 'autopilot' $ok "done=$done said=$said used=$used cloud=$cloud soft=$soft refocused=$refocused checks=$checks dawn=$dawn dawnUsed=$dawnUsed"
 }
 
 # ---- Home releases the camera, return reopens it

@@ -131,6 +131,20 @@ its sessions end on "no reference frame"; that is expected.
 hot pixels, a satellite trail and one frame recorded as bumped: it should stack 7 of 8) and pushes
 it to a connected device - the phone too, to try re-stacking there.
 
+A **simulated sky** runs a whole session where there are no stars (debug builds only; see
+camera/SkySim.kt):
+
+```
+adb shell am start -n com.wm.starcam/.MainActivity --ez session true --es sim "'frames=12;exp=300;clouds=5-8;drift=13:0.06;dawn=20;darks=auto'"
+```
+
+Every frame of that session (probe, star focus, lights, darks) is replaced by a rendered star
+field before the engine sees it: `frames`/`exp` override the plan, `clouds` lists light attempts
+under cloud (checks included), `drift=N:D` moves the lens's sharpest focus by D dioptres from
+attempt N, `dawn=N` brightens the sky 60% a frame from attempt N, `darks=auto|skip` answers the
+cover-the-lens question. The emulator suite's `autopilot` check uses it; the session log says
+"SIMULATED SKY" at the top.
+
 The sky view's stars (`app/src/main/assets/sky/stars.txt`) come from the Yale Bright Star
 Catalogue, 5th edition (`bsc5.dat`, public domain, from CDS V/50): `tools\make-star-table.ps1
 -Catalog <path>\bsc5.dat` writes the table (to V 5.0). The constellation figures name stars by
