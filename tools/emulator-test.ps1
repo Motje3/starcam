@@ -9,6 +9,7 @@
 #   replay      that session's "watch it build up" video made, kept in the session and the gallery
 #   tonight     the Tonight planner opened from the viewfinder, for a place set with geo fix
 #   sky         the sky view: from the planner onto the viewfinder, closed, and from its own chip
+#   darksky     the dark-sky map from the planner: your sky, a suggested spot, planned for there
 #   autopilot   two sessions under a simulated sky (SkySim): cloud left out, waited out and
 #               replaced, a focus drift refocused, the planned 12 good frames stacked; then dawn
 #               ending a session early
@@ -324,6 +325,33 @@ if (Wanted 'sky') {
         if ($n) { $c = Center $n; A shell input tap $c[0] $c[1] }
     }
     Check 'sky' ($fromPlanner -and $closed -and $fromChip) "planner=$fromPlanner closed=$closed chip=$fromChip"
+}
+
+# ---- the dark-sky map from the planner (the emulator in Amsterdam): your sky, the suggestions, one
+# picked and planned for
+if (Wanted 'darksky') {
+    A shell pm grant com.wm.starcam android.permission.ACCESS_COARSE_LOCATION 2>&1 | Out-Null
+    & $adbExe -s $Serial emu geo fix 4.90 52.37 2>&1 | Out-Null
+    Launch | Out-Null
+    $chip = Nodes | Where-Object { $_.'content-desc' -like 'Tonight planner*' } | Select-Object -First 1
+    $opened = $false; $spot = $false; $planned = $false
+    if ($chip) {
+        $c = Center $chip
+        A shell input tap $c[0] $c[1]
+        WaitFor 'Show me the sky' 40 | Out-Null
+        for ($k = 0; $k -lt 6 -and -not ((AllText) -match 'Find a darker sky'); $k++) { A shell input swipe 636 2200 636 900 300; Start-Sleep -Milliseconds 700 }
+        if (Tap 'Find a darker sky') {
+            $opened = WaitFor 'Your sky' 30
+            Start-Sleep -Seconds 1
+            Shot 'darksky'
+            if (Tap 'Nearest darker sky') {
+                $spot = WaitFor 'Navigate' 10
+                Shot 'darksky-spot'
+                if (Tap 'Plan there') { $planned = WaitFor 'Planned for' 30 }
+            }
+        }
+    }
+    Check 'darksky' ($opened -and $spot -and $planned) "opened=$opened spot=$spot planned=$planned"
 }
 
 # ---- the autopilot under a simulated sky (camera/SkySim.kt): cloud over light attempts 5-8, the

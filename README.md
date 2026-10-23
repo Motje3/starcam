@@ -9,6 +9,10 @@ detail, star colour, wavelet noise reduction) → finished JPG in the gallery, u
 phone was held + 16-bit linear TIFF master + optional DNGs of every frame for PC stacking
 (Siril/PixInsight/Sequator).
 
+A **dark-sky map** shows the light pollution around you (built into the app from 2025 satellite
+night lights and a published sky-glow model, so it works offline), how dark your own sky is, and
+the darker places within reach - with the way there in your maps app and the night planned there.
+
 Around the shot: a **sky view** that draws the Milky Way and its core, the constellations, the
 planets and the Moon over the viewfinder where they really are — now, or slid ahead to plan a
 frame by daylight — and a **Tonight planner** (whether tonight is a Milky Way night, the best

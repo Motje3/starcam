@@ -145,6 +145,23 @@ attempt N, `dawn=N` brightens the sky 60% a frame from attempt N, `darks=auto|sk
 cover-the-lens question. The emulator suite's `autopilot` check uses it; the session log says
 "SIMULATED SKY" at the top.
 
+The **dark-sky map's data** (`app/src/main/assets/darksky/`) is made by the Java programs in
+`tools\darksky\` (run with the JDK in `%LOCALAPPDATA%\Android\jdk17`, `java -Xmx12g <file>.java ...`):
+
+1. Download the 2025 night lights, `https://dataverse.harvard.edu/api/access/datafile/14085060`
+   (2025_Version2.zip, 101.7 MB, CC0; re-list the file ids with the Dataverse API if it moved),
+   and Natural Earth 10m `physical/ne_10m_land`, `ne_10m_lakes`, `ne_10m_coastline`,
+   `cultural/ne_10m_admin_0_boundary_lines_land`, `ne_10m_roads`, `ne_10m_populated_places_simple`
+   from `https://naciscdn.org/naturalearth/10m/...zip`. Optionally the NPS measurements
+   (`https://www.nps.gov/subjects/nightskies/nsdmap.geojson`) and Globe at Night
+   (`https://globeatnight.org/documents/1190/GaN2025.csv`) for the calibration report, and the
+   dark-sky places from the Wikidata query in Basemap.java's header (CSV: item, label, coord, types).
+2. `Lights.java <zip> lights.f32` (36 s), then `Skyglow.java lights.f32 ne_10m_land.zip
+   ne_10m_lakes.zip glow.bin [nsdmap.geojson [GaN2025.csv]]` (seconds; prints the calibration),
+   then `Basemap.java <ne folder> <darksky.csv> <out folder>`.
+3. `GlowPreview.java glow.bin out.png latMin latMax lonMin lonMax` draws a region the way the
+   app colours it, to look at the result.
+
 The sky view's stars (`app/src/main/assets/sky/stars.txt`) come from the Yale Bright Star
 Catalogue, 5th edition (`bsc5.dat`, public domain, from CDS V/50): `tools\make-star-table.ps1
 -Catalog <path>\bsc5.dat` writes the table (to V 5.0). The constellation figures name stars by

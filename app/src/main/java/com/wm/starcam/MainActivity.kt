@@ -39,7 +39,9 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import com.wm.starcam.camera.CameraTest
 import com.wm.starcam.camera.SkySim
+import com.wm.starcam.sky.GeoLocation
 import com.wm.starcam.ui.CaptureScreen
+import com.wm.starcam.ui.DarkSkyScreen
 import com.wm.starcam.ui.DiagnosticsScreen
 import com.wm.starcam.ui.OnboardingScreen
 import com.wm.starcam.ui.PermissionScreen
@@ -66,6 +68,9 @@ sealed class Screen {
     data class Studio(val dir: File) : Screen()
     data class Video(val file: File) : Screen()
     data object Tonight : Screen()
+    /** The planner for a place from the dark-sky map, not saved as yours. */
+    data class TonightThere(val lat: Double, val lon: Double, val label: String) : Screen()
+    data object DarkSky : Screen()
     data object Settings : Screen()
     data object Probe : Screen()
     data object SelfTest : Screen()
@@ -77,6 +82,7 @@ sealed class Screen {
             is SessionDetail -> "detail:${dir.path}"
             is Studio -> "studio:${dir.path}"
             is Video -> "video:${file.path}"
+            is TonightThere -> "tonight:$lat,$lon"
             else -> javaClass.simpleName
         }
 }
@@ -360,6 +366,20 @@ private fun App(
                                     vm.skyView.value = SkyViewRequest(atMs)
                                     stack = listOf(Screen.Capture)
                                 },
+                                onOpenDarkSky = { push(Screen.DarkSky) },
+                            )
+                            is Screen.TonightThere -> TonightScreen(
+                                onBack = ::pop,
+                                onShowSky = { atMs ->
+                                    vm.skyView.value = SkyViewRequest(atMs)
+                                    stack = listOf(Screen.Capture)
+                                },
+                                there = GeoLocation(sc.lat, sc.lon),
+                                thereLabel = sc.label,
+                            )
+                            Screen.DarkSky -> DarkSkyScreen(
+                                onBack = ::pop,
+                                onPlanThere = { loc, label -> push(Screen.TonightThere(loc.latDeg, loc.lonDeg, label)) },
                             )
                             Screen.Settings -> SettingsScreen(
                                 vm = vm,

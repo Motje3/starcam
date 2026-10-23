@@ -48,6 +48,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
@@ -167,12 +168,21 @@ fun rememberTonightText(): String {
  * worked out on the phone (sky/NightPlanner.kt); the location never leaves it.
  */
 @Composable
-fun TonightScreen(onBack: () -> Unit, onShowSky: (Long?) -> Unit) {
+fun TonightScreen(
+    onBack: () -> Unit,
+    onShowSky: (Long?) -> Unit,
+    /** Plan for this place instead of yours (a dark spot from the map), without saving it. */
+    there: GeoLocation? = null,
+    thereLabel: String? = null,
+    onOpenDarkSky: (() -> Unit)? = null,
+) {
     val c = Sc.colors
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val store = remember { SkyPlaceStore(context) }
-    var place by remember { mutableStateOf(store.load()) }
+    var place by remember {
+        mutableStateOf(there?.let { SkyPlace(it, manual = true, atMs = System.currentTimeMillis()) } ?: store.load())
+    }
     val zone = remember(place) { place?.let { planZone(it.loc) } ?: ZoneId.systemDefault() }
     var locating by remember { mutableStateOf(false) }
     var locateFailed by remember { mutableStateOf(false) }
@@ -213,7 +223,7 @@ fun TonightScreen(onBack: () -> Unit, onShowSky: (Long?) -> Unit) {
     }
     // A stored device location is refreshed quietly on every visit; a typed-in place is kept.
     LaunchedEffect(Unit) {
-        if (DeviceLocation.permitted(context) && place?.manual != true) locate()
+        if (there == null && DeviceLocation.permitted(context) && place?.manual != true) locate()
     }
     LaunchedEffect(place, date) {
         val p = place ?: return@LaunchedEffect
@@ -223,7 +233,7 @@ fun TonightScreen(onBack: () -> Unit, onShowSky: (Long?) -> Unit) {
     ScScreen {
         ScTopBar(
             title = if (dayOffset == 0) "Tonight" else date.format(DateTimeFormatter.ofPattern("EEE d MMM", Locale.US)),
-            subtitle = place?.let { placeLabel(it.loc) } ?: "Planner",
+            subtitle = thereLabel ?: place?.let { placeLabel(it.loc) } ?: "Planner",
             onBack = onBack,
             actions = {
                 if (place != null) {
@@ -281,7 +291,21 @@ fun TonightScreen(onBack: () -> Unit, onShowSky: (Long?) -> Unit) {
                     TimesCard(pl, zone)
                 }
             }
+            if (onOpenDarkSky != null) DarkSkyCard(p.loc, onOpenDarkSky)
             // ---- where
+            if (there != null) {
+                ScCard(Modifier.fillMaxWidth()) {
+                    ScLabel("Planned for")
+                    Text(
+                        (thereLabel ?: "A dark spot") + " · " + placeLabel(there),
+                        style = ScType.body, color = c.text, modifier = Modifier.padding(top = 4.dp),
+                    )
+                    Text("Your own place in the planner stays as it is.", style = ScType.caption,
+                        color = c.text3, modifier = Modifier.padding(top = 4.dp))
+                }
+                Spacer(Modifier.height(8.dp))
+                return@Column
+            }
             ScCard(Modifier.fillMaxWidth()) {
                 ScLabel("Location")
                 Text(
@@ -323,6 +347,37 @@ fun TonightScreen(onBack: () -> Unit, onShowSky: (Long?) -> Unit) {
 }
 
 // --------------------------------------------------------------------------------- cards
+
+/** How dark your own sky is, and the way to the map of darker ones. */
+@Composable
+private fun DarkSkyCard(loc: GeoLocation, onOpen: () -> Unit) {
+    val c = Sc.colors
+    val context = LocalContext.current
+    var bortle by remember(loc) { mutableStateOf<Int?>(null) }
+    LaunchedEffect(loc) {
+        bortle = withContext(Dispatchers.Default) {
+            runCatching {
+                val g = com.wm.starcam.darksky.DarkSkyData.glow(context)
+                com.wm.starcam.darksky.SkyQuality.bortle(com.wm.starcam.darksky.SkyQuality.sqm(g.alr(loc.latDeg, loc.lonDeg)))
+            }.getOrNull()
+        }
+    }
+    ScCard(Modifier.fillMaxWidth(), onClick = onOpen) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(ScIcons.Map, null, Modifier.size(22.dp), tint = c.accent)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Find a darker sky", style = ScType.body.copy(fontWeight = FontWeight.SemiBold), color = c.text)
+                Text(
+                    bortle?.let { "Your sky: Bortle $it, ${com.wm.starcam.darksky.SkyQuality.name(it).lowercase()}. See the darker places within reach." }
+                        ?: "Light pollution around you and the darker places within reach.",
+                    style = ScType.bodySmall, color = c.text2,
+                )
+            }
+            Icon(ScIcons.ChevronRight, null, Modifier.size(18.dp), tint = c.text3)
+        }
+    }
+}
 
 /**
  * Tonight in one card: a verdict, the best time in big type, where to look, the darkness and the

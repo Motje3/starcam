@@ -748,7 +748,7 @@ private val Defs: List<Def> = listOf(
     Link(SettingsTab.Advanced, "Capability probe", null, "What this phone's camera exposes to apps", SettingsAction.Probe),
     Link(SettingsTab.Advanced, "Engine self-test", null, "Checks the stacking engine on a synthetic starfield", SettingsAction.SelfTest),
     Link(SettingsTab.Advanced, "Reset all settings", null, "Back to the defaults. Sessions are not touched.", SettingsAction.Reset, danger = true),
-    Link(SettingsTab.Advanced, "Open-source licences", null, "Geist and Geist Mono fonts · SIL Open Font License", SettingsAction.Licences),
+    Link(SettingsTab.Advanced, "Licences and data", null, "Map and star data sources · Geist fonts (SIL OFL)", SettingsAction.Licences),
 )
 
 @Composable
@@ -995,6 +995,17 @@ private fun LicencesDialog(onDismiss: () -> Unit) {
         ) {
             Text("Open-source licences", style = ScType.titleSmall, color = c.text)
             Column(Modifier.padding(top = 12.dp).heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                Text("Data", style = ScType.headline, color = c.text)
+                Text(
+                    "Night lights: \"The global NPP-VIIRS-like nighttime light data (Version 2)\", 2025, " +
+                        "Chen, Yu et al., Harvard Dataverse doi:10.7910/DVN/YGIVCD, CC0 1.0; from Earth " +
+                        "Observation Group, Colorado School of Mines, VIIRS data.\n" +
+                        "Sky-glow model: Duriscoe et al. 2018, JQSRT 214:133-145, CC BY 4.0. Calibrated against " +
+                        "US National Park Service night-sky measurements and Globe at Night (CC BY 4.0).\n" +
+                        "Base map: Natural Earth (public domain). Dark-sky places: Wikidata (CC0).\n" +
+                        "Stars: Yale Bright Star Catalogue, 5th ed. (Hoffleit & Warren, public domain).",
+                    style = ScType.caption, color = c.text2, modifier = Modifier.padding(top = 4.dp, bottom = 14.dp),
+                )
                 Text("Geist and Geist Mono", style = ScType.headline, color = c.text)
                 Text("Copyright 2024 The Geist Project Authors (github.com/vercel/geist-font)",
                     style = ScType.caption, color = c.text3, modifier = Modifier.padding(bottom = 10.dp))

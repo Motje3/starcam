@@ -2,6 +2,38 @@
 
 ## The second night, 0.5.0 (2026-10-24)
 
+### Dark skies near you (the map)
+
+Planner › "Find a darker sky" opens a light-pollution map around you: the whole sky's artificial
+brightness as colour (black for a pristine sky through blue and green to the yellows and reds of
+cities), with coastlines, lakes, borders, roads, towns, distance rings at 25/50/100/150 km and
+the certified dark-sky places. Above the list: your own sky - Bortle class, the estimated zenith
+brightness, what the Milky Way looks like under it - and the nearest sky a class darker. Then the
+suggestions, numbered on the map: the nearest darker sky, the darkest within 25, 50, 100 and 150
+km (each only when it beats the nearer ones by 0.15 mag: no long drive for nothing) and the
+nearest dark-sky park. Tap one (or any point on the map) for its sky, distance and direction,
+the nearest town, **Navigate** (the maps app, by a geo: link - StarCam itself stays offline)
+and **Plan there** (the Tonight planner for that spot, without changing your own place).
+Pinch and drag; the button top right brings the view back.
+
+The data is built into the app (6.2 MB), made by tools/darksky/ (Java, no other tools):
+- **Lights.java**: the 2025 NPP-VIIRS-like night lights (Chen et al., Harvard Dataverse, CC0,
+  500 m, a 12.5 GB BigTIFF streamed straight out of its zip in 36 s) summed into 1/30 deg cells.
+- **Skyglow.java**: the Duriscoe et al. 2018 all-sky model (CC BY 4.0: ALR = sum r d^-beta(d) /
+  562.72, beta = 2.3 (d/350)^0.28, sources to 300 km), cell by cell to 45 km and on a 0.1 deg
+  grid beyond, with a smooth hand-over; land from Natural Earth (lakes as water); 5 deg tiles,
+  each deflated, read on demand (3.1 MB, 1034 tiles). Checked against the US National Park
+  Service's 656 measured nights: model/measured all-sky ALR median ×0.80 (quartiles ×0.55-1.26);
+  the zenith brightness fit, SQM = 22.0 - 2.5 log10(1 + 0.5 ALR), is 0.36 mag rms there (0.30
+  with the measured ALR itself), and k 0.57 against 1848 Globe at Night readings. City centres
+  read ~0.5-1 mag brighter than the model gives: said in the app.
+- **Basemap.java**: Natural Earth 1:10m coast, lakes, borders, roads (major, secondary, minor),
+  7342 towns; 162 dark-sky places from Wikidata (CC0).
+The map's data reads in ~130 ms and is laid out for a place in ~0.4 s on the emulator.
+JVM tests read the real assets: cities bright, dark-sky parks dark, water as water, the finder
+from Amsterdam (Bortle 6; 7 km NE Bortle 5, 24 km N, 48 km N Bortle 4, Texel/Vlieland Bortle 3,
+the Boschplaat dark-sky place), nothing darker to find in the Namib.
+
 ### Autopilot (ASTRO)
 
 The capture used to shoot its plan and find out at the end what the sky had done. The autopilot
