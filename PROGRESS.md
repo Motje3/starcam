@@ -30,8 +30,8 @@ white (saturation 0.04).
   sky's measured noise, stars excluded, in strips of rows (bounded memory at any resolution).
 - Nightfall adapted to the darker sky; star sharpening ported.
 
-Synthetic nightscape, classic → StarCam 2: sky 0.36 → 0.14, sky flatness 0.159 → 0.061, landscape
-0.33 → 0.06 (with detail), star saturation red/blue 0.04/0.03 → 0.35/0.15, hue right 55% → 95%.
+Synthetic nightscape, classic → StarCam 2: sky 0.36 → 0.14, sky flatness 0.159 → 0.057, landscape
+0.33 → 0.07 (with detail), star saturation red/blue 0.04/0.03 → 0.34/0.14, hue right 55% → 95%.
 Without a landscape the cubic model flattens the sky 0.162 → 0.069. Classic's output is
 byte-identical to 0.3.3's (hash-checked); the self-test gained a v2 sanity check.
 
@@ -40,10 +40,10 @@ byte-identical to 0.3.3's (hash-checked); the self-test gained a v2 sanity check
 Frames were stacked and saved in sensor orientation, so a photo shot with the phone upright (the
 way the app is held) came out lying on its side, and one shot in landscape with the phone turned
 the "wrong" way came out upside down. Now the phone's attitude is read from the accelerometer
-when the burst starts (OrientationEventListener's maths, ImageRotation.kt; flat on its back
-counts as upright portrait, like the viewfinder): the JPEG, the master TIFF and the live stack
-preview are written turned, the DNGs carry the orientation tag, and the processing knows which
-edge the ground is on. Older sessions, which recorded nothing, look for it along every edge.
+when the burst starts (ImageRotation.kt; aimed at the zenith, the way it was held before): the
+JPEG, the master TIFF and the live stack preview are written turned, the DNGs carry the
+orientation tag, and the processing knows which edge the ground is on. Older sessions, which
+recorded nothing, look for it along every edge.
 
 ### Editing studio
 
@@ -52,14 +52,14 @@ pipeline runs on a box-averaged preview (long edge 1600) after every change, and
 master when saved. Light (sky brightness, contrast, landscape brightness), Colour (style,
 saturation, star colour, warmth, tint), Clean-up (light-pollution removal, noise reduction, star
 sharpening) and Frame (turn left/right: photos from before 0.4 came out sideways). Hold the
-picture to compare with the default development. Saving writes `out/starcam_<name>_edit.jpg` and
+picture to compare with the original photo. Saving writes `out/starcam_<name>_edit.jpg` and
 a new gallery photo; the original stays, and the settings are kept in `out/edit.json` so the
 studio reopens where it was left. Sessions shot in Classic get the new look too.
 
 ### 1 frame vs stacked
 
-Finalize also develops the reference frame alone, exactly like the stack (dark, hot pixels,
-demosaic, vignetting, colour matrix, the same post pipeline), and saves it small as
+Finalize also develops one frame alone, exactly like the stack (dark, hot pixels, demosaic,
+vignetting, colour matrix, the same post pipeline), and saves it small as
 `out/single_frame.jpg` (up to 20 MP stacks; ASTRO and PRO). The result screen and the session
 detail show it against the photo with a handle to drag: the noise and the faint stars that
 stacking bought, side by side - the picture to share.
@@ -84,6 +84,8 @@ slice of the "adaptive autopilot" idea.
   photo replacing the placeholder used to push the message out of sight.
 - The synthetic test session's stars are white after white balance (they were magenta).
 - Onboarding has a fourth page for the planner, the studio and the comparison.
+- Session screens never take the comparison image for the photo (the newest JPEG in out/ is the
+  photo unless it is single_frame.jpg), and a re-stack replaces the stack's JPEG, never an edit.
 
 ### Tonight planner
 
@@ -96,6 +98,57 @@ magnetic model). Other nights with the arrows. The sky maths (sky/SkyMath.kt, Ni
 is pure Kotlin checked by JUnit against the Meeus examples, JPL Horizons and USNO: event times to
 seconds. Location is coarse, asked for only in the planner, optional (coordinates can be typed
 in) and never leaves the phone: StarCam still has no internet permission.
+
+### Review of the night's work
+
+An independent review of everything above, and the lab, found these; all fixed:
+
+- **Sideways photos aimed high.** The attitude test was OrientationEventListener's, which gives
+  up 27 degrees from flat, so a phone in landscape aimed 70 degrees up at the Milky Way counted as
+  flat and the photo came out sideways. On a tripod the reading is steady: it is now trusted
+  until the phone is within ~9 degrees of flat. Nearer the zenith the way the phone was held
+  before it was tilted up is used, marked as a guess (`rotationGuessed`), and the processing then
+  looks for the landscape along every edge instead of trusting the guessed one.
+- **Bright rim along every silhouette** (found with a new lab metric, `rim`): the landscape mask
+  starts two half-res rows above the horizon, and the sky pixels it took in got the ground's much
+  steeper curve. The per-pixel horizon decision now covers those rows, and a partly-sky pixel is
+  never drawn brighter than the brighter of the two backgrounds. Rim +0.157 → +0.005 (classic
+  +0.010), no dark outline.
+- **The landscape went black behind trees on a turned photo** (the lab's rotated scene): two
+  ground cells with a few bright specks ended the landscape there and left the rest as "sky".
+  A cell under half the sky's brightness now counts as landscape unless it is clearly starrier
+  than the sky (texture, lit windows, stars mirrored in a lake). The rotated scene now measures
+  the same as the upright one.
+- **The strip of sky above the horizon counted as stars**: the star mask judged each 32x32 cell
+  by its median, and a cell mostly of ground marked the sky part of it as stars - no noise
+  reduction there, extra colour. Once the landscape is known, sky and ground are judged each by
+  their own side (1.50% → 1.13% of the frame marked).
+- Noise reduction: a race between strips (a strip read its neighbour's rows while that one was
+  rewriting them) - the margins are now read from a copy; and near-black pixels can no longer be
+  scaled into coloured specks.
+- The landscape missed its brightness target under a coloured sky (its black point subtracted
+  the sky's colour offsets, which it never gets): 0.061 → 0.068 for a 0.07 target.
+- Columns without landscape had a 2-pixel "ground" strip along the bottom edge.
+- Studio: leaving while a master was still opening leaked the native image (~23 MB a time); Back
+  could leave in the middle of a save; two saves shared one temp file; hold-to-compare now shows
+  the original photo, turned with the edit; star-trails sessions start without gradient removal,
+  like their own photo; an `edit.json` turn that is not a quarter is rounded.
+- 1 frame vs stacked: compared with the stack's own photo, not a turned or toned edit; the frame
+  is one of the better half that moved least against the reference (a frame from late in a long
+  session left black wedges where it did not cover the stack); its development can no longer
+  fail the whole finalize.
+
+### Tested
+
+Emulator, Android 14 (the phone's screen): the suite's 8 checks pass - self-test, session flow,
+cut-off notice, synthetic stack (7 of 8 frames, portrait, with its single-frame comparison),
+studio (open, restyle, save as a new photo), Tonight planner, camera released on Home, session
+surviving a swipe from recents. Android 16 with 16 KB pages (before the review fixes): the 5
+in-app checks pass (self-test, session, stack, studio, planner), no crashes. 47 JVM unit tests;
+lint without errors. The lab:
+identical output over repeated runs; upright, turned, noisier, other seeds and no landscape all
+measured. Not yet on the OnePlus 15: the processing on real night data, the rotation on the
+phone's own sensor orientation, the compass, location.
 
 ## Production readiness, 0.3.3 (2026-10-22)
 

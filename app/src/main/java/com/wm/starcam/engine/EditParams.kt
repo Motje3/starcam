@@ -81,9 +81,15 @@ data class EditParams(
                 warmth = f("warmth", d.warmth), tint = f("tint", d.tint),
                 gradient = f("gradient", d.gradient), noise = f("noise", d.noise),
                 sharpen = o.optBoolean("sharpen", d.sharpen), style = o.optInt("style", d.style),
-                rotation = o.optInt("rotation", d.rotation),
+                rotation = quarterTurn(o.optInt("rotation", d.rotation)),
             )
         }
+
+        /**
+         * [r] as the nearest of 0, 90, 180 and 270, as the engine reads it: any other value
+         * would turn the engine's picture but not the preview bitmap it has to fit.
+         */
+        fun quarterTurn(r: Int): Int = (((r % 360) + 360) % 360 + 45) / 90 * 90 % 360
 
         /** The master's edge that faces the ground after a clockwise turn (engine's downEdge). */
         fun downEdgeFor(rotation: Int): Int = when (rotation) {

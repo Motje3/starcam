@@ -54,6 +54,7 @@ import com.wm.starcam.session.Mode
 import com.wm.starcam.session.SINGLE_FRAME_JPG
 import com.wm.starcam.session.SessionRepository
 import com.wm.starcam.session.sessionPhoto
+import com.wm.starcam.session.stackPhoto
 import com.wm.starcam.ui.components.ScButton
 import com.wm.starcam.ui.components.ScButtonKind
 import com.wm.starcam.ui.components.ScCard
@@ -112,6 +113,12 @@ private data class DetailData(
     val hasMaster: Boolean,
     /** One frame developed like the stack (out/single_frame.jpg), for "1 frame vs stacked". */
     val single: ImageBitmap? = null,
+    /**
+     * What [single] is compared with: the stack's own photo, not a studio edit, which can be
+     * turned or toned differently.
+     */
+    val stacked: ImageBitmap? = null,
+    val stackedFile: File? = null,
 )
 
 /** Blocking; reads session.json, the photo and the file sizes. */
@@ -120,7 +127,14 @@ private fun loadDetail(dir: File, repo: SessionRepository): DetailData {
     // The newest: an edit or a re-stack is what the session shows from then on.
     val jpg = sessionPhoto(dir)
     // Downsampled: a full-res stack is up to 50 MP, ~200 MB as one ARGB bitmap.
-    val bmp = jpg?.let { decodeDownsampled(it.absolutePath, 2048) }
+    val image = jpg?.let { decodeDownsampled(it.absolutePath, 2048) }?.asImageBitmap()
+    val singleFile = File(dir, "out/$SINGLE_FRAME_JPG").takeIf { it.isFile }
+    val stackJpg = stackPhoto(dir).takeIf { it.isFile && singleFile != null }
+    val stacked = when (stackJpg) {
+        null -> null
+        jpg -> image
+        else -> decodeDownsampled(stackJpg.absolutePath, 2048)?.asImageBitmap()
+    }
     val frames = json?.optJSONArray("frames")
     var bumped = 0
     if (frames != null) {
@@ -147,7 +161,7 @@ private fun loadDetail(dir: File, repo: SessionRepository): DetailData {
         frameCount = frames?.length() ?: 0,
         bumpedCount = bumped,
         jpgFile = jpg,
-        image = bmp?.asImageBitmap(),
+        image = image,
         cacheCount = cache.size,
         mode = runCatching { Mode.valueOf(modeName) }.getOrDefault(Mode.ASTRO),
         startedAt = header?.optLong("startedAt") ?: dir.lastModified(),
@@ -159,8 +173,9 @@ private fun loadDetail(dir: File, repo: SessionRepository): DetailData {
         config = (resultObj?.optJSONObject("stackConfig") ?: header?.optJSONObject("stackConfig"))
             ?.let { StackConfig.fromJson(it) },
         hasMaster = File(dir, "out/master_linear16.tiff").isFile,
-        single = File(dir, "out/$SINGLE_FRAME_JPG").takeIf { it.isFile }
-            ?.let { decodeDownsampled(it.absolutePath, 2048)?.asImageBitmap() },
+        single = singleFile?.let { decodeDownsampled(it.absolutePath, 2048)?.asImageBitmap() },
+        stacked = stacked,
+        stackedFile = stackJpg,
     )
 }
 
@@ -286,11 +301,11 @@ fun SessionDetailScreen(
         }
         Column(Modifier.fillMaxSize().verticalScroll(scroll)) {
             val single = d.single
-            val image = d.image
-            if (comparing && single != null && image != null) {
-                CompareSlider(single, image, "1 frame", "Stacked · ${d.stats?.framesUsed ?: d.frameCount}")
+            val stacked = d.stacked
+            if (comparing && single != null && stacked != null) {
+                CompareSlider(single, stacked, "1 frame", "Stacked · ${d.stats?.framesUsed ?: d.frameCount}")
             } else {
-                ZoomableImage(image)
+                ZoomableImage(d.image)
             }
             Column(
                 Modifier.padding(horizontal = ScreenMargin, vertical = 14.dp),
@@ -306,10 +321,10 @@ fun SessionDetailScreen(
                         tone = if (mine.galleryFailed) Tone.Warning else Tone.Accent, icon = ScIcons.CheckCircle,
                     )
                 }
-                if (single != null && image != null) {
+                if (single != null && stacked != null) {
                     ScSegmented(listOf("Photo", "1 frame vs stacked"), if (comparing) 1 else 0,
                         { comparing = it == 1 }, Modifier.fillMaxWidth())
-                    val jpg = d.jpgFile
+                    val jpg = d.stackedFile
                     if (comparing && jpg != null) {
                         val used = d.stats?.framesUsed ?: d.frameCount
                         ScButton("Share 1 frame vs stacked", {

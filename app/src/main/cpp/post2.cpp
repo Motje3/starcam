@@ -162,8 +162,12 @@ float ground_depth(const Cells& c, int down, std::vector<int>* depthOut) {
         for (int v = UH - 1; v >= UH * 2 / 5; --v) {
             const float s = at(c.starFrac, u, v), l = at(c.luma, u, v);
             const bool dark = l < 0.9f * refLuma;
-            const bool groundLike = s < starCut &&
-                (starry ? (dark || s < 0.25f * starCut) : l < 0.75f * refLuma);
+            // Under half the sky's brightness it is landscape unless clearly starrier than the
+            // sky: texture, lit windows and stars mirrored in a lake fool the star count, not the
+            // darkness. Two such cells used to end the landscape and leave the rest of it black.
+            const bool groundLike = (s < starCut &&
+                (starry ? (dark || s < 0.25f * starCut) : l < 0.75f * refLuma)) ||
+                (l < 0.5f * refLuma && s < std::max(3.0f * refStar, 0.02f));
             if (groundLike) {
                 d = UH - v;
                 gap = 0;
@@ -290,11 +294,13 @@ Ground find_ground(const std::vector<float>& hl, const std::vector<uint8_t>& sta
     }
     // Half-res mask, softened by one 3x3 box (about 3 full-res pixels): sky and ground have
     // their own tone curves, and a wide blend between them draws a dark line along the horizon.
+    // Columns without landscape (horizon = uh) stay sky to the very edge.
     g.mask.assign((size_t)hw * hh, 0.0f);
     parallel_for(0, hh, [&](int y) {
         for (int x = 0; x < hw; ++x) {
             const int u = g.up.column(x, y), v = g.up.row(x, y);
-            g.mask[(size_t)y * hw + x] = (float)v >= g.horizon[(size_t)u] - 2.0f ? 1.0f : 0.0f;
+            const float hz = g.horizon[(size_t)u];
+            g.mask[(size_t)y * hw + x] = hz < (float)UHh && (float)v >= hz - 2.0f ? 1.0f : 0.0f;
         }
     });
     std::vector<float> tmp((size_t)hw * hh);
@@ -379,42 +385,67 @@ void postprocess_v2(ImageF& rgb, const PostParams& p, const ProgressFn& progress
                                  lumaOf(r1 + (size_t)x0 * 3) + lumaOf(r1 + (size_t)x1 * 3));
             }
         });
-        std::vector<uint8_t> maskRaw((size_t)hw * hh, 0);
-        {
-            const int gx = std::min(32, hw), gy = std::min(32, hh);
-            std::vector<float> bg((size_t)gx * gy, 0.0f), sg((size_t)gx * gy, 1e9f);
+        // Star mask: pixels well above their cell's background (median + 3 MAD sigmas, 32x32
+        // cells). With [side] (the landscape mask) sky and ground pixels are each judged by their
+        // own side of the cell: in a cell that is mostly ground, the ground's statistics would
+        // mark the whole strip of sky above the horizon as stars, which then skipped the noise
+        // reduction and got the star colour. A side too small to judge has no stars.
+        auto starMask = [&](const std::vector<float>* side, std::vector<uint8_t>* out) {
+            const int gx = std::min(32, hw), gy = std::min(32, hh), nSides = side ? 2 : 1;
+            const size_t minCount = side ? 32 : 1;
+            std::vector<float> bg((size_t)gx * gy * nSides, 0.0f), sg((size_t)gx * gy * nSides, -1.0f);
+            auto sideOf = [side](size_t i) { return side && (*side)[i] >= 0.5f ? 1 : 0; };
             parallel_for(0, gy, [&](int cy) {
                 try {
                     const int ys = (int)((int64_t)cy * hh / gy), ye = (int)((int64_t)(cy + 1) * hh / gy);
-                    std::vector<float> cell, dev;
+                    std::vector<float> cell[2], dev;
                     for (int cx = 0; cx < gx; ++cx) {
                         const int xs = (int)((int64_t)cx * hw / gx), xe = (int)((int64_t)(cx + 1) * hw / gx);
-                        cell.clear();
+                        cell[0].clear();
+                        cell[1].clear();
                         for (int yy = ys; yy < ye; ++yy)
-                            for (int xx = xs; xx < xe; ++xx) cell.push_back(hl[(size_t)yy * hw + xx]);
-                        if (cell.empty()) continue;
-                        const float med = median_of(cell);
-                        dev.assign(cell.size(), 0.0f);
-                        for (size_t i = 0; i < cell.size(); ++i) dev[i] = std::fabs(cell[i] - med);
-                        bg[(size_t)cy * gx + cx] = med;
-                        sg[(size_t)cy * gx + cx] = std::max(1.4826f * median_of(dev), 1e-5f);
+                            for (int xx = xs; xx < xe; ++xx) {
+                                const size_t i = (size_t)yy * hw + xx;
+                                cell[sideOf(i)].push_back(hl[i]);
+                            }
+                        for (int sd = 0; sd < nSides; ++sd) {
+                            std::vector<float>& v = cell[sd];
+                            if (v.size() < minCount) continue;
+                            const float med = median_of(v);
+                            dev.assign(v.size(), 0.0f);
+                            for (size_t i = 0; i < v.size(); ++i) dev[i] = std::fabs(v[i] - med);
+                            const size_t ci = ((size_t)cy * gx + cx) * nSides + sd;
+                            bg[ci] = med;
+                            sg[ci] = std::max(1.4826f * median_of(dev), 1e-5f);
+                        }
                     }
                 } catch (...) {}
             });
+            out->assign((size_t)hw * hh, 0);
             parallel_for(0, hh, [&](int hy) {
                 const int cy = std::min(gy - 1, (int)((int64_t)hy * gy / hh));
                 for (int hx = 0; hx < hw; ++hx) {
                     const int cx = std::min(gx - 1, (int)((int64_t)hx * gx / hw));
-                    maskRaw[(size_t)hy * hw + hx] =
-                        hl[(size_t)hy * hw + hx] > bg[(size_t)cy * gx + cx] + 3.0f * sg[(size_t)cy * gx + cx];
+                    const size_t i = (size_t)hy * hw + hx;
+                    const size_t ci = ((size_t)cy * gx + cx) * nSides + sideOf(i);
+                    (*out)[i] = sg[ci] > 0.0f && hl[i] > bg[ci] + 3.0f * sg[ci];
                 }
             });
-        }
-        const std::vector<uint8_t> mask2 = dilatedMask(maskRaw, hw, hh, 2);
+        };
+        std::vector<uint8_t> maskRaw;
+        starMask(nullptr, &maskRaw);
         report(5);
 
         // ---------------- landscape ----------------
         const Ground ground = find_ground(hl, maskRaw, hw, hh, p.downEdge);
+        if (ground.found) {
+            const size_t before = (size_t)std::count(maskRaw.begin(), maskRaw.end(), (uint8_t)1);
+            starMask(&ground.mask, &maskRaw);
+            SLOG("postprocess_v2: star mask %.2f%% of the frame (%.2f%% before the landscape was known)",
+                 100.0 * (double)std::count(maskRaw.begin(), maskRaw.end(), (uint8_t)1) / (double)maskRaw.size(),
+                 100.0 * (double)before / (double)maskRaw.size());
+        }
+        const std::vector<uint8_t> mask2 = dilatedMask(maskRaw, hw, hh, 2);
         // Typical sky brightness, for judging pixels along the horizon when no gradient is fitted.
         float skyRefL = 0.0f;
         {
@@ -545,7 +576,10 @@ void postprocess_v2(ImageF& rgb, const PostParams& p, const ProgressFn& progress
         // Full-res ground weight. Away from the horizon it is the half-res mask; along it, each
         // pixel's own brightness against the sky expected there decides, so silhouettes stay
         // sharp and no sky correction or sky black point lands on the edge of the ground (both
-        // drew a dark line around every silhouette).
+        // drew a dark line around every silhouette). The band reaches 3 half-res rows into the
+        // landscape: the mask starts 2 rows above the horizon found, and sky pixels it takes in
+        // must not get the ground's stretch. 255 is solid ground; the band stays below it, so
+        // the stretch can tell its partly-sky pixels apart.
         std::vector<uint8_t> gFine;
         if (ground.found) {
             gFine.assign((size_t)w * h, 0);
@@ -553,10 +587,13 @@ void postprocess_v2(ImageF& rgb, const PostParams& p, const ProgressFn& progress
                 const double Y = (h > 1) ? 2.0 * y / (h - 1) - 1.0 : 0.0;
                 const float* row = &img[(size_t)y * w * 3];
                 uint8_t* grow = &gFine[(size_t)y * w];
+                const int hy = std::min(hh - 1, y >> 1);
                 for (int x = 0; x < w; ++x) {
                     const float g = groundAt(x, y);
                     if (g <= 0.0f) continue;
-                    if (g >= 1.0f) { grow[x] = 255; continue; }
+                    const int hx = std::min(hw - 1, x >> 1);
+                    const float below = (float)ground.up.row(hx, hy) - ground.horizon[(size_t)ground.up.column(hx, hy)];
+                    if (g >= 1.0f && below >= 3.0f) { grow[x] = 255; continue; }
                     float skyL = skyRefL;
                     if (fitted) {
                         const double X = (w > 1) ? 2.0 * x / (w - 1) - 1.0 : 0.0;
@@ -564,7 +601,7 @@ void postprocess_v2(ImageF& rgb, const PostParams& p, const ProgressFn& progress
                                        0.114 * model(2, X, Y));
                     }
                     const float r = lumaOf(row + (size_t)x * 3) / std::max(skyL, kTiny);
-                    grow[x] = (uint8_t)std::lround(255.0f * (1.0f - smoothstepf(0.55f, 0.85f, r)));
+                    grow[x] = (uint8_t)std::lround(254.0f * (1.0f - smoothstepf(0.55f, 0.85f, r)));
                 }
             });
         }
@@ -641,7 +678,7 @@ void postprocess_v2(ImageF& rgb, const PostParams& p, const ProgressFn& progress
         const float invSky = (float)(1.0 / std::asinh(kSky));
         float gndBlack = skyBlack;
         double kGnd = kSky;
-        const float gndLuma = gndMed - lumaOf(off);  // the offsets apply to the ground too
+        const float gndLuma = gndMed;  // the sky's offsets are not applied to the ground (below)
         if (ground.found && gndLuma > 0.0f) {
             const float gGap = std::max(3.0f * gndSig, 0.5f * std::max(gndLuma, 1e-5f));
             gndBlack = gndLuma - gGap;
@@ -655,6 +692,12 @@ void postprocess_v2(ImageF& rgb, const PostParams& p, const ProgressFn& progress
                              1.0f - 0.15f * warm + 0.05f * tint};
         SLOG("postprocess_v2: stretch sky k=%.1f black %.5f, ground k=%.1f black %.5f", kSky, skyBlack,
              kGnd, gndBlack);
+        // A horizon pixel that is partly sky is far brighter than the ground, and the ground's
+        // steeper curve drew it as a bright rim along every silhouette: in the horizon band the
+        // ground's share is never brighter than the brighter of the two backgrounds.
+        const float skyOut = std::asinh(kS * skyGap) * invSky;
+        const float gndOut = std::asinh(kG * std::max(0.0f, gndLuma - gndBlack)) * invGnd;
+        const float rimCap = std::max(skyOut, gndOut);
         parallel_for(0, h, [&](int y) {
             float* row = &img[(size_t)y * w * 3];
             for (int x = 0; x < w; ++x) {
@@ -665,15 +708,15 @@ void postprocess_v2(ImageF& rgb, const PostParams& p, const ProgressFn& progress
                 float in[3] = {(q[0] - sky * off[0]) * wb[0], (q[1] - sky * off[1]) * wb[1],
                                (q[2] - sky * off[2]) * wb[2]};
                 float out[3] = {0, 0, 0};
-                auto apply = [&in](float black, float k, float inv, float wgt, float* o) {
+                auto apply = [&in](float black, float k, float inv, float wgt, float cap, float* o) {
                     float v[3];
                     for (int c = 0; c < 3; ++c) v[c] = std::max(0.0f, in[c] - black);
                     const float L = lumaOf(v);
-                    const float sc = L > kTiny ? std::asinh(k * L) * inv / L : k * inv;
+                    const float sc = L > kTiny ? std::min(std::asinh(k * L) * inv, cap) / L : k * inv;
                     for (int c = 0; c < 3; ++c) o[c] += wgt * v[c] * sc;
                 };
-                if (g < 1.0f) apply(skyBlack, kS, invSky, 1.0f - g, out);
-                if (g > 0.0f) apply(gndBlack, kG, invGnd, g, out);
+                if (g < 1.0f) apply(skyBlack, kS, invSky, 1.0f - g, 1e9f, out);
+                if (g > 0.0f) apply(gndBlack, kG, invGnd, g, g < 1.0f ? rimCap : 1e9f, out);
                 q[0] = out[0]; q[1] = out[1]; q[2] = out[2];
             }
         });
@@ -806,6 +849,10 @@ void postprocess_v2(ImageF& rgb, const PostParams& p, const ProgressFn& progress
             const int nStrips = (h + strip - 1) / strip;
             float sig1 = 0.0f, sig2 = 0.0f;
             std::vector<std::vector<float>> s1((size_t)nStrips), s2((size_t)nStrips);
+            // While the strips are rewritten, a strip's margin rows belong to its neighbours,
+            // which may already have changed them: the apply pass reads margins from this copy
+            // of the luma around every boundary b (rows b*strip - margin .. b*strip + margin).
+            std::vector<float> edges;
             auto run = [&](int s, bool apply) {
                 try {
                     const int y0 = s * strip, y1 = std::min(h, y0 + strip);
@@ -814,8 +861,15 @@ void postprocess_v2(ImageF& rgb, const PostParams& p, const ProgressFn& progress
                     std::vector<float> Y((size_t)n * w), t((size_t)n * w), c1((size_t)n * w),
                         c2((size_t)n * w);
                     for (int y = ya; y < yb; ++y) {
+                        float* d = &Y[(size_t)(y - ya) * w];
+                        if (apply && (y < y0 || y >= y1)) {
+                            const int b = y < y0 ? s : s + 1;
+                            const float* e = &edges[((size_t)b * 2 * margin + (size_t)(y - (b * strip - margin))) * w];
+                            std::copy(e, e + w, d);
+                            continue;
+                        }
                         const float* row = &img[(size_t)y * w * 3];
-                        for (int x = 0; x < w; ++x) Y[(size_t)(y - ya) * w + x] = lumaOf(row + (size_t)x * 3);
+                        for (int x = 0; x < w; ++x) d[x] = lumaOf(row + (size_t)x * 3);
                     }
                     auto blur = [&](const std::vector<float>& in, std::vector<float>& out, int step) {
                         for (int r = 0; r < n; ++r) {
@@ -859,12 +913,13 @@ void postprocess_v2(ImageF& rgb, const PostParams& p, const ProgressFn& progress
                                 const float keep = v * v / (v * v + l2 + 1e-12f);
                                 return v * (1.0f - amount * (1.0f - keep));
                             };
-                            const float yn = c2v + shrink(w1, sig1) + shrink(w2, sig2);
+                            const float yn = std::max(0.0f, c2v + shrink(w1, sig1) + shrink(w2, sig2));
+                            // Scaling a near-black pixel up would multiply whatever colour noise
+                            // it holds into a coloured speck: beyond 4x the rest is added as grey.
+                            const float sc = yv > kTiny ? std::min(yn / yv, 4.0f) : 0.0f;
+                            const float add = yn - sc * yv;
                             float* q = row + (size_t)x * 3;
-                            if (yv > kTiny) {
-                                const float sc = std::max(0.0f, yn) / yv;
-                                q[0] *= sc; q[1] *= sc; q[2] *= sc;
-                            }
+                            q[0] = q[0] * sc + add; q[1] = q[1] * sc + add; q[2] = q[2] * sc + add;
                         }
                     }
                 } catch (...) {}
@@ -878,8 +933,22 @@ void postprocess_v2(ImageF& rgb, const PostParams& p, const ProgressFn& progress
                 a2.insert(a2.end(), s2[(size_t)s].begin(), s2[(size_t)s].end());
             }
             if (a1.size() > 1000) {
+                try {
+                    edges.assign((size_t)nStrips * 2 * margin * w, 0.0f);
+                } catch (...) {}  // out of memory: no noise reduction rather than the race
+            }
+            if (!edges.empty()) {
                 sig1 = 1.4826f * median_of(a1);
                 sig2 = 1.4826f * median_of(a2);
+                parallel_for(1, nStrips, [&](int b) {
+                    for (int k = 0; k < 2 * margin; ++k) {
+                        const int y = b * strip - margin + k;
+                        if (y < 0 || y >= h) continue;
+                        const float* row = &img[(size_t)y * w * 3];
+                        float* d = &edges[((size_t)b * 2 * margin + k) * w];
+                        for (int x = 0; x < w; ++x) d[x] = lumaOf(row + (size_t)x * 3);
+                    }
+                });
                 parallel_for(0, nStrips, [&](int s) { run(s, true); });
                 SLOG("postprocess_v2: noise reduction %.2f (wavelet sigma %.4f %.4f)", amount, sig1, sig2);
             }

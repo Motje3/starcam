@@ -1,6 +1,7 @@
 package com.wm.starcam.ui
 
 import android.graphics.Bitmap
+import android.graphics.Matrix
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -19,7 +20,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -40,6 +40,7 @@ import androidx.lifecycle.viewModelScope
 import com.wm.starcam.StarCamViewModel
 import com.wm.starcam.engine.EditParams
 import com.wm.starcam.engine.NativeEngine
+import com.wm.starcam.session.stackPhoto
 import com.wm.starcam.ui.components.ScButton
 import com.wm.starcam.ui.components.ScButtonKind
 import com.wm.starcam.ui.components.ScGlass
@@ -60,6 +61,7 @@ import com.wm.starcam.ui.theme.scImageFilter
 import com.wm.starcam.util.AppLog
 import com.wm.starcam.util.MediaSaver
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -90,7 +92,17 @@ private class StudioSession(private var handle: Long) {
 
 private data class StudioInfo(val previewWidth: Int, val previewHeight: Int)
 
-private fun develop(s: StudioSession, info: StudioInfo, p: EditParams, upright: Boolean): ImageBitmap? {
+/** What opening a master yields; the session is closed by whoever owns this. */
+private class Opened(
+    val session: StudioSession,
+    val info: StudioInfo,
+    val upright: Boolean,
+    val defaults: EditParams,
+    val start: EditParams,
+    val original: Bitmap?,
+)
+
+private fun develop(s: StudioSession, info: StudioInfo, p: EditParams, upright: Boolean): Bitmap? {
     val turned = p.rotation == 90 || p.rotation == 270
     val bmp = Bitmap.createBitmap(
         if (turned) info.previewHeight else info.previewWidth,
@@ -98,8 +110,12 @@ private fun develop(s: StudioSession, info: StudioInfo, p: EditParams, upright: 
         Bitmap.Config.ARGB_8888,
     )
     val ok = s.use { NativeEngine.studioRender(it, p.toOptionsJson(upright), bmp) } == true
-    return if (ok) bmp.asImageBitmap() else null
+    return if (ok) bmp else null
 }
+
+private fun turned(b: Bitmap, rotation: Int): Bitmap =
+    if (rotation == 0) b else Bitmap.createBitmap(b, 0, 0, b.width, b.height,
+        Matrix().apply { postRotate(rotation.toFloat()) }, true)
 
 /**
  * The editing studio: a session's linear master developed again with the user's own settings
@@ -119,41 +135,57 @@ fun StudioScreen(dir: File, vm: StarCamViewModel, onBack: () -> Unit) {
     var info by remember { mutableStateOf<StudioInfo?>(null) }
     var upright by remember { mutableStateOf(false) }
     var failed by remember { mutableStateOf<String?>(null) }
+    var defaults by remember { mutableStateOf(EditParams()) }
     var params by remember { mutableStateOf(EditParams()) }
     var preview by remember { mutableStateOf<ImageBitmap?>(null) }
-    var before by remember { mutableStateOf<ImageBitmap?>(null) }
+    // The photo as the session made it, as the master is stored (unturned).
+    var original by remember { mutableStateOf<Bitmap?>(null) }
     var comparing by remember { mutableStateOf(false) }
     var developing by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var savedMessage by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
     var tab by rememberSaveable { mutableIntStateOf(0) }
 
+    // Opens the master and owns the native handle for as long as the screen shows: closed when
+    // it goes, also if that happens while the (uncancellable) open is still reading the file.
     LaunchedEffect(dir) {
-        withContext(Dispatchers.Default) {
-            val header = vm.repo.readSessionJson(dir)?.optJSONObject("header")
-            // A session that recorded the phone's attitude has its master written upright.
-            upright = (header?.optJSONObject("stackConfig")?.optInt("rotation", -1) ?: -1) >= 0
-            val saved = runCatching { EditParams.fromJson(JSONObject(editFile.readText())) }.getOrNull()
-            val h = if (master.isFile) NativeEngine.studioOpen(master.absolutePath, PREVIEW_EDGE) else 0L
-            if (h == 0L) {
+        var opened: StudioSession? = null
+        try {
+            val o = withContext(Dispatchers.Default) {
+                val header = vm.repo.readSessionJson(dir)?.optJSONObject("header")
+                val cfg = header?.optJSONObject("stackConfig")
+                // A session that recorded the phone's attitude has its master written upright.
+                val up = (cfg?.optInt("rotation", -1) ?: -1) >= 0 && cfg?.optBoolean("rotationGuessed") != true
+                // Star trails are finished without gradient removal (engine.cpp): so is their edit.
+                val dflt = if (header?.optString("mode") == "TRAILS") EditParams(gradient = 0f) else EditParams()
+                val saved = runCatching { EditParams.fromJson(JSONObject(editFile.readText())) }.getOrNull()
+                val h = if (master.isFile) NativeEngine.studioOpen(master.absolutePath, PREVIEW_EDGE) else 0L
+                if (h == 0L) return@withContext null
+                val s = StudioSession(h).also { opened = it }
+                val io = JSONObject(NativeEngine.studioInfo(h))
+                val i = StudioInfo(io.optInt("previewWidth"), io.optInt("previewHeight"))
+                // "Before" is the photo the session made; developed defaults if it is gone.
+                val orig = stackPhoto(dir).takeIf { it.isFile }?.let { decodeDownsampled(it.absolutePath, PREVIEW_EDGE) }
+                    ?: develop(s, i, dflt, up)
+                AppLog.i("studio", "opened ${dir.name} (${io.optInt("width")}x${io.optInt("height")})")
+                Opened(s, i, up, dflt, saved ?: dflt, orig)
+            }
+            if (o == null) {
                 failed = if (master.isFile) "The photo's master could not be read." else
                     "This session has no master to edit: it was not stacked on the phone."
-                return@withContext
+                return@LaunchedEffect
             }
-            val s = StudioSession(h)
-            val o = JSONObject(NativeEngine.studioInfo(h))
-            val i = StudioInfo(o.optInt("previewWidth"), o.optInt("previewHeight"))
-            val start = saved ?: EditParams()
-            before = develop(s, i, EditParams(rotation = start.rotation), upright)
-            info = i
-            params = start
-            session = s
-            AppLog.i("studio", "opened ${dir.name} (${o.optInt("width")}x${o.optInt("height")})")
+            upright = o.upright
+            defaults = o.defaults
+            original = o.original
+            info = o.info
+            params = o.start
+            session = o.session
+            awaitCancellation()
+        } finally {
+            // Off the main thread: closing waits for a develop still running.
+            opened?.let { s -> vm.viewModelScope.launch(Dispatchers.Default) { s.close() } }
         }
-    }
-    // Closed off the main thread: it waits for a develop still running.
-    DisposableEffect(Unit) {
-        onDispose { session?.let { s -> vm.viewModelScope.launch(Dispatchers.Default) { s.close() } } }
     }
     // Develops the preview after every change; a newer change cancels the wait of the older one.
     LaunchedEffect(params, session) {
@@ -162,9 +194,11 @@ fun StudioScreen(dir: File, vm: StarCamViewModel, onBack: () -> Unit) {
         delay(80)
         developing = true
         val img = withContext(Dispatchers.Default) { develop(s, i, params, upright) }
-        if (img != null) preview = img
+        if (img != null) preview = img.asImageBitmap()
         developing = false
     }
+    // The original, turned the way the edit is.
+    val before = remember(original, params.rotation) { original?.let { turned(it, params.rotation).asImageBitmap() } }
     BackHandler(enabled = saving) { /* the photo is being written; leaving would lose it */ }
 
     fun save() {
@@ -174,7 +208,9 @@ fun StudioScreen(dir: File, vm: StarCamViewModel, onBack: () -> Unit) {
         savedMessage = null
         scope.launch {
             val result = withContext(Dispatchers.Default) {
-                val rgb = File(dir, "out/edit_rgb.raw")
+                // Its own file: two saves never share one, and nothing is left in the session.
+                val rgb = runCatching { File.createTempFile("edit_rgb", ".raw", context.cacheDir) }.getOrNull()
+                    ?: return@withContext "Could not write the photo (storage full?)." to false
                 try {
                     val res = JSONObject(
                         s.use { NativeEngine.studioExport(it, p.toOptionsJson(upright), rgb.absolutePath) }
@@ -216,7 +252,7 @@ fun StudioScreen(dir: File, vm: StarCamViewModel, onBack: () -> Unit) {
             onBack = if (saving) null else onBack,
             actions = {
                 if (session != null) {
-                    ScButton("Reset", { params = EditParams(rotation = params.rotation) },
+                    ScButton("Reset", { params = defaults.copy(rotation = params.rotation) },
                         kind = ScButtonKind.Text, enabled = !saving, height = 40.dp)
                 }
             },

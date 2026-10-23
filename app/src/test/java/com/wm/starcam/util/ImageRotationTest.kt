@@ -30,6 +30,23 @@ class ImageRotationTest {
     }
 
     @Test
+    fun aimedHighInLandscapeStillCounts() {
+        // On a tripod, top to the left, aimed 75 degrees up at the Milky Way overhead: the screen
+        // faces the ground. OrientationEventListener's 27-degree limit called this flat.
+        val up = g * kotlin.math.cos(Math.toRadians(75.0)).toFloat()
+        val down = -g * kotlin.math.sin(Math.toRadians(75.0)).toFloat()
+        assertEquals(270, ImageRotation.deviceOrientationDeg(up, 0f, down))
+        assertEquals(0, ImageRotation.forBackCamera(90, ImageRotation.deviceOrientationDeg(up, 0f, down)))
+    }
+
+    @Test
+    fun nearTheZenithIsUnknown() {
+        val up = g * kotlin.math.cos(Math.toRadians(85.0)).toFloat()
+        val down = -g * kotlin.math.sin(Math.toRadians(85.0)).toFloat()
+        assertNull(ImageRotation.deviceOrientationDeg(up, 0f, down))
+    }
+
+    @Test
     fun flatOnItsBackIsUnknown() {
         assertNull(ImageRotation.deviceOrientationDeg(0f, 0f, g))
         assertNull(ImageRotation.deviceOrientationDeg(0.5f, 0.5f, g))

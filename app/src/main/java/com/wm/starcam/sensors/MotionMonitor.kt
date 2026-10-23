@@ -39,9 +39,19 @@ class MotionMonitor(context: Context) : SensorEventListener {
     @Volatile
     private var accelXyz: FloatArray? = null
 
+    /** The last rotation [deviceOrientationDeg] could tell, from before the phone was laid flat. */
+    @Volatile
+    private var lastOrientationDeg: Int? = null
+
     /** The phone's rotation in OrientationEventListener terms, null when it lies flat. */
     fun deviceOrientationDeg(): Int? =
         accelXyz?.let { ImageRotation.deviceOrientationDeg(it[0], it[1], it[2]) }
+
+    /**
+     * The rotation the phone last had while it could be told: aimed straight up, it is most
+     * likely still the way it was mounted before being tilted back. Null if never known.
+     */
+    fun lastOrientationDeg(): Int? = lastOrientationDeg
 
     val hasGyro: Boolean get() = gyro != null
 
@@ -94,6 +104,7 @@ class MotionMonitor(context: Context) : SensorEventListener {
             val ay = event.values[1]
             _rollDeg.value = Math.toDegrees(kotlin.math.atan2(ax, ay).toDouble()).toFloat()
             accelXyz = floatArrayOf(ax, ay, event.values[2])
+            ImageRotation.deviceOrientationDeg(ax, ay, event.values[2])?.let { lastOrientationDeg = it }
             return
         }
         val m = sqrt(

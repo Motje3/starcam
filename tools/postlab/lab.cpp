@@ -94,6 +94,7 @@ bool read_tiff16(const std::string& path, ImageF* out) {
 
 struct Metrics {
     float skyMed = 0, skyFlat = 0, mwContrast = 0, groundMed = 0, horizonDelta = 0;
+    float rimBright = 0, rimDark = 0;
     float redSat = 0, blueSat = 0, hueOk = 0, lumaNoise = 0, chromaNoise = 0;
     int nRed = 0, nBlue = 0;
 };
@@ -155,6 +156,24 @@ Metrics measure(const ImageF& img, const lab::Scene& s) {
         }
         if (!groundV.empty()) m.groundMed = median(groundV);
         if (!nearHorizon.empty()) m.horizonDelta = median(nearHorizon) - m.skyMed;
+        // Outline along the silhouette: per column, the brightest (darkest) pixel within a few
+        // rows of the true horizon against the same window 55 rows higher in plain sky.
+        std::vector<float> bright, dark;
+        for (int x = 0; x < W; x += 2) {
+            const int hz = (int)std::floor(s.horizonY[x]);
+            if (hz < 70 || hz > H - 4) continue;
+            float maxA = 0, minA = 1e9f, maxB = 0, minB = 1e9f;
+            for (int y = hz - 5; y <= hz + 2; ++y) maxA = std::max(maxA, luma(img.px(x, y)));
+            for (int y = hz - 5; y <= hz - 1; ++y) minA = std::min(minA, luma(img.px(x, y)));
+            for (int y = hz - 60; y <= hz - 53; ++y) maxB = std::max(maxB, luma(img.px(x, y)));
+            for (int y = hz - 60; y <= hz - 56; ++y) minB = std::min(minB, luma(img.px(x, y)));
+            bright.push_back(maxA - maxB);
+            dark.push_back(minB - minA);
+        }
+        if (!bright.empty()) {
+            m.rimBright = median(bright);
+            m.rimDark = median(dark);
+        }
     }
     // Star colour: unsaturated, well-exposed stars that are clearly red or clearly blue.
     float redSum = 0, blueSum = 0;
@@ -308,13 +327,22 @@ int main(int argc, char** argv) {
         const long ms = (long)std::chrono::duration_cast<std::chrono::milliseconds>(
                             std::chrono::steady_clock::now() - t0).count();
         outputs(img, outDir, v);
-        if (cmd == "scene" && !rot90) {
+        if (cmd == "scene") {
+            if (rot90) {  // measured the way it was rendered: turned back
+                ImageF back;
+                back.init(scene.w, scene.h, 3);
+                for (int y = 0; y < scene.h; ++y)
+                    for (int x = 0; x < scene.w; ++x)
+                        for (int c = 0; c < 3; ++c) back.px(x, y)[c] = img.px(scene.h - 1 - y, x)[c];
+                img = std::move(back);
+            }
             const Metrics m = measure(img, scene);
             std::printf("%-8s %5ld ms  sky %.3f flat %.4f  mw %+.4f  ground %.3f  horizon %+.4f  "
-                        "starSat red %.3f blue %.3f hue %.2f (n=%d/%d)  noise luma %.4f chroma %.4f\n",
+                        "rim %+.3f/%+.3f  starSat red %.3f blue %.3f hue %.2f (n=%d/%d)  "
+                        "noise luma %.4f chroma %.4f\n",
                         v.c_str(), ms, m.skyMed, m.skyFlat, m.mwContrast, m.groundMed,
-                        m.horizonDelta, m.redSat, m.blueSat, m.hueOk, m.nRed, m.nBlue, m.lumaNoise,
-                        m.chromaNoise);
+                        m.horizonDelta, m.rimBright, m.rimDark, m.redSat, m.blueSat, m.hueOk, m.nRed,
+                        m.nBlue, m.lumaNoise, m.chromaNoise);
         } else {
             std::printf("%-8s %5ld ms\n", v.c_str(), ms);
         }

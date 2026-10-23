@@ -33,6 +33,11 @@ data class StackConfig(
      * delivers them, and the processing looks for the landscape along every edge.
      */
     val rotation: Int = -1,
+    /**
+     * The phone pointed too near the zenith to tell which way up it was: [rotation] is the way
+     * it was held before, and the processing does not take the ground's edge from it.
+     */
+    val rotationGuessed: Boolean = false,
 ) {
     fun toJson(): String = JSONObject().apply {
         put("sigmaFirst", sigmaFirst)
@@ -49,6 +54,7 @@ data class StackConfig(
         put("style", style)
         put("version", version)
         if (rotation >= 0) put("rotation", rotation)
+        if (rotationGuessed) put("rotationGuessed", true)
     }.toString()
 
     companion object {
@@ -71,6 +77,7 @@ data class StackConfig(
                 // A header from before the look existed was stacked classic.
                 version = o.optInt("version", 1),
                 rotation = o.optInt("rotation", -1),
+                rotationGuessed = o.optBoolean("rotationGuessed", false),
             )
         }
     }

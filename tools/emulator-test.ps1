@@ -173,7 +173,10 @@ if (Wanted 'stack') {
         $done = WaitFor 'Done: the photo above is updated' 600
         Shot 'stack-done'
     }
-    $jpg = (A shell ls "/sdcard/Android/media/com.wm.starcam/StarCam/sessions/$name/out/") -match "starcam_$name.jpg"
+    $outFiles = A shell ls "/sdcard/Android/media/com.wm.starcam/StarCam/sessions/$name/out/"
+    $jpg = $outFiles -match "starcam_$name.jpg"
+    # "1 frame vs stacked": one frame developed like the stack, beside the photo.
+    $single = $outFiles -match 'single_frame.jpg'
     $local = Join-Path $shots 'session.json'
     A pull "/sdcard/Android/media/com.wm.starcam/StarCam/sessions/$name/meta/session.json" $local 2>&1 | Out-Null
     $used = try { (Get-Content $local -Raw | ConvertFrom-Json).result.framesUsed } catch { $null }
@@ -188,7 +191,7 @@ if (Wanted 'stack') {
         $portrait = $im.Height -gt $im.Width
         $im.Dispose()
     }
-    Check 'stack' ($done -and [bool]$jpg -and $used -eq 7 -and $portrait) "done=$done jpeg=$([bool]$jpg) framesUsed=$used portrait=$portrait"
+    Check 'stack' ($done -and [bool]$jpg -and $used -eq 7 -and $portrait -and [bool]$single) "done=$done jpeg=$([bool]$jpg) framesUsed=$used portrait=$portrait single=$([bool]$single)"
 }
 
 # ---- the editing studio on that session: preview, a change, saved as a new photo

@@ -34,4 +34,13 @@ class EditParamsTest {
             rotation = 270)
         assertEquals(p, EditParams.fromJson(JSONObject(p.toJson())))
     }
+
+    @Test
+    fun oddTurnsSnapToAQuarter() {
+        // The engine rounds a turn to the nearest quarter; the preview must be sized the same.
+        assertEquals(90, EditParams.fromJson(JSONObject("""{"rotation":45}""")).rotation)
+        assertEquals(270, EditParams.fromJson(JSONObject("""{"rotation":-90}""")).rotation)
+        assertEquals(0, EditParams.fromJson(JSONObject("""{"rotation":350}""")).rotation)
+        assertEquals(180, EditParams.fromJson(JSONObject("""{"rotation":540}""")).rotation)
+    }
 }

@@ -302,6 +302,9 @@ private fun App(
                 }
             }
             LaunchedEffect(screen) { AppLog.d("ui", "screen: ${screen.javaClass.simpleName}") }
+            // Back pops the screen. Registered before any screen's own BackHandler, so those win
+            // while enabled: the dispatcher asks the newest callback first.
+            BackHandler(enabled = onboarded && cameraGranted && stack.size > 1) { pop() }
 
             Box(Modifier.fillMaxSize()) {
                 when {
@@ -357,7 +360,6 @@ private fun App(
                             Screen.SelfTest -> SelfTestScreen(onBack = ::pop)
                             Screen.Diagnostics -> DiagnosticsScreen(vm = vm, onBack = ::pop)
                         }
-                        BackHandler(enabled = stack.size > 1) { pop() }
                     }
                 }
 

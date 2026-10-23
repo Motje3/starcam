@@ -848,10 +848,12 @@ std::string EngineSession::finalizeStack(const std::string& optionsJson,
         const float featherPx = (float)opt.num("featherPx", 40.0);
         PostParams pp = read_post_params(opt);
         // Clockwise turn that makes the photo upright (from the phone's attitude at capture):
-        // the outputs are written turned, and the post pipeline knows where the ground is.
+        // the outputs are written turned, and the post pipeline knows where the ground is -
+        // unless the phone pointed too near the zenith to tell and the turn is only a guess.
         const int rawRotation = opt.numi("rotation", -1);
         const int rotation = rawRotation >= 0 ? normalize_rotation(rawRotation) : 0;
-        pp.downEdge = rawRotation >= 0 ? down_edge_for_rotation(rotation) : -1;
+        const bool rotationGuessed = opt.boolean("rotationGuessed", false);
+        pp.downEdge = rawRotation >= 0 && !rotationGuessed ? down_edge_for_rotation(rotation) : -1;
 
         const std::vector<uint32_t> hotIdx = find_hot_pixels(masterDark);
         // A master dark from the dark library comes from another night, with another black
@@ -1165,37 +1167,63 @@ std::string EngineSession::finalizeStack(const std::string& optionsJson,
         // stacking bought, side by side. Not at full-res sizes, where one more full frame in
         // memory beside the stack is a real risk. The frame is the stack's own path with a
         // single survivor - warped into the stack's geometry, so stars line up across the
-        // divider - and it is the one with the median star count: the reference is chosen for
-        // the most stars, which a satellite or a plane crossing it can inflate.
+        // divider. Not the reference: it is chosen for the most stars, which a satellite or a
+        // plane crossing it can inflate. Of the frames with at least the median star count, the
+        // one that moved least against the reference: the sky turns during a session, and a
+        // frame from far away in time leaves black wedges where it does not cover the stack.
         std::string singlePath;
         int singleW = 0, singleH = 0;
         int singlePos = -1;
         {
-            std::vector<std::pair<int, int>> byStars;  // (stars, position)
-            for (int i = 0; i < (int)frames.size(); ++i)
-                if (!frames[i].rejected) byStars.emplace_back((int)frames[i].stars.size(), i);
-            if (!byStars.empty()) {
-                std::sort(byStars.begin(), byStars.end());
-                singlePos = byStars[byStars.size() / 2].second;
+            std::vector<int> counts;
+            for (const FrameRecord& fr : frames)
+                if (!fr.rejected) counts.push_back((int)fr.stars.size());
+            if (counts.size() >= 2) {
+                std::sort(counts.begin(), counts.end());
+                const int medianStars = counts[(counts.size() - 1) / 2];
+                const double lw = stackRGB.w / 2.0, lh = stackRGB.h / 2.0;  // luma coordinates
+                double least = 1e30;
+                for (int i = 0; i < (int)frames.size(); ++i) {
+                    const FrameRecord& fr = frames[i];
+                    if (fr.rejected || i == refPos || (int)fr.stars.size() < medianStars) continue;
+                    double shift = 0.0;
+                    const double cx[4] = {0.0, lw, 0.0, lw}, cy[4] = {0.0, 0.0, lh, lh};
+                    for (int k = 0; k < 4; ++k) {
+                        double ox, oy;
+                        fr.T.apply(cx[k], cy[k], &ox, &oy);
+                        shift = std::max(shift, std::hypot(ox - cx[k], oy - cy[k]));
+                    }
+                    if (shift < least) {
+                        least = shift;
+                        singlePos = i;
+                    }
+                }
             }
         }
         if ((mode == SessionMode::ASTRO || mode == SessionMode::PRO) && singlePos >= 0 &&
             (int64_t)stackRGB.w * stackRGB.h <= 20000000LL && !abort_.load()) {
-            std::vector<FrameRecord> justOne = frames;
-            for (int i = 0; i < (int)justOne.size(); ++i) justOne[i].rejected = i != singlePos;
-            ImageF one;
-            float oneRej = 0.0f;
-            ProgressFn quiet = [](const char*, int) {};
-            if (stack_frames(justOne, cfg_.sensor, masterDark, hotIdx, sp, &one, quiet, &abort_, &oneRej) &&
-                one.w == stackRGB.w && one.h == stackRGB.h) {
-                postprocess(one, pp, nullptr);
-                const ImageF small = box_downscale(one, 1600);
-                singlePath = outDir + "/single_rgb.raw";
-                if (write_rgb8(singlePath, small, rotation)) {
-                    rotated_size(rotation, small.w, small.h, &singleW, &singleH);
-                } else {
-                    singlePath.clear();
+            // Optional: running out of memory here costs the comparison, not the photo.
+            try {
+                std::vector<FrameRecord> justOne = frames;
+                for (int i = 0; i < (int)justOne.size(); ++i) justOne[i].rejected = i != singlePos;
+                ImageF one;
+                float oneRej = 0.0f;
+                ProgressFn quiet = [](const char*, int) {};
+                if (stack_frames(justOne, cfg_.sensor, masterDark, hotIdx, sp, &one, quiet, &abort_, &oneRej) &&
+                    one.w == stackRGB.w && one.h == stackRGB.h) {
+                    postprocess(one, pp, nullptr);
+                    const ImageF small = box_downscale(one, 1600);
+                    singlePath = outDir + "/single_rgb.raw";
+                    if (!small.empty() && write_rgb8(singlePath, small, rotation)) {
+                        rotated_size(rotation, small.w, small.h, &singleW, &singleH);
+                    } else {
+                        singlePath.clear();
+                    }
                 }
+            } catch (...) {
+                SLOGE("finalize: single-frame comparison skipped (exception)");
+                singlePath.clear();
+                singleW = singleH = 0;
             }
         }
 

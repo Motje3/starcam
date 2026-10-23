@@ -546,12 +546,17 @@ class CaptureEngine(
             // the first frame. The frames stay in sensor orientation; the outputs are turned.
             val sensorOrientation =
                 cam.characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
-            val deviceDeg = motion.deviceOrientationDeg()
+            // Aimed within ~9 degrees of the zenith the attitude says nothing: the way the phone
+            // was held before it was tilted up is the best guess, and the processing is told it
+            // is one (it then looks for a landscape along every edge).
+            val deviceNow = motion.deviceOrientationDeg()
+            val deviceDeg = deviceNow ?: motion.lastOrientationDeg()
             val rotation = ImageRotation.forBackCamera(sensorOrientation, deviceDeg)
             _rotation.value = rotation
-            AppLog.i(TAG, "orientation: sensor $sensorOrientation, phone ${deviceDeg ?: "flat"} -> " +
-                "photo turned $rotation")
-            val stackCfg = s.stackConfig().copy(rotation = rotation)
+            AppLog.i(TAG, "orientation: sensor $sensorOrientation, phone " +
+                (deviceNow?.toString() ?: "near flat (before: ${deviceDeg ?: "unknown"})") +
+                " -> photo turned $rotation")
+            val stackCfg = s.stackConfig().copy(rotation = rotation, rotationGuessed = deviceNow == null)
             paths = repo.newSession(s.mode)
             // Removed in finally. One still present at the next app start means this session was
             // cut off (crash, kill) - the app then says so instead of showing a plain viewfinder.

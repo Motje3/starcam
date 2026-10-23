@@ -18,13 +18,17 @@ object ImageRotation {
     fun deviceOrientationDeg(ax: Float, ay: Float, az: Float): Int? {
         val x = -ax
         val y = -ay
-        val z = -az
-        // OrientationEventListener's own test: trust the angle only when the screen-plane part
-        // of gravity is at least half the part along the screen's normal (about 27 degrees off flat).
-        if ((x * x + y * y) * 4f < z * z) return null
+        val inPlane = x * x + y * y
+        // OrientationEventListener gives up 27 degrees from flat, for a hand-held phone; on a
+        // tripod the reading is steady, and the Milky Way overhead is shot from up to ~80 degrees.
+        // The angle is trusted while 15% of gravity lies in the screen's plane (about 9 degrees
+        // from flat), which still settles the nearest quarter turn with a wide margin.
+        if (inPlane < MIN_IN_PLANE * MIN_IN_PLANE * (inPlane + az * az)) return null
         val angle = Math.toDegrees(atan2(-y, x).toDouble()).roundToInt()
         return ((90 - angle) % 360 + 360) % 360
     }
+
+    private const val MIN_IN_PLANE = 0.15f
 
     /**
      * Clockwise turn (0, 90, 180, 270) that makes a back-camera frame upright. [sensorOrientation]
