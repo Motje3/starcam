@@ -5,7 +5,8 @@
 # The frames are 1856 x 1392 BGGR, 20 s at ISO 800: 450 stars drifting and rotating from frame to
 # frame, a satellite trail across frame 5 (the stack must reject it), the same 300 hot pixels in
 # every frame and in the dark, and frame 3 recorded as gyro-bumped (a re-stack must leave it out).
-# Stacked from the session screen it should report 7 of 8 frames.
+# Stacked from the session screen it should report 7 of 8 frames. The live stack's pictures for
+# the replay video (replay/) are drawn too, one per stacked frame.
 #
 #   powershell -ExecutionPolicy Bypass -File tools\make-test-session.ps1 -Push
 #   powershell -ExecutionPolicy Bypass -File tools\make-test-session.ps1 -Push -Serial emulator-5554
@@ -121,12 +122,62 @@ public static class StarCamTestSession {
             for (int k = 0; k < W * H; k++) w.Write((ushort)Math.Round(Math.Max(0, dark[k])));
         }
     }
+
+    // The live stack as capture keeps it for the replay video (replay/0001.jpg, ...): one picture
+    // per stacked frame, the noise falling as frames add up. Drawn, not stacked: only the files
+    // and their sizes matter to the app.
+    public static void Replay(string dir, int frames, bool portrait) {
+        string rdir = Path.Combine(dir, "replay");
+        Directory.CreateDirectory(rdir);
+        int w = portrait ? 720 : 960, h = portrait ? 960 : 720;
+        var rs = new Random(42);
+        int nStars = 450;
+        double[] sx = new double[nStars], sy = new double[nStars], sa = new double[nStars];
+        for (int i = 0; i < nStars; i++) {
+            sx[i] = rs.NextDouble() * w;
+            sy[i] = rs.NextDouble() * h;
+            sa[i] = 20 + 230 * Math.Pow(rs.NextDouble(), 3.0);
+        }
+        int k = 0;
+        for (int f = 0; f < frames; f++) {
+            if (f == 3) continue;  // recorded as bumped: never stacked
+            k++;
+            var r = new Random(500 + f);
+            double noise = 26.0 / Math.Sqrt(k);
+            var v = new double[w * h];
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++) v[y * w + x] = 22 + 10.0 * y / h + noise * Gauss(r);
+            for (int i = 0; i < nStars; i++) {
+                int x0 = (int)sx[i] - 3, y0 = (int)sy[i] - 3;
+                for (int y = Math.Max(0, y0); y <= Math.Min(h - 1, y0 + 6); y++)
+                    for (int x = Math.Max(0, x0); x <= Math.Min(w - 1, x0 + 6); x++) {
+                        double d2 = (x - sx[i]) * (x - sx[i]) + (y - sy[i]) * (y - sy[i]);
+                        v[y * w + x] += sa[i] * Math.Exp(-d2 / 1.6);
+                    }
+            }
+            using (var bmp = new System.Drawing.Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format24bppRgb)) {
+                var data = bmp.LockBits(new System.Drawing.Rectangle(0, 0, w, h),
+                    System.Drawing.Imaging.ImageLockMode.WriteOnly, bmp.PixelFormat);
+                var bytes = new byte[data.Stride * h];
+                for (int y = 0; y < h; y++)
+                    for (int x = 0; x < w; x++) {
+                        byte b = (byte)Math.Min(255, Math.Max(0, v[y * w + x]));
+                        int o = y * data.Stride + x * 3;
+                        bytes[o] = b; bytes[o + 1] = b; bytes[o + 2] = b;
+                    }
+                System.Runtime.InteropServices.Marshal.Copy(bytes, 0, data.Scan0, bytes.Length);
+                bmp.UnlockBits(data);
+                bmp.Save(Path.Combine(rdir, string.Format("{0:D4}.jpg", k)), System.Drawing.Imaging.ImageFormat.Jpeg);
+            }
+        }
+    }
 }
-"@
+"@ -ReferencedAssemblies System.Drawing
 
 if (Test-Path $out) { Remove-Item -Recurse -Force $out }
 foreach ($d in 'lights', 'darks', 'out', 'meta') { New-Item -ItemType Directory -Force (Join-Path $out $d) | Out-Null }
 [StarCamTestSession]::Make($out, $Frames)
+[StarCamTestSession]::Replay($out, $Frames, ($Rotation -eq 90 -or $Rotation -eq 270))
 
 $startedAt = [DateTimeOffset]::Now.ToUnixTimeMilliseconds()
 $framesJson = (0..($Frames - 1) | ForEach-Object {

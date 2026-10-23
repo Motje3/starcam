@@ -67,6 +67,19 @@ stacking bought, side by side - the picture to share.
 A "Share 1 frame vs stacked" button (result screen, session detail) turns the comparison into one
 picture - half a frame, half the stack, labelled, with the numbers underneath - for sharing.
 
+### Watch it build up (replay video)
+
+During capture the live stack is kept after every stacked frame as a small JPEG (`replay/`,
+written on its own thread, never on the capture path; past 60 pictures a long session keeps every
+second one, then every fourth, evenly spread, so a session holds 6-24 MB of them at most). The
+result screen and the session detail offer "Make video": a few seconds (3-8 s, by frame count)
+dissolving through the growing stack - "1 frame", "12 frames stacked", ... - then into the
+finished photo with its numbers (frames, exposure, ISO, phone) and a small StarCam mark. 720x960
+or 960x720 H.264 at 30 fps from the platform encoder (MediaCodec, YUV written directly, no
+third-party code), read back with the platform decoder before it counts, kept in the session
+(`out/stack_replay.mp4`), copied to Movies/StarCam and shareable. Star trails sessions get their
+trails growing. The first slice of the "photo and video from one session" idea.
+
 ### Sky watch
 
 While the lights come in (ASTRO, PRO), the first two frames with a real star field set a bar;
@@ -140,15 +153,17 @@ An independent review of everything above, and the lab, found these; all fixed:
 
 ### Tested
 
-Emulator, Android 14 (the phone's screen): the suite's 8 checks pass - self-test, session flow,
+Emulator, Android 14 (the phone's screen): the suite's 9 checks pass - self-test, session flow,
 cut-off notice, synthetic stack (7 of 8 frames, portrait, with its single-frame comparison),
-studio (open, restyle, save as a new photo), Tonight planner, camera released on Home, session
-surviving a swipe from recents. Android 16 with 16 KB pages (before the review fixes): the 5
-in-app checks pass (self-test, session, stack, studio, planner), no crashes. 47 JVM unit tests;
-lint without errors. The lab:
-identical output over repeated runs; upright, turned, noisier, other seeds and no landscape all
-measured. Not yet on the OnePlus 15: the processing on real night data, the rotation on the
-phone's own sensor orientation, the compass, location.
+studio (open, restyle, save as a new photo), replay video (made, in the session and the gallery,
+three frames read back: first frame, mid-build, the finished photo), Tonight planner, camera
+released on Home, session surviving a swipe from recents. A live session on the emulator's camera
+keeps its replay pictures. Android 16 with 16 KB pages (before the review fixes): the 5 in-app
+checks pass (self-test, session, stack, studio, planner), no crashes. 51 JVM unit tests; lint
+without errors. The lab: identical output over repeated runs; upright, turned, noisier, other
+seeds and no landscape all measured. Not yet on the OnePlus 15: the processing on real night
+data, the rotation on the phone's own sensor orientation, the compass, location, the replay
+pictures from a real live stack and the phone's own video encoder.
 
 ## Production readiness, 0.3.3 (2026-10-22)
 

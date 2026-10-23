@@ -75,6 +75,7 @@ import com.wm.starcam.ui.theme.ScType
 import com.wm.starcam.ui.theme.ScreenMargin
 import com.wm.starcam.ui.theme.scImageFilter
 import com.wm.starcam.util.ShareCard
+import com.wm.starcam.util.StackReplay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -119,6 +120,9 @@ private data class DetailData(
      */
     val stacked: ImageBitmap? = null,
     val stackedFile: File? = null,
+    /** Live-stack snapshots kept during capture, for the replay video. */
+    val replayFrames: Int = 0,
+    val replayBytes: Long = 0L,
 )
 
 /** Blocking; reads session.json, the photo and the file sizes. */
@@ -147,6 +151,7 @@ private fun loadDetail(dir: File, repo: SessionRepository): DetailData {
     val modeName = header?.optString("mode") ?: ""
     val dngs = File(dir, "lights").listFiles { f -> f.extension == "dng" } ?: emptyArray()
     val cache = repo.cacheFrames(dir)
+    val replay = StackReplay.frames(dir)
     return DetailData(
         stats = resultObj?.let { r ->
             StackStats(
@@ -176,6 +181,8 @@ private fun loadDetail(dir: File, repo: SessionRepository): DetailData {
         single = singleFile?.let { decodeDownsampled(it.absolutePath, 2048)?.asImageBitmap() },
         stacked = stacked,
         stackedFile = stackJpg,
+        replayFrames = replay.size,
+        replayBytes = replay.sumOf { it.length() },
     )
 }
 
@@ -393,6 +400,12 @@ fun SessionDetailScreen(
                     }
                 }
 
+                // ---- The stack building up, as a video
+                if (d.replayFrames >= 2) {
+                    val used = st?.framesUsed ?: d.frameCount
+                    ReplayCard(dir, d.replayFrames, compareCaption(used, d.exposureNs, d.iso), enabled = !restacking)
+                }
+
                 // ---- Re-process
                 ScCard(Modifier.fillMaxWidth()) {
                     Text(if (st != null || d.cacheCount == 0) "Re-process with different settings" else "Stack this session",
@@ -462,6 +475,7 @@ fun SessionDetailScreen(
                     d.jpgFile?.let { FileRow("Photo · JPEG", bytesText(it.length())) }
                     if (d.dngCount > 0) FileRow("RAW · ${d.dngCount} DNG", bytesText(d.dngBytes))
                     if (d.cacheCount > 0) FileRow("Working files · ${d.cacheCount}", bytesText(d.cacheBytes))
+                    if (d.replayFrames > 0) FileRow("Replay pictures · ${d.replayFrames}", bytesText(d.replayBytes))
                     Text(
                         dir.absolutePath.substringAfter("/0/"),
                         style = ScType.data, color = c.text3, modifier = Modifier.padding(top = 8.dp),

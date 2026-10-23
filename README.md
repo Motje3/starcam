@@ -12,8 +12,10 @@ phone was held + 16-bit linear TIFF master + optional DNGs of every frame for PC
 Around the shot: a **Tonight planner** (when it gets dark, the Moon, when and where the Milky
 Way's core stands, a sight that brings the phone onto it — all computed on the phone), an
 **editing studio** that develops a session's master again with your own sky/landscape
-brightness, contrast, colour and noise settings (saved as a new photo), and **1 frame vs
-stacked**, a drag-to-compare view of what the stacking did.
+brightness, contrast, colour and noise settings (saved as a new photo), **1 frame vs
+stacked**, a drag-to-compare view of what the stacking did, and **watch it build up**, a short
+video of the live stack growing from the first noisy frame into the finished photo (made on the
+phone, saved to the gallery).
 
 ## Modes
 - **ASTRO** — Fast (8 frames) / Best (20 + darks) / Insane (40 + darks + foreground composite)
@@ -44,10 +46,11 @@ Malvar demosaic, post pipeline — no OpenCV, all ours) · zero third-party runt
 
 Sessions land in `Android/media/com.wm.starcam/StarCam/sessions/<timestamp>_<mode>/` — visible
 over USB: `lights/*.dng`, `darks/*.dng`, `out/` (final JPG + `master_linear16.tiff` +
-`stack_report.json`), `meta/session.json` (every frame's stats & rejection reasons), `cache/`
-(engine working files, kept only with "Keep raw cache" for in-app re-stacking). A `.nomedia`
-marker keeps the StarCam folder out of gallery apps; the finished photo goes to the gallery
-under `Pictures/StarCam`.
+`stack_report.json`), `meta/session.json` (every frame's stats & rejection reasons), `replay/`
+(the live stack after each frame, for the replay video), `cache/` (engine working files, kept
+only with "Keep raw cache" for in-app re-stacking). A `.nomedia` marker keeps the StarCam folder
+out of gallery apps; the finished photo goes to the gallery under `Pictures/StarCam`, a replay
+video under `Movies/StarCam`.
 
 Requires: a OnePlus 15 (any RAW-capable Android 12+ device works, adaptively). Builds from the
 command line (`tools\setup-toolchain.ps1`, then `tools\build.ps1`, see `DEBUGGING.md`) or Android

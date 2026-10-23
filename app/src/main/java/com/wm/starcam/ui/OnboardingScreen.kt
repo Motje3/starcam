@@ -72,7 +72,8 @@ private val IntroPages = listOf(
         "The Tonight chip on the viewfinder tells you when it gets properly dark, when the Moon is out " +
             "of the way and where the Milky Way stands. Afterwards, Edit brightens the sky, the " +
             "landscape or the colours of any photo - the original stays.",
-        ScIcons.Compare, "\"1 frame vs stacked\" shows what the stacking did. Share that one.",
+        ScIcons.Compare, "\"1 frame vs stacked\" shows what the stacking did, and \"Make video\" " +
+            "lets you watch the photo build up. Share those.",
     ),
 )
 

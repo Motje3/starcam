@@ -4,8 +4,9 @@
 #               Back closes the result (the emulator's camera shows no stars, so it cannot stack)
 #   cut-off     the app killed mid-session: the next launch says so
 #   stack       a synthetic starfield session (make-test-session.ps1) stacked from Sessions, recorded
-#               as shot with the phone upright: 7 of 8 frames and a portrait photo
+#               as shot with the phone upright: 7 of 8 frames, a portrait photo, a 1-frame comparison
 #   studio      that session opened in the editing studio, restyled and saved as a new photo
+#   replay      that session's "watch it build up" video made, kept in the session and the gallery
 #   tonight     the Tonight planner opened from the viewfinder, for a place set with geo fix
 #   background  Home releases the camera, coming back reopens it
 #   swipe       swiping the app out of recents mid-session leaves the session running
@@ -215,6 +216,35 @@ if (Wanted 'studio') {
         $edit = (A shell ls "/sdcard/Android/media/com.wm.starcam/StarCam/sessions/$name/out/") -match "starcam_${name}_edit.jpg"
         Back
         Check 'studio' ($opened -and $saved -and [bool]$edit) "opened=$opened saved=$saved file=$([bool]$edit)"
+    }
+}
+
+# ---- the replay video of that session: made on the phone, in the session and the gallery
+if (Wanted 'replay') {
+    if (-not $name) {
+        Check 'replay' $false 'needs the stack check in the same run'
+    } else {
+        for ($k = 0; $k -lt 6 -and -not ((AllText) -match '\|Make video\|'); $k++) { A shell input swipe 636 2000 636 1200 300; Start-Sleep -Milliseconds 700 }
+        $card = Tap 'Make video'
+        $made = WaitFor 'Saved to the gallery \(Movies' 240
+        Shot 'replay'
+        $mp4 = (A shell ls -l "/sdcard/Android/media/com.wm.starcam/StarCam/sessions/$name/out/stack_replay.mp4") -join ''
+        $size = if ($mp4 -match '\s(\d+)\s+\d{4}-\d\d-\d\d') { [int64]$matches[1] } else { 0 }
+        $gallery = ((A shell content query --uri content://media/external/video/media --projection _display_name) -join '|') -match "starcam_${name}_replay"
+        # The video and the frames the app read back from it (debug builds keep them in its cache).
+        A pull "/sdcard/Android/media/com.wm.starcam/StarCam/sessions/$name/out/stack_replay.mp4" (Join-Path $shots 'stack_replay.mp4') 2>&1 | Out-Null
+        $check = Join-Path $shots 'replay-check'
+        New-Item -ItemType Directory -Force $check | Out-Null
+        $readBack = 0
+        foreach ($f in (A shell run-as com.wm.starcam ls cache/replay_check)) {
+            if ($f -match '^at_\d+ms\.jpg$') {
+                # Copied by the device's shell: PowerShell would mangle binary output.
+                A shell "run-as com.wm.starcam cat cache/replay_check/$f > /data/local/tmp/$f" 2>&1 | Out-Null
+                A pull "/data/local/tmp/$f" (Join-Path $check $f) 2>&1 | Out-Null
+                $readBack++
+            }
+        }
+        Check 'replay' ($card -and $made -and $size -gt 20000 -and $gallery -and $readBack -eq 3) "card=$card made=$made bytes=$size gallery=$gallery read back=$readBack"
     }
 }
 

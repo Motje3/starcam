@@ -100,6 +100,7 @@ import com.wm.starcam.ui.theme.ScType
 import com.wm.starcam.ui.theme.ScreenMargin
 import com.wm.starcam.ui.theme.scImageFilter
 import com.wm.starcam.util.ShareCard
+import com.wm.starcam.util.StackReplay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -1069,6 +1070,8 @@ private fun DoneStep(
     // One frame developed the same way (engine: singlePath), for "1 frame vs stacked".
     var single by remember { mutableStateOf<ImageBitmap?>(null) }
     var comparing by remember { mutableStateOf(false) }
+    // Live-stack pictures kept during capture, for the replay video.
+    var replayFrames by remember { mutableIntStateOf(0) }
     LaunchedEffect(st.jpegFile) {
         val file = st.jpegFile
         val (saved, bitmap) = withContext(Dispatchers.IO) {
@@ -1082,6 +1085,7 @@ private fun DoneStep(
             File(st.sessionDir, "out/$SINGLE_FRAME_JPG").takeIf { it.isFile }
                 ?.let { decodeDownsampled(it.absolutePath, 1440)?.asImageBitmap() }
         }
+        replayFrames = withContext(Dispatchers.IO) { StackReplay.frames(st.sessionDir).size }
     }
     val result = st.result
     val photo = remember(st, jpegSaved) {
@@ -1179,6 +1183,11 @@ private fun DoneStep(
                         if (result.foreground.isNotEmpty()) add("Foreground blend: ${result.foreground}")
                     }
                     lines.forEach { Text(it, style = ScType.caption, color = c.text3) }
+                }
+                if (result != null && jpegSaved == true && replayFrames >= 2) {
+                    ReplayCard(st.sessionDir, replayFrames,
+                        compareCaption(result.framesUsed, decision?.exposureNs ?: 0L, decision?.iso ?: 0),
+                        enabled = true)
                 }
             }
         }

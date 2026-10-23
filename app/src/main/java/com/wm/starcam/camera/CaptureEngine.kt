@@ -28,6 +28,7 @@ import com.wm.starcam.util.AppLog
 import com.wm.starcam.util.Diagnostics
 import com.wm.starcam.util.ImageRotation
 import com.wm.starcam.util.MediaSaver
+import com.wm.starcam.util.StackReplay
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -43,6 +44,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
@@ -277,6 +279,34 @@ class CaptureEngine(
             h != 0L && NativeEngine.getPreview(h, bitmap)
         } finally {
             handleLock.unlock()
+        }
+    }
+
+    /** Writes the stack replay's frames, one at a time and never on the capture path. */
+    private val replayWriter = Executors.newSingleThreadExecutor { r -> Thread(r, "replay").apply { isDaemon = true } }
+
+    /**
+     * Keeps the live stack as it is after [stacked] frames, for the session's "watch it build up"
+     * video ([StackReplay]). Best effort: a busy engine or a full disk only costs a replay frame.
+     */
+    private fun keepReplayFrame(session: File, stacked: Int) {
+        val portrait = _rotation.value == 90 || _rotation.value == 270
+        replayWriter.execute {
+            val bmp = runCatching {
+                Bitmap.createBitmap(if (portrait) 720 else 960, if (portrait) 960 else 720, Bitmap.Config.ARGB_8888)
+            }.getOrNull() ?: return@execute
+            try {
+                // The screen's own live preview may hold the engine for a moment: a few tries.
+                var filled = false
+                for (attempt in 0 until 5) {
+                    filled = fillPreview(bmp)
+                    if (filled || engineHandle == 0L) break
+                    Thread.sleep(150)
+                }
+                if (filled) StackReplay.saveFrame(session, stacked, bmp)
+            } finally {
+                bmp.recycle()
+            }
         }
     }
 
@@ -825,6 +855,7 @@ class CaptureEngine(
                 captured++
                 buzz()
                 _previewTick.value = _previewTick.value + 1
+                if (s.livePreview && !(bumped && !isTrails)) keepReplayFrame(paths.dir, captured - rejected)
                 setState(CaptureState.CapturingLights(
                     i + 1, planned, decision.exposureNs, decision.iso, stats, rejected,
                     cappedByStorage = storageCapped, interFrameGapMs = (cooldown * 1000).toLong(),
