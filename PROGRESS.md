@@ -77,8 +77,11 @@ dissolving through the growing stack - "1 frame", "12 frames stacked", ... - the
 finished photo with its numbers (frames, exposure, ISO, phone) and a small StarCam mark. 720x960
 or 960x720 H.264 at 30 fps from the platform encoder (MediaCodec, YUV written directly, no
 third-party code), read back with the platform decoder before it counts, kept in the session
-(`out/stack_replay.mp4`), copied to Movies/StarCam and shareable. Star trails sessions get their
-trails growing. The first slice of the "photo and video from one session" idea.
+(`out/stack_replay.mp4`), copied to Movies/StarCam (making it again replaces that copy) and
+shareable. It is made outside the screen, one at a time per session, so leaving the result for
+the session page neither stops it nor starts a second one over the same files; both screens show
+its progress. Star trails sessions get their trails growing. The first slice of the "photo and
+video from one session" idea.
 
 ### The live stack looks like the photo it is becoming
 
@@ -164,6 +167,25 @@ An independent review of everything above, and the lab, found these; all fixed:
   session left black wedges where it did not cover the stack); its development can no longer
   fail the whole finalize.
 
+A second review, of the replay video and the live preview, found more, also fixed:
+
+- The replay writer took the engine for its picture right after each frame, just when the
+  capture screen asked for its own, and the screen gave up after one try: the live stack on
+  screen could stay a frame behind. The screen now tries again for a moment, and the replay
+  waits until the screen has its picture.
+- "Make video" twice put two copies in the gallery; leaving the screen mid-video, coming back
+  and starting again could have two encoders writing one file. See above: one job per session,
+  outside the screen, and the gallery copy replaced.
+- An encoder that stops taking or giving buffers ends the attempt after 15 s instead of
+  spinning; a missing input image fails it instead of feeding an empty buffer; replay pictures
+  are ordered by number (past frame 9999 names stop sorting); pictures it cannot read are named
+  in the log.
+- The rule that lets a dark, specky cell continue a landscape could, on its own, have started
+  one in a dim lower sky (uncorrected vignetting, a moonlit gradient): it now only continues
+  landscape already found below it. The lab's numbers are unchanged.
+- A studio save cut off by the process dying left a temp file of up to ~150 MB in the cache: old
+  ones go when the studio opens.
+
 ### Tested
 
 Emulator, Android 14 (the phone's screen): the suite's 9 checks pass - self-test, session flow,
@@ -171,9 +193,10 @@ cut-off notice, synthetic stack (7 of 8 frames, portrait, with its single-frame 
 studio (open, restyle, save as a new photo), replay video (made, in the session and the gallery,
 three frames read back: first frame, mid-build, the finished photo), Tonight planner, camera
 released on Home, session surviving a swipe from recents. A live session on the emulator's camera
-keeps its replay pictures. Android 16 with 16 KB pages (before the review fixes): the 5 in-app
-checks pass (self-test, session, stack, studio, planner), no crashes. 51 JVM unit tests; lint
-without errors. The lab: identical output over repeated runs; upright, turned, noisier, other
+keeps its replay pictures. Android 16 with 16 KB pages: self-test, session, stack, studio,
+replay and planner pass (there the video is made from a live session's pictures: Android 16
+does not let an app open pictures adb put into its folder, so the synthetic session's cannot be
+used), no crashes. 51 JVM unit tests; lint without errors. The lab: identical output over repeated runs; upright, turned, noisier, other
 seeds and no landscape all measured. Not yet on the OnePlus 15: the processing on real night
 data, the rotation on the phone's own sensor orientation, the compass, location, the replay
 pictures from a real live stack and the phone's own video encoder.

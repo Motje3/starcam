@@ -221,18 +221,39 @@ if (Wanted 'studio') {
 
 # ---- the replay video of that session: made on the phone, in the session and the gallery
 if (Wanted 'replay') {
-    if (-not $name) {
-        Check 'replay' $false 'needs the stack check in the same run'
+    $sessions = '/sdcard/Android/media/com.wm.starcam/StarCam/sessions'
+    $rname = $name
+    if ($script:apiLevel -ge 36) {
+        # Android 16 does not let an app open pictures adb put into its folder, so there the video
+        # is made from a live session's own replay pictures (the session check's, from this run
+        # or an earlier one).
+        $rname = A shell ls $sessions | Where-Object { $_ -match '^\d{8}_\d{6}_astro$' } |
+            Where-Object { ((A shell ls "$sessions/$_") -join ',') -match 'lights.*replay|replay.*lights' } |
+            Sort-Object | Select-Object -Last 1
+        if ($rname) {
+            Launch | Out-Null
+            Tap 'Sessions gallery' | Out-Null
+            Start-Sleep -Seconds 2
+            $t = [datetime]::ParseExact($rname.Substring(0, 15), 'yyyyMMdd_HHmmss', $null)
+            $tile = Nodes | Where-Object { $_.text -match ('Today . ' + $t.ToString('HH:mm')) } | Select-Object -First 1
+            if ($tile) { $c = Center $tile; A shell input tap $c[0] $c[1]; Start-Sleep -Seconds 3 }
+        }
+    }
+    if (-not $rname) {
+        Check 'replay' $false 'needs the stack check (on Android 16 a live session) in the same run'
     } else {
+        $name = $rname
+        # Only frames read back from this video count.
+        A shell run-as com.wm.starcam rm -rf cache/replay_check 2>&1 | Out-Null
         for ($k = 0; $k -lt 6 -and -not ((AllText) -match '\|Make video\|'); $k++) { A shell input swipe 636 2000 636 1200 300; Start-Sleep -Milliseconds 700 }
         $card = Tap 'Make video'
         $made = WaitFor 'Saved to the gallery \(Movies' 240
         Shot 'replay'
-        $mp4 = (A shell ls -l "/sdcard/Android/media/com.wm.starcam/StarCam/sessions/$name/out/stack_replay.mp4") -join ''
+        $mp4 = (A shell ls -l "$sessions/$name/out/stack_replay.mp4") -join ''
         $size = if ($mp4 -match '\s(\d+)\s+\d{4}-\d\d-\d\d') { [int64]$matches[1] } else { 0 }
         $gallery = ((A shell content query --uri content://media/external/video/media --projection _display_name) -join '|') -match "starcam_${name}_replay"
         # The video and the frames the app read back from it (debug builds keep them in its cache).
-        A pull "/sdcard/Android/media/com.wm.starcam/StarCam/sessions/$name/out/stack_replay.mp4" (Join-Path $shots 'stack_replay.mp4') 2>&1 | Out-Null
+        A pull "$sessions/$name/out/stack_replay.mp4" (Join-Path $shots 'stack_replay.mp4') 2>&1 | Out-Null
         $check = Join-Path $shots 'replay-check'
         New-Item -ItemType Directory -Force $check | Out-Null
         $readBack = 0

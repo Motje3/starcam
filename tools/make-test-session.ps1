@@ -202,5 +202,7 @@ if ($Push) {
     $sel = if ($Serial) { @('-s', $Serial) } else { @() }
     & $adb @sel push $out $target 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "adb push failed" }
+    # Note: Android 16 does not let the app open pictures adb put into its folder, so there the
+    # replay pictures are listed but cannot be read (emulator-test.ps1 uses a live session's).
     Write-Host "pushed to $target$Name - open Sessions in the app and tap Stack"
 }

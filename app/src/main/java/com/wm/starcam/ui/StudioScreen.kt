@@ -152,6 +152,11 @@ fun StudioScreen(dir: File, vm: StarCamViewModel, onBack: () -> Unit) {
         var opened: StudioSession? = null
         try {
             val o = withContext(Dispatchers.Default) {
+                // A save cut off by the process dying leaves its temp file (up to ~150 MB).
+                context.cacheDir.listFiles { f ->
+                    f.name.startsWith("edit_rgb") && f.name.endsWith(".raw") &&
+                        System.currentTimeMillis() - f.lastModified() > 10 * 60_000L
+                }?.forEach { it.delete() }
                 val header = vm.repo.readSessionJson(dir)?.optJSONObject("header")
                 val cfg = header?.optJSONObject("stackConfig")
                 // A session that recorded the phone's attitude has its master written upright.

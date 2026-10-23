@@ -296,7 +296,9 @@ class CaptureEngine(
                 Bitmap.createBitmap(if (portrait) 720 else 960, if (portrait) 960 else 720, Bitmap.Config.ARGB_8888)
             }.getOrNull() ?: return@execute
             try {
-                // The screen's own live preview may hold the engine for a moment: a few tries.
+                // After the screen has taken its own picture of this frame (it gives up on a busy
+                // engine sooner), then a few tries of its own.
+                Thread.sleep(800)
                 var filled = false
                 for (attempt in 0 until 5) {
                     filled = fillPreview(bmp)

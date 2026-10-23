@@ -2,12 +2,12 @@ package com.wm.starcam.util
 
 import android.content.ContentValues
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.media.MediaCodec
@@ -16,7 +16,16 @@ import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
 import android.media.MediaMuxer
 import android.net.Uri
+import android.os.SystemClock
 import android.provider.MediaStore
+import com.wm.starcam.session.stackPhoto
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import java.io.File
 import java.util.Locale
 import kotlin.math.floor
@@ -45,9 +54,57 @@ object StackReplay {
     private const val HOLD_SEC = 0.4
     private const val DISSOLVE_SEC = 1.2
     private const val END_SEC = 2.6
+    private const val STALL_MS = 15_000L
 
+    /** In frame order: past frame 9999 the names no longer sort by themselves. */
     fun frames(session: File): List<File> =
-        File(session, DIR).listFiles { f -> f.extension == "jpg" }?.sortedBy { it.name } ?: emptyList()
+        File(session, DIR).listFiles { f -> f.extension == "jpg" }
+            ?.sortedBy { it.nameWithoutExtension.toIntOrNull() ?: Int.MAX_VALUE } ?: emptyList()
+
+    /** A session's video being made ([progress] 0..1), or how the last attempt ended. */
+    data class Making(val progress: Float?, val message: String? = null, val good: Boolean = false)
+
+    // The video is made outside any screen: leaving the result for the session page, or the
+    // page itself, neither stops it nor lets a second one write over the same files.
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val _making = MutableStateFlow<Map<String, Making>>(emptyMap())
+    val making: StateFlow<Map<String, Making>> = _making
+
+    /** Starts making [session]'s video, unless it is already being made. */
+    fun make(context: Context, session: File, caption: String) {
+        val key = session.absolutePath
+        synchronized(this) {
+            if (_making.value[key]?.progress != null) return
+            _making.update { it + (key to Making(0f)) }
+        }
+        val app = context.applicationContext
+        scope.launch {
+            val t0 = SystemClock.elapsedRealtime()
+            val video = File(session, "out/$VIDEO")
+            // Debug builds keep the frames read back from the video, for a look from the PC.
+            val debuggable = app.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+            val keep = if (debuggable) File(app.cacheDir, "replay_check") else null
+            val n = frames(session)
+            var shown = -1
+            val ok = encode(n, stackPhoto(session), caption, video, keep) { p ->
+                val pct = (p * 100).toInt()
+                if (pct != shown) {
+                    shown = pct
+                    _making.update { it + (key to Making(p)) }
+                }
+            }
+            val result = if (!ok) {
+                Making(null, "The video could not be made on this phone.")
+            } else {
+                val uri = saveToGallery(app, video, "starcam_${session.name}_replay.mp4")
+                AppLog.i("replay", "made ${video.name}: ${n.size} frames, ${video.length() / 1024} KB in " +
+                    "${SystemClock.elapsedRealtime() - t0} ms, gallery: ${uri ?: "FAILED"}")
+                if (uri != null) Making(null, "Saved to the gallery (Movies › StarCam).", good = true)
+                else Making(null, "Made, but the gallery copy failed: share it from here.")
+            }
+            _making.update { it + (key to result) }
+        }
+    }
 
     /**
      * Keeps the live stack after frame [index] (from 1). Blocking: call it off the capture path.
@@ -110,14 +167,21 @@ object StackReplay {
         progress: (Float) -> Unit = {},
     ): Boolean {
         if (frames.size < 2) return false
+        // The size of the first picture that can be read.
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(frames.first().absolutePath, bounds)
+        for (f in frames) {
+            BitmapFactory.decodeFile(f.absolutePath, bounds)
+            if (bounds.outWidth > 0 && bounds.outHeight > 0) break
+        }
         // Encoders want even sizes, most of them multiples of 16.
         val w = bounds.outWidth / 16 * 16
         val h = bounds.outHeight / 16 * 16
-        if (w < 160 || h < 160) return false
+        if (w < 160 || h < 160) {
+            AppLog.e("stack replay: no readable pictures (${frames.size} listed)")
+            return false
+        }
 
-        val part = File(out.parentFile, out.name + ".part")
+        val part = File(out.parentFile, "${out.name}.${SystemClock.elapsedRealtimeNanos()}.part")
         var codec: MediaCodec? = null
         var muxer: MediaMuxer? = null
         val canvasBitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
@@ -174,10 +238,14 @@ object StackReplay {
             var queued = 0
             var inputDone = false
             var outputDone = false
+            // An encoder that stops taking or giving buffers ends the video, not the app's patience.
+            var lastActivity = SystemClock.elapsedRealtime()
             while (!outputDone) {
+                if (SystemClock.elapsedRealtime() - lastActivity > STALL_MS) error("encoder stalled")
                 if (!inputDone) {
                     val inIdx = enc.dequeueInputBuffer(10_000)
                     if (inIdx >= 0) {
+                        lastActivity = SystemClock.elapsedRealtime()
                         if (queued >= videoFrames) {
                             enc.queueInputBuffer(inIdx, 0, 0, ptsUs(queued), MediaCodec.BUFFER_FLAG_END_OF_STREAM)
                             inputDone = true
@@ -203,14 +271,11 @@ object StackReplay {
                             canvas.drawText("STARCAM", pad, pad + brand.textSize, brand)
                             if (!label.isNullOrEmpty()) canvas.drawText(label, pad, h - pad, text)
                             canvasBitmap.getPixels(pixels, 0, w, 0, 0, w, h)
-                            val image = enc.getInputImage(inIdx)
-                            if (image != null) {
-                                writeYuv(pixels, w, h, image)
-                                enc.queueInputBuffer(inIdx, 0, w * h * 3 / 2, ptsUs(queued), 0)
-                            } else {
-                                // No image view of this buffer: pass a black frame rather than stall.
-                                enc.queueInputBuffer(inIdx, 0, 0, ptsUs(queued), 0)
-                            }
+                            // Every encoder must offer its input as a flexible YUV image (CDD);
+                            // one that does not ends the attempt.
+                            val image = enc.getInputImage(inIdx) ?: error("no input image")
+                            writeYuv(pixels, w, h, image)
+                            enc.queueInputBuffer(inIdx, 0, w * h * 3 / 2, ptsUs(queued), 0)
                             queued++
                             progress(queued / videoFrames.toFloat())
                         }
@@ -223,6 +288,7 @@ object StackReplay {
                         mux.start()
                     }
                     outIdx >= 0 -> {
+                        lastActivity = SystemClock.elapsedRealtime()
                         val buf = enc.getOutputBuffer(outIdx)
                         val config = info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0
                         if (buf != null && info.size > 0 && !config && track >= 0) {
@@ -288,9 +354,18 @@ object StackReplay {
         }
     }
 
-    /** Copies the video into Movies/StarCam as [name]. Null when the gallery refused it. */
+    /**
+     * Copies the video into Movies/StarCam as [name], in place of the copy an earlier attempt for
+     * the same session left there. Null when the gallery refused it.
+     */
     fun saveToGallery(context: Context, video: File, name: String): Uri? {
         val resolver = context.contentResolver
+        runCatching {
+            // Only the app's own entries can go without asking; anything else stays.
+            resolver.delete(MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+                "${MediaStore.Video.Media.DISPLAY_NAME}=? AND ${MediaStore.Video.Media.RELATIVE_PATH}=?",
+                arrayOf(name, "Movies/StarCam/"))
+        }
         val values = ContentValues().apply {
             put(MediaStore.Video.Media.DISPLAY_NAME, name)
             put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")

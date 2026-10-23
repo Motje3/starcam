@@ -162,12 +162,14 @@ float ground_depth(const Cells& c, int down, std::vector<int>* depthOut) {
         for (int v = UH - 1; v >= UH * 2 / 5; --v) {
             const float s = at(c.starFrac, u, v), l = at(c.luma, u, v);
             const bool dark = l < 0.9f * refLuma;
-            // Under half the sky's brightness it is landscape unless clearly starrier than the
-            // sky: texture, lit windows and stars mirrored in a lake fool the star count, not the
-            // darkness. Two such cells used to end the landscape and leave the rest of it black.
+            // Above landscape already found, a cell under half the sky's brightness continues it
+            // unless clearly starrier than the sky: texture, lit windows and stars mirrored in a
+            // lake fool the star count, not the darkness (two such cells used to end the
+            // landscape and leave the rest of it black). It never starts one: a dim lower sky
+            // (uncorrected vignetting, a moonlit gradient) has stars and fails the strict test.
             const bool groundLike = (s < starCut &&
                 (starry ? (dark || s < 0.25f * starCut) : l < 0.75f * refLuma)) ||
-                (l < 0.5f * refLuma && s < std::max(3.0f * refStar, 0.02f));
+                (d > 0 && l < 0.5f * refLuma && s < std::max(3.0f * refStar, 0.02f));
             if (groundLike) {
                 d = UH - v;
                 gap = 0;

@@ -856,11 +856,18 @@ private fun LiveStackCard(
         else Bitmap.createBitmap(960, 720, Bitmap.Config.ARGB_8888)
     }
     LaunchedEffect(refreshKey, portrait) {
-        withContext(Dispatchers.Default) {
-            if (vm.engine?.fillPreview(buffer) == true) {
+        // The engine can be busy for a moment (the replay keeps its own copy of the same
+        // picture right after each frame): a few tries before this frame's picture is given up.
+        for (attempt in 0 until 6) {
+            val filled = withContext(Dispatchers.Default) {
                 // A copy, so Compose never reads the buffer while the next fill writes it.
-                image = buffer.copy(Bitmap.Config.ARGB_8888, false)?.asImageBitmap()
+                if (vm.engine?.fillPreview(buffer) == true) buffer.copy(Bitmap.Config.ARGB_8888, false) else null
             }
+            if (filled != null) {
+                image = filled.asImageBitmap()
+                break
+            }
+            delay(150)
         }
     }
     Box(
