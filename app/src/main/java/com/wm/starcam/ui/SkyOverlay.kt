@@ -10,16 +10,24 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -36,7 +44,10 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -53,11 +64,15 @@ import com.wm.starcam.sensors.DeviceLocation
 import com.wm.starcam.sensors.SkyOrientation
 import com.wm.starcam.sensors.SkyPlace
 import com.wm.starcam.sensors.SkyPlaceStore
+import com.wm.starcam.sky.SkyCalendar
 import com.wm.starcam.sky.SkyProjection
 import com.wm.starcam.sky.SkyScene
+import com.wm.starcam.sky.SkyTarget
+import com.wm.starcam.sky.SkyTargets
 import com.wm.starcam.sky.StarCatalog
 import com.wm.starcam.ui.components.ScButton
 import com.wm.starcam.ui.components.ScButtonKind
+import com.wm.starcam.ui.components.ScDialog
 import com.wm.starcam.ui.components.ScGlass
 import com.wm.starcam.ui.components.ScSlider
 import com.wm.starcam.ui.theme.Sc
@@ -77,8 +92,11 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.tan
 
-/** What the sky view shows: the sky now ([atMs] null), or later tonight. */
-data class SkyViewRequest(val atMs: Long? = null)
+/**
+ * What the sky view shows: the sky now ([atMs] null), or later tonight; [target], the name of
+ * something to find in it (from the planner's "worth a shot").
+ */
+data class SkyViewRequest(val atMs: Long? = null, val target: String? = null)
 
 /** The back camera's half field of view across and up the portrait screen, as tangents. */
 private fun fieldOfView(cam: CamInfo?): Pair<Float, Float> {
@@ -163,12 +181,38 @@ fun SkyOverlay(
     val measurer = rememberTextMeasurer()
     val labels = remember { HashMap<String, TextLayoutResult>() }
 
+    // ---- Find: what the arrow leads to - the Milky Way's core unless something else is picked
+    val targets = remember(catalog) { catalog?.let { SkyTargets.all(it) } ?: emptyList() }
+    var target by remember(request.target) { mutableStateOf(targets.firstOrNull { it.name == request.target }) }
+    var picking by remember { mutableStateOf(false) }
+    val targetVec = remember(scene, target) { scene?.let { targetVector(it, target) } }
+    // On it: the target within the middle of the view. A tick in the hand when it gets there.
+    val centred by remember(targetVec, tanW, tanH) {
+        derivedStateOf {
+            val r = orientation.matrix.value
+            val v = targetVec
+            if (r == null || v == null) {
+                false
+            } else {
+                val out = FloatArray(2)
+                SkyProjection(r, tanW, tanH).project(v, 0, 2f, 2f, out) && abs(out[0] - 1f) < 0.12f && abs(out[1] - 1f) < 0.12f
+            }
+        }
+    }
+    val haptic = LocalHapticFeedback.current
+    LaunchedEffect(centred) { if (centred) haptic.performHapticFeedback(HapticFeedbackType.LongPress) }
+    val where = remember(target, place, atMs / 60_000L) {
+        val p = place
+        val t = target ?: targets.firstOrNull()
+        if (p == null || t == null) null else whereIs(t, atMs, p)
+    }
+
     Box(modifier) {
         val s = scene
         if (s != null && catalog != null) {
             Canvas(Modifier.fillMaxSize().semantics { contentDescription = "Sky view" }) {
                 val r = orientation.matrix.value ?: return@Canvas
-                drawSky(s, catalog, SkyProjection(r, tanW, tanH), measurer, labels, c.night)
+                drawSky(s, catalog, SkyProjection(r, tanW, tanH), measurer, labels, c.night, target, targetVec, centred)
             }
         }
         // ---- what it needs, and how sure it is
@@ -202,7 +246,123 @@ fun SkyOverlay(
             onTime = onTime,
             onClose = onClose,
             modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(10.dp),
+            find = (target?.name ?: "Milky Way core") + if (centred) " · centred" else "",
+            findWhere = where,
+            onFind = { picking = true },
         )
+    }
+    val p = place
+    if (picking && p != null) {
+        TargetPicker(targets, atMs, p.loc, onPick = { target = it; picking = false }, onDismiss = { picking = false })
+    }
+}
+
+/** A target's direction in the scene's frame. */
+private fun targetVector(s: SkyScene, t: SkyTarget?): FloatArray = when (t?.kind) {
+    null, SkyTarget.Kind.CORE -> s.core
+    SkyTarget.Kind.MOON -> s.moon.xyz
+    SkyTarget.Kind.PLANET -> s.planets.firstOrNull { it.name == t.name }?.xyz ?: s.vector(t.raDeg, t.decDeg)
+    else -> s.vector(t.raDeg, t.decDeg)
+}
+
+/** "34° up in the SE"; under a degree, "on the horizon in the E". */
+private fun upIn(altDeg: Double, azDeg: Double): String =
+    if (altDeg < 1) "on the horizon in the ${SkyCalendar.compass(azDeg)}"
+    else "${altDeg.roundToInt()}° up in the ${SkyCalendar.compass(azDeg)}"
+
+/** "34° up in the SE", or when it comes up, or that it does not today. */
+private fun whereIs(t: SkyTarget, atMs: Long, place: SkyPlace): String {
+    val h = t.horizontal(atMs, place.loc)
+    if (h.altDeg >= 0) return upIn(h.altDeg, h.azDeg)
+    val rises = t.rises(atMs, place.loc) ?: return "not up from here today"
+    val at = t.horizontal(rises, place.loc)
+    return "below the horizon · up at ${SkyCalendar.hm(rises, ZoneId.systemDefault())} in the ${SkyCalendar.compass(at.azDeg)}"
+}
+
+private val KindIcons = mapOf(
+    SkyTarget.Kind.CORE to ScIcons.Astro,
+    SkyTarget.Kind.MOON to ScIcons.Moon,
+    SkyTarget.Kind.PLANET to ScIcons.Planet,
+    SkyTarget.Kind.DEEP_SKY to ScIcons.Astro,
+    SkyTarget.Kind.CONSTELLATION to ScIcons.Constellation,
+    SkyTarget.Kind.STAR to ScIcons.Astro,
+)
+
+/**
+ * The targets to find: what is up now first (the core, the Moon and planets, then nebulae and
+ * galaxies, constellations, bright stars), then what comes up later, then what does not today.
+ */
+@Composable
+private fun TargetPicker(
+    targets: List<SkyTarget>,
+    atMs: Long,
+    loc: com.wm.starcam.sky.GeoLocation,
+    onPick: (SkyTarget) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val c = Sc.colors
+    class Item(val t: SkyTarget, val alt: Double, val az: Double, val rises: Long?)
+    var rows by remember { mutableStateOf<List<Item>?>(null) }
+    LaunchedEffect(atMs) {
+        rows = withContext(Dispatchers.Default) {
+            targets.map { t ->
+                val h = t.horizontal(atMs, loc)
+                Item(t, h.altDeg, h.azDeg, if (h.altDeg < 0) t.rises(atMs, loc, 0.0) else null)
+            }
+        }
+    }
+    ScDialog(onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth().background(c.surface).border(1.dp, c.hairline, ScShapes.card).padding(vertical = 16.dp)) {
+            Text("Find in the sky", style = ScType.titleSmall, color = c.text, modifier = Modifier.padding(horizontal = 20.dp))
+            Text("The sky view's arrow leads you to it; the phone ticks when it is in the middle.",
+                style = ScType.bodySmall, color = c.text2, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
+            val list = rows
+            if (list == null) {
+                Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                    com.wm.starcam.ui.components.ScSpinner(size = 24.dp)
+                }
+            } else {
+                val zone = ZoneId.systemDefault()
+                val up = list.filter { it.alt >= 0 }
+                val later = list.filter { it.alt < 0 && it.rises != null }.sortedBy { it.rises }
+                val never = list.filter { it.alt < 0 && it.rises == null }
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 460.dp).padding(top = 6.dp)) {
+                    fun section(title: String, rows: List<Item>, line: (Item) -> String, dim: Boolean) {
+                        if (rows.isEmpty()) return
+                        item(key = title) {
+                            Text(title.uppercase(), style = ScType.label, color = c.text3,
+                                modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 4.dp))
+                        }
+                        items(rows, key = { title + it.t.name }) { r ->
+                            TargetRow(KindIcons.getValue(r.t.kind), r.t.name, line(r), dim) { onPick(r.t) }
+                        }
+                    }
+                    section("Up now", up, { r ->
+                        upIn(r.alt, r.az) + (r.t.about?.let { " · $it" } ?: "")
+                    }, dim = false)
+                    section("Later", later, { r ->
+                        "up at ${SkyCalendar.hm(r.rises!!, zone)}" + (r.t.about?.let { " · $it" } ?: "")
+                    }, dim = false)
+                    section("Not up from here today", never, { r -> r.t.about ?: "" }, dim = true)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TargetRow(icon: ImageVector, name: String, line: String, dim: Boolean, onClick: () -> Unit) {
+    val c = Sc.colors
+    Row(
+        Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onClick).padding(horizontal = 20.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, Modifier.size(18.dp), tint = if (dim) c.text3 else c.accentText)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(name, style = ScType.body, color = if (dim) c.text2 else c.text)
+            if (line.isNotEmpty()) Text(line, style = ScType.caption, color = c.text3)
+        }
     }
 }
 
@@ -222,11 +382,33 @@ private const val BELOW = -0.01f
 
 /** "Now" or a time up to 12 hours ahead, in 10-minute steps; and the way out of the sky view. */
 @Composable
-private fun SkyTime(atMs: Long?, nowMs: Long, onTime: (Long?) -> Unit, onClose: () -> Unit, modifier: Modifier) {
+private fun SkyTime(
+    atMs: Long?,
+    nowMs: Long,
+    onTime: (Long?) -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier,
+    find: String,
+    findWhere: String?,
+    onFind: () -> Unit,
+) {
     val c = Sc.colors
     val ahead = ((atMs ?: nowMs) - nowMs).coerceIn(0L, 12 * 3_600_000L)
     ScGlass(modifier, shape = ScShapes.card) {
         Column(Modifier.fillMaxWidth()) {
+            Row(
+                Modifier.fillMaxWidth().clip(ScShapes.chip).clickable(role = Role.Button, onClick = onFind)
+                    .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(ScIcons.Search, null, Modifier.size(14.dp), tint = c.accent)
+                Column(Modifier.padding(start = 6.dp).weight(1f)) {
+                    Text("Find: $find", style = ScType.bodySmall.copy(fontWeight = FontWeight.Medium), color = c.text)
+                    findWhere?.let { Text(it, style = ScType.caption, color = c.text2) }
+                }
+                Text("Change", style = ScType.bodySmall.copy(fontWeight = FontWeight.Medium), color = c.accentText,
+                    modifier = Modifier.padding(horizontal = 6.dp))
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(ScIcons.Moon, null, Modifier.size(14.dp), tint = c.accent)
                 Text(
@@ -306,6 +488,9 @@ private fun DrawScope.drawSky(
     measurer: TextMeasurer,
     labels: HashMap<String, TextLayoutResult>,
     night: Boolean,
+    target: SkyTarget?,
+    targetVec: FloatArray?,
+    centred: Boolean,
 ) {
     val w = size.width
     val h = size.height
@@ -413,15 +598,26 @@ private fun DrawScope.drawSky(
         label("Sun", tint(Color(0xFFFFD25A)), Offset(p[0] + 15 * dp1, p[1] - 7 * dp1), measurer, labels)
     }
 
-    // ---- the core: marked where it is, an arrow to it when out of view
+    // ---- what is being found (the core unless something else was picked): marked where it is,
+    // an arrow to it when out of view
     val accent = tint(Color(0xFF8FB8FF))
-    val coreName = if (s.coreAltDeg < 0) "Milky Way core (below the horizon)" else "Milky Way core"
-    val inView = proj.project(s.core, 0, w, h, p) && p[0] in 0f..w && p[1] in 0f..h
+    val vec = targetVec ?: s.core
+    val altDeg = Math.toDegrees(kotlin.math.asin(vec[2].toDouble().coerceIn(-1.0, 1.0)))
+    val baseName = target?.name ?: "Milky Way core"
+    val coreName = if (altDeg < 0) "$baseName (below the horizon)" else baseName
+    // The core keeps its own mark while something else is being found.
+    if (target != null && target.kind != SkyTarget.Kind.CORE && s.coreAltDeg >= 0 &&
+        proj.project(s.core, 0, w, h, p) && p[0] in 0f..w && p[1] in 0f..h) {
+        drawCircle(accent.copy(alpha = 0.55f), 14 * dp1, Offset(p[0], p[1]), style = Stroke(1.5f * dp1))
+        label("Milky Way core", accent.copy(alpha = 0.8f), Offset(p[0], p[1] + 26 * dp1), measurer, labels, centered = true)
+    }
+    val inView = proj.project(vec, 0, w, h, p) && p[0] in 0f..w && p[1] in 0f..h
     if (inView) {
+        if (centred) drawCircle(accent.copy(alpha = 0.18f), 26 * dp1, Offset(p[0], p[1]))
         drawCircle(accent, 16 * dp1, Offset(p[0], p[1]), style = Stroke(2 * dp1))
         drawCircle(accent.copy(alpha = 0.4f), 26 * dp1, Offset(p[0], p[1]), style = Stroke(dp1))
         label(coreName, accent, Offset(p[0], p[1] + 30 * dp1), measurer, labels, LabelStyle.copy(fontSize = 12.sp), centered = true)
-    } else if (proj.direction(s.core, 0, q)) {
+    } else if (proj.direction(vec, 0, q)) {
         // From the centre towards the core, stopped just inside the frame.
         val cx = w / 2f
         val cy = h / 2f

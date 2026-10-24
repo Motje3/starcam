@@ -2,6 +2,26 @@
 
 ## The second night, 0.5.0 (2026-10-24)
 
+### Find in the sky
+
+Sky view › "Find: …" › any of 75 targets: the Milky Way's core, the Moon, the planets, the 32
+nebulae, clusters and galaxies of "What's in this photo", the 23 constellations with figures (the
+Big and Little Dipper by those names) and the brightest stars, with Polaris as "the North Star".
+The list says what is up now and where ("34° up in the SE · galaxy · 2.5 million light years"),
+what comes up later and when, and what does not rise from here today (the Southern Cross from
+Amsterdam). The sky view's arrow then leads to the target instead of the core, a ring marks it
+in view, and the phone ticks once it is in the middle; the card under the view keeps saying
+where it is. The core keeps a quiet mark of its own meanwhile. (sky/SkyTargets.kt; tests: the
+North Star at Amsterdam's latitude all night, Orion rising after 22:00 UT on 24 October, the
+Southern Cross never; emulator: 'sky' picks the North Star and reads back "5x° up in the N".)
+
+**Worth a shot tonight** (the planner, under the night at a glance): the five targets most worth a
+long exposure in tonight's dark - each at its highest, at least 25° up (the core from 10°), ranked
+by how photogenic it is and how high it climbs - with "best at 00:15 · 79° up in the S"; a tap
+opens the sky view at that moment, finding it. For Amsterdam on 24-25 October: the Andromeda
+Galaxy, the Orion Nebula, the Pleiades, the North America Nebula, Jupiter before dawn. Tonight's
+list leaves out the part of the night already gone.
+
 ### What's in this photo
 
 Session › "What's in this photo" › **Find out**: the photo's own stars name what is in it - the

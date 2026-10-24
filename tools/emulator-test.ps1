@@ -9,8 +9,10 @@
 #   replay      that session's "watch it build up" video made, kept in the session and the gallery
 #   whatsin     a session of the real sky (Orion, drawn from the star catalogue) stacked, then "What's
 #               in this photo": recognised as Orion the right way round, a labelled copy saved
-#   tonight     the Tonight planner opened from the viewfinder, for a place set with geo fix
-#   sky         the sky view: from the planner onto the viewfinder, closed, and from its own chip
+#   tonight     the Tonight planner opened from the viewfinder, for a place set with geo fix; what is
+#               worth a shot tonight listed, the first opened in the sky view to be found
+#   sky         the sky view: from the planner onto the viewfinder, closed, and from its own chip;
+#               Find: the North Star picked from the list, and where it stands
 #   darksky     the dark-sky map from the planner: your sky, a suggested spot, planned for there
 #   calendar    the sky calendar: a year listed, the Geminids opened in the sky view
 #   autopilot   two sessions under a simulated sky (SkySim): cloud left out, waited out and
@@ -324,15 +326,38 @@ if (Wanted 'tonight') {
     Launch | Out-Null
     $chip = Nodes | Where-Object { $_.'content-desc' -like 'Tonight planner*' } | Select-Object -First 1
     $planned = $false
+    $worth = $false
+    $found = $false
     if ($chip) {
         $c = Center $chip
         A shell input tap $c[0] $c[1]
         $planned = WaitFor 'Show me the sky' 40
         Start-Sleep -Seconds 1
         Shot 'tonight'
-        Back
+        # Worth a shot tonight: under the night at a glance; the first one found in the sky view.
+        for ($k = 0; $k -lt 4 -and -not ((AllText) -match 'best at \d\d:\d\d'); $k++) { A shell input swipe 636 2000 636 1300 300; Start-Sleep -Milliseconds 700 }
+        $worth = (AllText) -match 'Worth a shot tonight'
+        # The first row: its name is the node before its "best at" line.
+        $all = @(Nodes)
+        $i = -1
+        for ($j = 0; $j -lt $all.Count; $j++) { if ($all[$j].text -match '^best at \d\d:\d\d') { $i = $j; break } }
+        $first = if ($i -gt 0) { $all[$i] } else { $null }
+        if ($first) {
+            $name = $all[$i - 1].text
+            Shot 'tonight-worth'
+            $c = Center $first
+            A shell input tap $c[0] $c[1]
+            # The sky view opens finding that one, not the core it finds by default.
+            $found = WaitFor ('Find: ' + [regex]::Escape($name)) 20
+            Start-Sleep -Seconds 1
+            Shot 'tonight-find'
+            $n = Nodes | Where-Object { $_.'content-desc' -eq 'Close the sky view' } | Select-Object -First 1
+            if ($n) { $c = Center $n; A shell input tap $c[0] $c[1] }
+        } else {
+            Back
+        }
     }
-    Check 'tonight' ([bool]$chip -and $planned) "chip=$([bool]$chip) planned=$planned"
+    Check 'tonight' ([bool]$chip -and $planned -and $worth -and $found) "chip=$([bool]$chip) planned=$planned worth=$worth found=$found"
 }
 
 # ---- the sky view: from the planner's button onto the viewfinder, closed, and from its own chip
@@ -362,12 +387,34 @@ if (Wanted 'sky') {
         $closed = -not ((AllText) -match 'The sky (now|at)')
     }
     $fromChip = $false
+    $find = $false
+    $where = $false
     if (Tap 'Sky view') {
         $fromChip = WaitFor 'The sky now' 15
+        # Find: the North Star (always up from Amsterdam) picked from the list; the card says where.
+        $f = Nodes | Where-Object { $_.text -like 'Find:*' } | Select-Object -First 1
+        if ($f) {
+            $c = Center $f
+            A shell input tap $c[0] $c[1]
+            if (WaitFor 'Find in the sky' 10) {
+                Start-Sleep -Seconds 1
+                for ($k = 0; $k -lt 12 -and -not ((AllText) -match 'Polaris, the North Star'); $k++) {
+                    A shell input swipe 636 1900 636 1000 300
+                    Start-Sleep -Milliseconds 600
+                }
+                Shot 'sky-find-list'
+                Tap 'Polaris, the North Star' | Out-Null
+                $find = WaitFor 'Find: Polaris, the North Star' 10
+                # (The degree sign as "." : PowerShell 5.1 reads this file as ANSI.)
+                $where = (AllText) -match '5\d. up in the N\|'
+                Shot 'sky-find'
+            }
+        }
         $n = Nodes | Where-Object { $_.'content-desc' -eq 'Close the sky view' } | Select-Object -First 1
         if ($n) { $c = Center $n; A shell input tap $c[0] $c[1] }
     }
-    Check 'sky' ($fromPlanner -and $closed -and $fromChip) "planner=$fromPlanner closed=$closed chip=$fromChip"
+    Check 'sky' ($fromPlanner -and $closed -and $fromChip -and $find -and $where) `
+        "planner=$fromPlanner closed=$closed chip=$fromChip find=$find where=$where"
 }
 
 # ---- the dark-sky map from the planner (the emulator in Amsterdam): your sky, the suggestions, one

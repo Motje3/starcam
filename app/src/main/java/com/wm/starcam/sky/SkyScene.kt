@@ -35,7 +35,12 @@ class SkyScene(
     /** The horizon every [HORIZON_STEP_DEG] of azimuth, xyz each. */
     val horizon: FloatArray,
     val cardinals: List<Pair<String, FloatArray>>,
+    /** J2000 unit vectors into this frame (row-major), for anything else to be placed in it. */
+    val toCompass: DoubleArray = DoubleArray(9).also { it[0] = 1.0; it[4] = 1.0; it[8] = 1.0 },
 ) {
+    /** A J2000 place in this frame. */
+    fun vector(raDeg: Double, decDeg: Double): FloatArray = FloatArray(3).also { apply(toCompass, unit(raDeg, decDeg), it, 0) }
+
     companion object {
         const val BAND_STEP_DEG = 4
         const val HORIZON_STEP_DEG = 5
@@ -202,6 +207,7 @@ class SkyScene(
                 planets = planets,
                 horizon = horizon,
                 cardinals = cardinals,
+                toCompass = m,
             )
         }
     }

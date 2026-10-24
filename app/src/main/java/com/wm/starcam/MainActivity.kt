@@ -371,6 +371,10 @@ private fun App(
                                     vm.skyView.value = SkyViewRequest(atMs)
                                     stack = listOf(Screen.Capture)
                                 },
+                                onFind = { atMs, name ->
+                                    vm.skyView.value = SkyViewRequest(atMs, name)
+                                    stack = listOf(Screen.Capture)
+                                },
                                 onOpenDarkSky = { push(Screen.DarkSky) },
                                 onOpenCalendar = { push(Screen.Calendar) },
                             )
@@ -378,6 +382,10 @@ private fun App(
                                 onBack = ::pop,
                                 onShowSky = { atMs ->
                                     vm.skyView.value = SkyViewRequest(atMs)
+                                    stack = listOf(Screen.Capture)
+                                },
+                                onFind = { atMs, name ->
+                                    vm.skyView.value = SkyViewRequest(atMs, name)
                                     stack = listOf(Screen.Capture)
                                 },
                                 initialDate = sc.date,
@@ -394,6 +402,10 @@ private fun App(
                                 onBack = ::pop,
                                 onShowSky = { atMs ->
                                     vm.skyView.value = SkyViewRequest(atMs)
+                                    stack = listOf(Screen.Capture)
+                                },
+                                onFind = { atMs, name ->
+                                    vm.skyView.value = SkyViewRequest(atMs, name)
                                     stack = listOf(Screen.Capture)
                                 },
                                 there = GeoLocation(sc.lat, sc.lon),

@@ -478,7 +478,8 @@ private fun Viewfinder(
                 SkyOverlay(
                     request = request,
                     cam = camInfo,
-                    onTime = { vm.skyView.value = SkyViewRequest(it) },
+                    // A new time keeps what is being found.
+                    onTime = { vm.skyView.value = vm.skyView.value?.copy(atMs = it) ?: SkyViewRequest(it) },
                     onClose = { vm.skyView.value = null },
                     modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(22.dp)),
                 )

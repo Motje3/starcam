@@ -6,6 +6,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,6 +48,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -59,7 +61,12 @@ import com.wm.starcam.sky.GeoLocation
 import com.wm.starcam.sky.MoonPhase
 import com.wm.starcam.sky.NightPlan
 import com.wm.starcam.sky.NightPlanner
+import com.wm.starcam.sky.BestTime
+import com.wm.starcam.sky.SkyCalendar
 import com.wm.starcam.sky.SkyMath
+import com.wm.starcam.sky.SkyTarget
+import com.wm.starcam.sky.SkyTargets
+import com.wm.starcam.sky.StarCatalog
 import com.wm.starcam.ui.components.ScButton
 import com.wm.starcam.ui.components.ScButtonKind
 import com.wm.starcam.ui.components.ScCard
@@ -178,6 +185,8 @@ fun TonightScreen(
     onOpenCalendar: (() -> Unit)? = null,
     /** Open on this night instead of tonight (from the sky calendar). */
     initialDate: LocalDate? = null,
+    /** The sky view at a moment, finding the named target there ("worth a shot tonight"). */
+    onFind: ((Long, String) -> Unit)? = null,
 ) {
     val c = Sc.colors
     val context = LocalContext.current
@@ -286,6 +295,7 @@ fun TonightScreen(
                 // numbers behind it only on request.
                 TonightAnswer(pl, if (dayOffset == 0) nowMs else null, zone, onShowSky)
                 NightBar(pl, if (dayOffset == 0) nowMs else null, zone)
+                if (onFind != null) WorthAShotCard(pl, zone, if (dayOffset == 0) nowMs else null, onFind)
                 ScButton(
                     if (showDetails) "Hide the details" else "Details: heights, the Moon, all the times",
                     { showDetails = !showDetails }, Modifier.fillMaxWidth(), kind = ScButtonKind.Text, height = 40.dp,
@@ -353,6 +363,63 @@ fun TonightScreen(
 }
 
 // --------------------------------------------------------------------------------- cards
+
+/**
+ * What is worth a shot tonight: the targets that climb highest in the dark, the best first
+ * ([SkyTargets.bestOf]), each with its moment and a tap to find it there in the sky view.
+ * [nowMs] (tonight only) leaves out the part of the night already gone.
+ */
+@Composable
+private fun WorthAShotCard(plan: NightPlan, zone: ZoneId, nowMs: Long?, onFind: (Long, String) -> Unit) {
+    val c = Sc.colors
+    val context = LocalContext.current
+    val dusk = plan.astroDuskMs ?: plan.nauticalDuskMs ?: plan.civilDuskMs ?: plan.sunsetMs ?: return
+    val dawn = plan.astroDawnMs ?: plan.nauticalDawnMs ?: plan.civilDawnMs ?: plan.sunriseMs ?: return
+    val from = maxOf(dusk, nowMs ?: dusk)
+    var best by remember(plan, from / 900_000L) { mutableStateOf<List<BestTime>?>(null) }
+    LaunchedEffect(plan, from / 900_000L) {
+        best = withContext(Dispatchers.Default) {
+            val catalog = runCatching { StarCatalog.load(context) }.getOrNull() ?: return@withContext emptyList()
+            SkyTargets.bestOf(SkyTargets.all(catalog), from, dawn, plan.location)
+        }
+    }
+    val list = best
+    if (list.isNullOrEmpty()) return
+    ScCard(Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(ScIcons.Constellation, null, Modifier.size(20.dp), tint = c.accentText)
+            Spacer(Modifier.width(8.dp))
+            Text("Worth a shot tonight", style = ScType.headline, color = c.text)
+        }
+        Text("Each at its best in the dark. Tap one to find it in the sky view at that moment.",
+            style = ScType.bodySmall, color = c.text2, modifier = Modifier.padding(top = 4.dp, bottom = 4.dp))
+        for (b in list) {
+            Row(
+                Modifier.fillMaxWidth().clip(ScShapes.chip).clickable(role = Role.Button) { onFind(b.atMs, b.target.name) }
+                    .padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    when (b.target.kind) {
+                        SkyTarget.Kind.PLANET -> ScIcons.Planet
+                        SkyTarget.Kind.CONSTELLATION -> ScIcons.Constellation
+                        else -> ScIcons.Astro
+                    },
+                    null, Modifier.size(18.dp), tint = c.accentText,
+                )
+                Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                    Text(b.target.name, style = ScType.body, color = c.text)
+                    Text(
+                        "best at ${SkyCalendar.hm(b.atMs, zone)} · ${b.altDeg.roundToInt()}° up in the " +
+                            SkyCalendar.compass(b.azDeg) + (b.target.about?.let { " · $it" } ?: ""),
+                        style = ScType.caption, color = c.text3,
+                    )
+                }
+                Icon(ScIcons.ChevronRight, null, Modifier.size(16.dp), tint = c.text3)
+            }
+        }
+    }
+}
 
 /** How dark your own sky is, and the way to the map of darker ones. */
 @Composable
