@@ -75,10 +75,13 @@ import androidx.compose.ui.unit.sp
 import com.wm.starcam.StarCamViewModel
 import com.wm.starcam.camera.CamInfo
 import com.wm.starcam.camera.CaptureState
+import com.wm.starcam.darksky.DarkSkyData
+import com.wm.starcam.darksky.SkyQuality
 import com.wm.starcam.session.AppSettings
 import com.wm.starcam.session.Mode
 import com.wm.starcam.session.Quality
 import com.wm.starcam.session.SessionRepository
+import com.wm.starcam.sensors.SkyPlaceStore
 import com.wm.starcam.ui.components.ScButton
 import com.wm.starcam.ui.components.ScButtonKind
 import com.wm.starcam.ui.components.ScCard
@@ -93,7 +96,6 @@ import com.wm.starcam.ui.theme.ScIcons
 import com.wm.starcam.ui.theme.ScShapes
 import com.wm.starcam.ui.theme.ScType
 import com.wm.starcam.ui.theme.scImageFilter
-import com.wm.starcam.util.StackReplay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -121,7 +123,7 @@ fun CaptureScreen(
     onOpenProbe: () -> Unit,
     onOpenTonight: () -> Unit,
     onOpenStudio: (File) -> Unit,
-    onOpenVideo: (File) -> Unit,
+    onOpenDarkSky: () -> Unit,
 ) {
     val c = Sc.colors
     val settings by vm.settingsStore.settings.collectAsState()
@@ -164,7 +166,7 @@ fun CaptureScreen(
             onOpenSettings = onOpenSettings,
             onOpenTonight = onOpenTonight,
             onOpenStudio = onOpenStudio,
-            onOpenVideo = onOpenVideo,
+            onOpenDarkSky = onOpenDarkSky,
         )
 
         // Not composed while the shield covers it: drawn underneath, its clocks and rings kept
@@ -246,7 +248,7 @@ private fun IdleLayout(
     onOpenSettings: () -> Unit,
     onOpenTonight: () -> Unit,
     onOpenStudio: (File) -> Unit,
-    onOpenVideo: (File) -> Unit,
+    onOpenDarkSky: () -> Unit,
 ) {
     val camInfo by vm.camInfo.collectAsState()
     val ready by vm.ready.collectAsState()
@@ -256,7 +258,7 @@ private fun IdleLayout(
     val plan = remember(settings, camInfo) { planFor(settings, camInfo) }
 
     Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-        QuickBar(vm, idle, onOpenTonight, onOpenStudio, onOpenVideo)
+        QuickBar(vm, idle, onOpenTonight, onOpenStudio, onOpenDarkSky)
         Viewfinder(
             vm = vm,
             settings = settings,
@@ -285,27 +287,17 @@ private fun IdleLayout(
     }
 }
 
-/** The newest session the studio can open, and the newest with pictures for a replay video. */
-private data class LatestShots(val studio: File? = null, val replay: File? = null, val replayCaption: String = "")
-
-private fun latestShots(repo: SessionRepository): LatestShots = runCatching {
-    val dirs = repo.sessionsRoot().listFiles { f -> f.isDirectory }?.sortedByDescending { it.name } ?: emptyList()
-    val studio = dirs.firstOrNull { File(it, "out/master_linear16.tiff").isFile }
-    val replay = dirs.firstOrNull { StackReplay.frames(it).size >= 2 }
-    val caption = replay?.let { dir ->
-        val json = repo.readSessionJson(dir)
-        val header = json?.optJSONObject("header")
-        val used = json?.optJSONObject("result")?.optInt("framesUsed", 0)?.takeIf { it > 0 }
-            ?: StackReplay.frames(dir).size
-        compareCaption(used, header?.optLong("exposureNs") ?: 0L, header?.optInt("iso") ?: 0)
-    } ?: ""
-    LatestShots(studio, replay, caption)
-}.getOrDefault(LatestShots())
+/** The newest session the studio can open. */
+private fun latestStudio(repo: SessionRepository): File? = runCatching {
+    repo.sessionsRoot().listFiles { f -> f.isDirectory }?.sortedByDescending { it.name }
+        ?.firstOrNull { File(it, "out/master_linear16.tiff").isFile }
+}.getOrNull()
 
 /**
- * The top of the capture screen: the night ahead and the last photo, one tap each - the Tonight
- * planner, the editing studio and the photo's replay video. Battery and temperature show on the
- * viewfinder only when they matter ([PowerWarning]).
+ * The top of the capture screen, one tap each: the Tonight planner, the editing studio on the
+ * last photo, and the dark-sky map with how dark your own sky is. (A session's replay video is
+ * on its own page.) Battery and temperature show on the viewfinder only when they matter
+ * ([PowerWarning]).
  */
 @Composable
 private fun QuickBar(
@@ -313,28 +305,24 @@ private fun QuickBar(
     idle: Boolean,
     onOpenTonight: () -> Unit,
     onOpenStudio: (File) -> Unit,
-    onOpenVideo: (File) -> Unit,
+    onOpenDarkSky: () -> Unit,
 ) {
     val context = LocalContext.current
-    var latest by remember { mutableStateOf(LatestShots()) }
-    // Looked up again whenever the screen returns to idle, so a session just finished counts.
-    LaunchedEffect(idle) { if (idle) latest = withContext(Dispatchers.IO) { latestShots(vm.repo) } }
-    val making by StackReplay.making.collectAsState()
-    val tonight = rememberTonightText()
-
-    val replayDir = latest.replay
-    val state = replayDir?.let { making[it.absolutePath] }
-    val video = replayDir?.let { File(it, "out/${StackReplay.VIDEO}") }
-    val hasVideo = remember(replayDir, state) { video?.isFile == true }
-    val progress = state?.progress
-    // A video asked for here plays as soon as it is made.
-    var playWhenMade by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(state) {
-        if (state != null && state.progress == null && playWhenMade == replayDir?.absolutePath) {
-            playWhenMade = null
-            if (video?.isFile == true) onOpenVideo(video)
+    var studio by remember { mutableStateOf<File?>(null) }
+    var bortle by remember { mutableStateOf<Int?>(null) }
+    // Looked up again whenever the screen returns to idle: a session just finished, a place just
+    // changed in the planner.
+    LaunchedEffect(idle) {
+        if (!idle) return@LaunchedEffect
+        studio = withContext(Dispatchers.IO) { latestStudio(vm.repo) }
+        bortle = withContext(Dispatchers.Default) {
+            runCatching {
+                val loc = SkyPlaceStore(context).load()?.loc ?: return@runCatching null
+                SkyQuality.bortle(SkyQuality.sqm(DarkSkyData.glow(context).alr(loc.latDeg, loc.lonDeg)))
+            }.getOrNull()
         }
     }
+    val tonight = rememberTonightText()
 
     Row(
         Modifier.fillMaxWidth().height(58.dp).padding(horizontal = 12.dp, vertical = 7.dp),
@@ -343,22 +331,10 @@ private fun QuickBar(
         QuickAction(ScIcons.Moon, tonight, "Tonight planner: $tonight", Modifier.weight(1.25f),
             onClick = onOpenTonight)
         QuickAction(ScIcons.Edit, "Edit", "Edit the last photo", Modifier.weight(1f),
-            enabled = latest.studio != null) { latest.studio?.let(onOpenStudio) }
-        QuickAction(
-            ScIcons.Play,
-            progress?.let { "${(it * 100).roundToInt()}%" } ?: "Video",
-            "Video of the last session building up",
-            Modifier.weight(1f),
-            enabled = replayDir != null && progress == null,
-        ) {
-            val dir = replayDir ?: return@QuickAction
-            if (hasVideo && video != null) {
-                onOpenVideo(video)
-            } else {
-                playWhenMade = dir.absolutePath
-                StackReplay.make(context, dir, latest.replayCaption)
-            }
-        }
+            enabled = studio != null) { studio?.let(onOpenStudio) }
+        QuickAction(ScIcons.Map, bortle?.let { "Bortle $it" } ?: "Dark sky",
+            "Dark-sky map" + (bortle?.let { ": your sky is Bortle $it" } ?: ""), Modifier.weight(1f),
+            onClick = onOpenDarkSky)
     }
 }
 

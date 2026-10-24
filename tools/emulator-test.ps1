@@ -15,7 +15,8 @@
 #               worth a shot tonight listed, the first opened in the sky view to be found
 #   sky         the sky view: from the planner onto the viewfinder, closed, and from its own chip;
 #               Find: the North Star picked from the list, and where it stands
-#   darksky     the dark-sky map from the planner: your sky, a suggested spot, planned for there
+#   darksky     the dark-sky map from the top bar (showing your Bortle class) and from the planner:
+#               your sky, a suggested spot, planned for there
 #   calendar    the sky calendar: a year listed, the Geminids opened in the sky view
 #   autopilot   two sessions under a simulated sky (SkySim): cloud left out, waited out and
 #               replaced, a focus drift refocused, the planned 12 good frames stacked; then dawn
@@ -415,6 +416,13 @@ if (Wanted 'tonight') {
         Shot 'tonight'
         # Worth a shot tonight: under the night at a glance; the first one found in the sky view.
         for ($k = 0; $k -lt 4 -and -not ((AllText) -match 'best at \d\d:\d\d'); $k++) { A shell input swipe 636 2000 636 1300 300; Start-Sleep -Milliseconds 700 }
+        if (-not ((AllText) -match 'best at \d\d:\d\d')) {
+            # Until noon "tonight" is the night that has just ended, with nothing left to shoot:
+            # the next night has its list.
+            Tap 'Night after' | Out-Null
+            WaitFor 'Show me the sky' 40 | Out-Null
+            for ($k = 0; $k -lt 4 -and -not ((AllText) -match 'best at \d\d:\d\d'); $k++) { A shell input swipe 636 2000 636 1300 300; Start-Sleep -Milliseconds 700 }
+        }
         $worth = (AllText) -match 'Worth a shot tonight'
         # The first row: its name is the node before its "best at" line.
         $all = @(Nodes)
@@ -502,6 +510,17 @@ if (Wanted 'darksky') {
     A shell pm grant com.wm.starcam android.permission.ACCESS_COARSE_LOCATION 2>&1 | Out-Null
     & $adbExe -s $Serial emu geo fix 4.90 52.37 2>&1 | Out-Null
     Launch | Out-Null
+    # The capture screen's top bar: your sky's Bortle class, one tap to the map.
+    $fromBar = $false
+    $bar = Nodes | Where-Object { $_.'content-desc' -like 'Dark-sky map*' } | Select-Object -First 1
+    if ($bar) {
+        $label = ((Nodes | Where-Object { $_.text -match '^Bortle \d$' } | Select-Object -First 1).text)
+        $c = Center $bar
+        A shell input tap $c[0] $c[1]
+        $fromBar = (WaitFor 'Your sky' 30) -and [bool]$label
+        Back
+        WaitFor 'Start astro capture' 15 | Out-Null
+    }
     $chip = Nodes | Where-Object { $_.'content-desc' -like 'Tonight planner*' } | Select-Object -First 1
     $opened = $false; $spot = $false; $planned = $false
     if ($chip) {
@@ -525,7 +544,7 @@ if (Wanted 'darksky') {
             }
         }
     }
-    Check 'darksky' ($opened -and $spot -and $planned) "opened=$opened spot=$spot planned=$planned"
+    Check 'darksky' ($fromBar -and $opened -and $spot -and $planned) "bar=$fromBar opened=$opened spot=$spot planned=$planned"
 }
 
 # ---- the sky calendar from the planner: a year of events, the meteor filter, the Geminids opened

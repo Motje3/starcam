@@ -2,6 +2,15 @@
 
 ## The second night, 0.5.0 (2026-10-24)
 
+### The top bar's third button: the dark-sky map
+
+(On the user's call.) **Video** gave its place to the dark-sky map: the button shows how dark your
+own sky is ("Bortle 6", from the place in the planner) and opens the map with the darker spots
+within reach. A session's replay video stays where it is watched: its page ("Watch it build up",
+Play) and the result screen after a shot. The emulator's 'darksky' check now starts from the
+button; 'tonight' moves to the next night when tonight's dark hours are over (until noon the
+planner's "tonight" is the night that has just ended).
+
 ### Timelapse and meteor highlights
 
 Both come from the session's kept RAW frames (cache/), developed one at a time by a new native

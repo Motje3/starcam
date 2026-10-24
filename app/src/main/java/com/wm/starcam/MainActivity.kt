@@ -349,7 +349,7 @@ private fun App(
                                 onOpenProbe = { push(Screen.Probe) },
                                 onOpenTonight = { push(Screen.Tonight) },
                                 onOpenStudio = { dir -> push(Screen.Studio(dir)) },
-                                onOpenVideo = { file -> push(Screen.Video(file)) },
+                                onOpenDarkSky = { push(Screen.DarkSky) },
                             )
                             Screen.Sessions -> SessionsScreen(
                                 repo = vm.repo,
