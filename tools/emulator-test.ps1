@@ -7,6 +7,8 @@
 #               as shot with the phone upright: 7 of 8 frames, a portrait photo, a 1-frame comparison
 #   studio      that session opened in the editing studio, restyled and saved as a new photo
 #   replay      that session's "watch it build up" video made, kept in the session and the gallery
+#   whatsin     a session of the real sky (Orion, drawn from the star catalogue) stacked, then "What's
+#               in this photo": recognised as Orion the right way round, a labelled copy saved
 #   tonight     the Tonight planner opened from the viewfinder, for a place set with geo fix
 #   sky         the sky view: from the planner onto the viewfinder, closed, and from its own chip
 #   darksky     the dark-sky map from the planner: your sky, a suggested spot, planned for there
@@ -273,6 +275,46 @@ if (Wanted 'replay') {
         }
         Check 'replay' ($card -and $made -and $size -gt 20000 -and $gallery -and $readBack -eq 3) "card=$card made=$made bytes=$size gallery=$gallery read back=$readBack"
     }
+}
+
+# ---- "What's in this photo" on a stacked session of the real sky (make-test-session.ps1 -Sky orion)
+if (Wanted 'whatsin') {
+    $wnow = Get-Date
+    $wname = $wnow.ToString('yyyyMMdd_HHmmss') + '_astro'
+    & (Join-Path $PSScriptRoot 'make-test-session.ps1') -Name $wname -Rotation 90 -Sky orion -Push -Serial $Serial | Out-Null
+    Launch | Out-Null
+    Tap 'Sessions gallery' | Out-Null
+    Start-Sleep -Seconds 2
+    $tile = Nodes | Where-Object { $_.text -match ('Today . ' + $wnow.ToString('HH:mm')) } | Select-Object -First 1
+    $stacked = $false; $found = $false; $orion = $false; $saved = $false
+    if ($tile) {
+        $c = Center $tile
+        A shell input tap $c[0] $c[1]
+        Start-Sleep -Seconds 3
+        for ($k = 0; $k -lt 5 -and -not ((AllText) -match '\|Stack\|'); $k++) { A shell input swipe 636 2200 636 900 300; Start-Sleep -Milliseconds 700 }
+        Tap 'Stack' | Out-Null
+        $stacked = WaitFor 'Done: the photo above is updated' 600
+        # The card sits under the photo.
+        for ($k = 0; $k -lt 4 -and -not ((AllText) -match '\|Find out\|'); $k++) { A shell input swipe 636 2000 636 1300 300; Start-Sleep -Milliseconds 700 }
+        Tap 'Find out' | Out-Null
+        $found = WaitFor 'stars recognised' 90
+        $orion = (AllText) -match '\|Orion'
+        Shot 'whatsin-answer'
+        for ($k = 0; $k -lt 4; $k++) { A shell input swipe 636 900 636 2200 300; Start-Sleep -Milliseconds 500 }
+        Shot 'whatsin-labels'
+        for ($k = 0; $k -lt 5 -and -not ((AllText) -match '\|Save labelled\|'); $k++) { A shell input swipe 636 2000 636 1300 300; Start-Sleep -Milliseconds 700 }
+        Tap 'Save labelled' | Out-Null
+        $saved = WaitFor 'Saved to the gallery, in Pictures/StarCam' 90
+    }
+    # Solved the right way round (a mirrored solution would mean the pipeline flips photos).
+    $wlocal = Join-Path $shots 'whats_in.json'
+    A pull "/sdcard/Android/media/com.wm.starcam/StarCam/sessions/$wname/meta/whats_in.json" $wlocal 2>&1 | Out-Null
+    $solution = try { (Get-Content $wlocal -Raw | ConvertFrom-Json).solution } catch { $null }
+    $upright = $solution -and -not $solution.flipped
+    $matched = if ($solution) { [int]$solution.matched } else { 0 }
+    $copy = (A shell ls /sdcard/Pictures/StarCam/ 2>$null) -match "starcam_${wname}_labelled"
+    Check 'whatsin' ($stacked -and $found -and $orion -and $upright -and $matched -ge 30 -and $saved -and [bool]$copy) `
+        "stacked=$stacked found=$found orion=$orion upright=$upright matched=$matched saved=$saved gallery=$([bool]$copy)"
 }
 
 # ---- the Tonight planner from the viewfinder chip, with the emulator placed in Amsterdam

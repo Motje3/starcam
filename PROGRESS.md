@@ -2,6 +2,41 @@
 
 ## The second night, 0.5.0 (2026-10-24)
 
+### What's in this photo
+
+Session › "What's in this photo" › **Find out**: the photo's own stars name what is in it - the
+constellations (figures drawn, names placed clear of each other and of the lines), the named
+stars and how far away they are, the planets where they were that night, the nebulae, clusters
+and galaxies (32 of the best for a wide field, both hemispheres, with their distances), the
+centre of the Milky Way, and how old the oldest light in the photo is ("Its oldest light, from
+the Andromeda Galaxy, set out 2.5 million years ago"). Labels on and off over the zoomable photo,
+**Save labelled** (a copy with the labels drawn in, to the gallery) and **Share**. All on the
+phone, no internet:
+- **Stars found on the photo as saved** (sky/PhotoStars.kt): peaks well above the sky round them
+  (a ring of pixels, so a bump on a lamp's glow or the Moon's is no star), centroids, brightness;
+  blobs too big to be stars left out. Works on any session's photo, an edit too, old ones too.
+- **Plate solving** (sky/PlateSolver.kt): the photo's 18 brightest stars as directions out of the
+  camera; any two of them and a pair of bright catalogue stars the same angle apart fix a rotation
+  of the sky (TRIAD), scored against the photo's 48 brightest stars through a grid; the best 12
+  checked against every star in the photo and the catalogue, with least squares for the centre,
+  turn, scale and the lens's barrel or pincushion (the RAW stack is not corrected for it). The whole
+  sky is searched, no compass needed: about 50 ms when it finds the sky on the desktop JVM, under
+  2 s to give up on a photo of clouds. A mirrored solution would be logged as MIRRORED (a pipeline
+  bug); the emulator's Orion came out the right way round.
+- **The focal length** is now kept in the session header (focalPx, from the lens and sensor size);
+  older sessions try the fields a phone's main camera has (74, 62, 86, 50 deg across).
+- The answer is kept in meta/whats_in.json for that photo file, so it comes back at once and goes
+  when the photo is re-stacked or edited.
+
+Tested: 13 plate-solving cases (blind Orion, the Southern Cross in portrait, the Summer Triangle
+with a hint 8 deg off, a mirrored photo, 3 % barrel distortion recovered, a town sky with a third
+of the stars lost and lamps brighter than them, a focal length 9 % off, a 25 deg telephoto field,
+a wrong hint, and twelve noise fields that must never give an answer); a synthetic 8-bit photo
+with the Moon and lamps in it found, solved (134 stars, 0.24 px rms), labelled (Orion first, not
+Canis Major for Sirius in a corner; Jupiter in Taurus on 7 Dec 2024). Emulator: a session of the
+real sky (make-test-session.ps1 -Sky orion) stacked in the app, then recognised: Orion, 146 stars,
+upright, the labelled copy in the gallery (emulator-test.ps1 'whatsin').
+
 ### Sky calendar and night alerts
 
 Planner › "Sky calendar": the next twelve months of what the sky does where you are, by month,

@@ -1,5 +1,6 @@
 package com.wm.starcam.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -40,7 +41,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.ContentScale
@@ -55,6 +58,8 @@ import com.wm.starcam.session.SINGLE_FRAME_JPG
 import com.wm.starcam.session.SessionRepository
 import com.wm.starcam.session.sessionPhoto
 import com.wm.starcam.session.stackPhoto
+import com.wm.starcam.sky.SkyLabels
+import com.wm.starcam.sky.StarCatalog
 import com.wm.starcam.ui.components.ScButton
 import com.wm.starcam.ui.components.ScButtonKind
 import com.wm.starcam.ui.components.ScCard
@@ -76,9 +81,11 @@ import com.wm.starcam.ui.theme.ScreenMargin
 import com.wm.starcam.ui.theme.scImageFilter
 import com.wm.starcam.util.ShareCard
 import com.wm.starcam.util.StackReplay
+import com.wm.starcam.util.WhatsInPhoto
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import java.io.File
 import java.util.Locale
 
@@ -125,10 +132,13 @@ private data class DetailData(
     val replayBytes: Long = 0L,
     /** What the autopilot did while shooting (session.json "autopilot"); empty when nothing. */
     val autopilot: List<String> = emptyList(),
+    val header: JSONObject? = null,
+    /** "What's in this photo", when it was asked for this very photo before. */
+    val whatsIn: WhatsInPhoto.Found? = null,
 )
 
 /** Blocking; reads session.json, the photo and the file sizes. */
-private fun loadDetail(dir: File, repo: SessionRepository): DetailData {
+private fun loadDetail(dir: File, repo: SessionRepository, catalog: StarCatalog?): DetailData {
     val json = repo.readSessionJson(dir)
     // The newest: an edit or a re-stack is what the session shows from then on.
     val jpg = sessionPhoto(dir)
@@ -154,6 +164,7 @@ private fun loadDetail(dir: File, repo: SessionRepository): DetailData {
     val dngs = File(dir, "lights").listFiles { f -> f.extension == "dng" } ?: emptyArray()
     val cache = repo.cacheFrames(dir)
     val replay = StackReplay.frames(dir)
+    val startedAt = header?.optLong("startedAt") ?: dir.lastModified()
     return DetailData(
         stats = resultObj?.let { r ->
             StackStats(
@@ -171,7 +182,7 @@ private fun loadDetail(dir: File, repo: SessionRepository): DetailData {
         image = image,
         cacheCount = cache.size,
         mode = runCatching { Mode.valueOf(modeName) }.getOrDefault(Mode.ASTRO),
-        startedAt = header?.optLong("startedAt") ?: dir.lastModified(),
+        startedAt = startedAt,
         exposureNs = header?.optLong("exposureNs") ?: 0L,
         iso = header?.optInt("iso") ?: 0,
         dngCount = dngs.size,
@@ -188,6 +199,8 @@ private fun loadDetail(dir: File, repo: SessionRepository): DetailData {
         autopilot = json?.optJSONObject("autopilot")?.optJSONArray("report")?.let { a ->
             (0 until a.length()).mapNotNull { a.optString(it).takeIf { s -> s.isNotEmpty() } }
         } ?: emptyList(),
+        header = header,
+        whatsIn = if (jpg != null && catalog != null) WhatsInPhoto.cached(dir, jpg, catalog, startedAt) else null,
     )
 }
 
@@ -244,10 +257,19 @@ fun SessionDetailScreen(
 
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val night = c.night
+
+    // "What's in this photo": asked for once per photo, then kept with the session.
+    val catalog = remember { runCatching { StarCatalog.load(context) }.getOrNull() }
+    var whatsIn by remember { mutableStateOf<WhatsInPhoto.Found?>(null) }
+    var identifying by remember { mutableStateOf(false) }
+    var showLabels by remember { mutableStateOf(true) }
+    var whatsInNote by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(dir, loadKey) {
-        val d = withContext(Dispatchers.IO) { loadDetail(dir, repo) }
+        val d = withContext(Dispatchers.IO) { loadDetail(dir, repo, catalog) }
         data = d
+        whatsIn = d.whatsIn
         if (scrollUpOnLoad) {
             scrollUpOnLoad = false
             scroll.animateScrollTo(0)
@@ -318,7 +340,7 @@ fun SessionDetailScreen(
             if (comparing && single != null && stacked != null) {
                 CompareSlider(single, stacked, "1 frame", "Stacked · ${d.stats?.framesUsed ?: d.frameCount}")
             } else {
-                ZoomableImage(d.image)
+                ZoomableImage(d.image, if (showLabels) whatsIn?.labels else null)
             }
             Column(
                 Modifier.padding(horizontal = ScreenMargin, vertical = 14.dp),
@@ -351,6 +373,57 @@ fun SessionDetailScreen(
                         }, Modifier.fillMaxWidth(), icon = ScIcons.Share)
                     }
                 }
+                // ---- What's in it: the constellations and the rest, named
+                val photoFile = d.jpgFile
+                if (photoFile != null && d.image != null && catalog != null) {
+                    fun labelled(gallery: Boolean, then: (File?, android.net.Uri?) -> Unit) {
+                        val labels = whatsIn?.labels ?: return
+                        whatsInNote = if (gallery) "Saving…" else null
+                        scope.launch {
+                            val (file, uri) = withContext(Dispatchers.IO) {
+                                WhatsInPhoto.saveLabelled(context, dir.name, photoFile, labels, night, gallery)
+                            }
+                            then(file, uri)
+                        }
+                    }
+                    WhatsInCard(
+                        found = whatsIn,
+                        working = identifying,
+                        takenAtMs = d.startedAt,
+                        showLabels = showLabels,
+                        onShowLabels = { showLabels = it },
+                        onFind = {
+                            identifying = true
+                            whatsInNote = null
+                            scope.launch {
+                                val found = withContext(Dispatchers.Default) {
+                                    WhatsInPhoto.identify(dir, photoFile, d.header, catalog)
+                                }
+                                whatsIn = found
+                                identifying = false
+                                showLabels = true
+                                comparing = false
+                            }
+                        },
+                        onSave = {
+                            labelled(gallery = true) { file, uri ->
+                                whatsInNote = when {
+                                    uri != null -> "Saved to the gallery, in Pictures/StarCam."
+                                    file != null -> "Made, but the gallery would not take it; Share still works."
+                                    else -> "The labelled copy could not be made."
+                                }
+                            }
+                        },
+                        onShare = {
+                            labelled(gallery = false) { file, _ ->
+                                file?.let { photoUri(context, it) }?.let { sharePhoto(context, it) }
+                                    ?: run { whatsInNote = "The labelled copy could not be made." }
+                            }
+                        },
+                        note = whatsInNote,
+                    )
+                }
+
                 // ---- What went into it
                 val st = d.stats
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -534,8 +607,9 @@ fun SessionDetailScreen(
  * single finger at fit scale is left alone, so it scrolls the page instead.
  */
 @Composable
-private fun ZoomableImage(image: ImageBitmap?) {
+private fun ZoomableImage(image: ImageBitmap?, labels: SkyLabels? = null) {
     val c = Sc.colors
+    val context = LocalContext.current
     if (image == null) {
         Box(Modifier.fillMaxWidth().height(200.dp).background(c.sunken), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -590,6 +664,20 @@ private fun ZoomableImage(image: ImageBitmap?) {
             contentScale = ContentScale.FillWidth,
             colorFilter = scImageFilter,
         )
+        if (labels != null) {
+            // Drawn over the zoomed photo, not with it: the names keep their size as it grows.
+            val painter = remember(c.night) { SkyLabelPainter(context, c.night) }
+            Canvas(Modifier.matchParentSize()) {
+                val s = scale * size.width / labels.width
+                val dx = size.width / 2f * (1 - scale) + offset.x
+                val dy = size.height / 2f * (1 - scale) + offset.y
+                // The zoom badge in the top corner keeps its place free of names.
+                val badge = android.graphics.RectF(size.width - 240 * density, 0f, size.width, 56 * density)
+                drawIntoCanvas {
+                    painter.draw(it.nativeCanvas, labels, s, dx, dy, density, size.width, size.height, listOf(badge))
+                }
+            }
+        }
         ScGlass(Modifier.align(Alignment.TopEnd).padding(10.dp)) {
             Icon(ScIcons.ZoomIn, null, Modifier.size(14.dp), tint = c.text2)
             Text(if (scale > 1.01f) String.format(Locale.US, "%.1f× · double-tap to fit", scale) else "Pinch to zoom",

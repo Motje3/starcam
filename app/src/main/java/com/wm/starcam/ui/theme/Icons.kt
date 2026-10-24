@@ -190,6 +190,14 @@ object ScIcons {
         circle(12f, 12f, 5f)
         path("M4.2 15.2c-1.6 1.8-1.9 3.2-.9 3.8 1.9 1.1 7.4-1.3 12.3-5.3s7.4-8 5.5-9.1c-.9-.5-2.4-.1-4.3 1")
     }
+    /** A constellation: four stars joined up. */
+    val Constellation by icon {
+        path("M6.3 15.6l2.6-3.1M11.4 10.9l2.3 1.4M16.5 11.6l1.9-4.1")
+        circle(5f, 17f, 1.6f)
+        circle(10f, 10.6f, 1.6f)
+        circle(15.2f, 13.4f, 1.6f)
+        circle(19.2f, 5.8f, 1.6f)
+    }
     /** An eclipse: two discs overlapping. */
     val Eclipse by icon {
         circle(10f, 12f, 6.5f)

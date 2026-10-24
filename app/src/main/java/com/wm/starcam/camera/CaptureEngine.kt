@@ -645,6 +645,8 @@ class CaptureEngine(
                 put("startedAt", System.currentTimeMillis())
                 put("rawWidth", rawSize.width)
                 put("rawHeight", rawSize.height)
+                // For "What's in this photo": pixels to angles on the sky.
+                cam.focalPx(rawSize.width)?.let { put("focalPx", it) }
                 put("exposureNs", decision.exposureNs)
                 put("iso", decision.iso)
                 put("plannedFrames", totalFrames)

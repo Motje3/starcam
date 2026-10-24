@@ -12,6 +12,10 @@
 #   powershell -ExecutionPolicy Bypass -File tools\make-test-session.ps1 -Push -Serial emulator-5554
 #
 # Without -Push the session is only written to field-logs\test-sessions\.
+#
+# -Sky orion (or -Sky "ra,dec" in degrees) draws the real sky instead of a random field: the star
+# catalogue's stars around that place at a 1500 px focal length (63 x 50 deg), with fainter stars
+# it does not have, and records the focal length - for "What's in this photo".
 
 param(
     [string]$Name = (Get-Date -Format 'yyyyMMdd') + '_030000_astro',
@@ -19,7 +23,8 @@ param(
     # Recorded as the clockwise turn that makes the photo upright (-1: not recorded, as before 0.4).
     [int]$Rotation = -1,
     [switch]$Push,
-    [string]$Serial = ''
+    [string]$Serial = '',
+    [string]$Sky = ''
 )
 $ErrorActionPreference = 'Stop'
 
@@ -34,6 +39,9 @@ public static class StarCamTestSession {
     const int W = 1856, H = 1392;
     const uint WHITE = 1023;
     const float BLACK = 64f;
+
+    // The real sky's stars (-Sky): RAW px and brightness; null for a random field.
+    public static double[] SkyX, SkyY, SkyA;
 
     // Header layout: app/src/main/cpp/sraw.h.
     static void Header(BinaryWriter w, long expNs, int iso, long ts, float[] wb) {
@@ -63,6 +71,16 @@ public static class StarCamTestSession {
             sx[i] = 40 + rs.NextDouble() * (W - 80);
             sy[i] = 40 + rs.NextDouble() * (H - 80);
             sa[i] = 25 + 900 * Math.Pow(rs.NextDouble(), 3.0);   // a few bright, many faint
+        }
+        if (SkyX != null) {
+            // The catalogue's stars, and fainter ones it does not have scattered among them.
+            int faint = 300, n = SkyX.Length + faint;
+            double[] x2 = new double[n], y2 = new double[n], a2 = new double[n];
+            for (int i = 0; i < SkyX.Length; i++) { x2[i] = SkyX[i]; y2[i] = SkyY[i]; a2[i] = SkyA[i]; }
+            for (int i = SkyX.Length; i < n; i++) {
+                x2[i] = sx[i % nStars]; y2[i] = sy[i % nStars]; a2[i] = 8 + 14 * rs.NextDouble();
+            }
+            nStars = n; sx = x2; sy = y2; sa = a2;
         }
         int nHot = 300;
         int[] hx = new int[nHot], hy = new int[nHot];
@@ -174,6 +192,36 @@ public static class StarCamTestSession {
 }
 "@ -ReferencedAssemblies System.Drawing
 
+if ($Sky) {
+    $spec = @{ orion = '84,2'; cygnus = '305,38'; scorpius = '255,-30' }[$Sky.ToLower()]
+    if (-not $spec) { $spec = $Sky }
+    $ra0, $dec0 = $spec -split ',' | ForEach-Object { [double]$_ * [Math]::PI / 180 }
+    $f = 1500.0
+    $xs = New-Object 'System.Collections.Generic.List[double]'
+    $ys = New-Object 'System.Collections.Generic.List[double]'
+    $amps = New-Object 'System.Collections.Generic.List[double]'
+    foreach ($line in [IO.File]::ReadAllLines((Join-Path $project 'app\src\main\assets\sky\stars.txt'))) {
+        if ($line.StartsWith('#') -or -not $line.Trim()) { continue }
+        $p = $line.Trim() -split ' '
+        $ra = [double]$p[1] * [Math]::PI / 180
+        $dec = [double]$p[2] * [Math]::PI / 180
+        $cosc = [Math]::Sin($dec0) * [Math]::Sin($dec) + [Math]::Cos($dec0) * [Math]::Cos($dec) * [Math]::Cos($ra - $ra0)
+        if ($cosc -lt 0.3) { continue }
+        # Gnomonic, as a camera sees the sky from inside it: east to the left, north up.
+        $xi = [Math]::Cos($dec) * [Math]::Sin($ra - $ra0) / $cosc
+        $eta = ([Math]::Cos($dec0) * [Math]::Sin($dec) - [Math]::Sin($dec0) * [Math]::Cos($dec) * [Math]::Cos($ra - $ra0)) / $cosc
+        $x = 928 - $f * $xi
+        $y = 696 - $f * $eta
+        if ($x -lt 10 -or $y -lt 10 -or $x -gt 1846 -or $y -gt 1382) { continue }
+        $xs.Add($x); $ys.Add($y)
+        $amps.Add([Math]::Min(950, [Math]::Max(10, 900 * [Math]::Pow(10, -0.4 * ([double]$p[3] - 0.5)))))
+    }
+    [StarCamTestSession]::SkyX = $xs.ToArray()
+    [StarCamTestSession]::SkyY = $ys.ToArray()
+    [StarCamTestSession]::SkyA = $amps.ToArray()
+    Write-Host "sky: $($xs.Count) catalogue stars around $spec"
+}
+
 if (Test-Path $out) { Remove-Item -Recurse -Force $out }
 foreach ($d in 'lights', 'darks', 'out', 'meta') { New-Item -ItemType Directory -Force (Join-Path $out $d) | Out-Null }
 [StarCamTestSession]::Make($out, $Frames)
@@ -189,6 +237,7 @@ $json = '{"header":{"mode":"ASTRO","quality":"FAST","stackConfig":{"sigmaFirst":
     '"chromaDenoise":true,"starSharpen":false,"foregroundComposite":false,"featherPx":40,"style":0' +
     $(if ($Rotation -ge 0) { ",`"rotation`":$Rotation" } else { '' }) + '},' +
     "`"startedAt`":$startedAt,`"rawWidth`":1856,`"rawHeight`":1392,`"exposureNs`":20000000000,`"iso`":800," +
+    $(if ($Sky) { '"focalPx":1500,' } else { '' }) +
     "`"plannedFrames`":$Frames,`"reasoning`":`"synthetic test session (tools\\make-test-session.ps1)`"}," +
     "`"frames`":[$framesJson]}"
 [IO.File]::WriteAllText((Join-Path $out 'meta\session.json'), $json)

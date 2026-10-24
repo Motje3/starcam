@@ -9,6 +9,10 @@ detail, star colour, wavelet noise reduction) → finished JPG in the gallery, u
 phone was held + 16-bit linear TIFF master + optional DNGs of every frame for PC stacking
 (Siril/PixInsight/Sequator).
 
+**What's in this photo** names everything in a finished photo from its own stars - the
+constellations drawn in, the stars and how far away they are, the planets, the nebulae and
+galaxies, and how long their light was on its way - with a labelled copy to save and share.
+
 A **sky calendar** lays out the next twelve months where you are - meteor showers rated for the
 Moon and your own sky, the Milky Way's nights and season, eclipses as seen from your place,
 planets at their best - each one a tap from the sky view at that moment, with an afternoon alert

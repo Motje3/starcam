@@ -72,6 +72,25 @@ data class CamInfo(
     fun rawSize(fullRes: Boolean): Size = if (fullRes || binnedRawSize == null) fullRawSize else binnedRawSize
 
     /**
+     * The focal length in pixels of a RAW frame [rawWidth] wide (what turns a photo's pixels into
+     * angles on the sky), or null when the lens or sensor size is not reported. The physical size
+     * is the whole pixel array's; a RAW frame spans the active part of it.
+     */
+    fun focalPx(rawWidth: Int): Double? {
+        val physical = characteristics.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)?.width
+            ?.takeIf { it > 0f } ?: sensorWidthMm.takeIf { it > 0f } ?: return null
+        if (focalLengthMm <= 0f || rawWidth <= 0) return null
+        val pixels = characteristics.get(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE)
+        val active = characteristics.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
+        val activeShare = if (pixels != null && active != null && pixels.width > 0) {
+            (active.width().toFloat() / pixels.width).coerceIn(0.5f, 1f)
+        } else {
+            1f
+        }
+        return focalLengthMm.toDouble() * rawWidth / (physical * activeShare)
+    }
+
+    /**
      * A camera-supported preview size matching the sensor's aspect ratio, at most ~1080p. The
      * SurfaceView buffer must be set to this: left at the view's own size the preview is stretched
      * (sensor is 4:3, screen is ~20:9) and shows a different field of view than what is captured.
