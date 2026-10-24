@@ -2,14 +2,18 @@
 
 ## The second night, 0.5.0 (2026-10-24)
 
-### The top bar's third button: the dark-sky map
+### The top bar: Tonight, Find, the dark-sky map
 
-(On the user's call.) **Video** gave its place to the dark-sky map: the button shows how dark your
-own sky is ("Bortle 6", from the place in the planner) and opens the map with the darker spots
-within reach. A session's replay video stays where it is watched: its page ("Watch it build up",
-Play) and the result screen after a shot. The emulator's 'darksky' check now starts from the
-button; 'tonight' moves to the next night when tonight's dark hours are over (until noon the
-planner's "tonight" is the night that has just ended).
+(On the user's call.) The capture screen's top bar now holds the night's tools only:
+**Tonight** (the planner), **Find** (the sky view opening with its list of galaxies, nebulae,
+planets and stars to be led to) and the dark-sky map, whose button shows how dark your own sky is
+("Bortle 6", from the place in the planner). What belongs to a photo went to the photo: **Edit**
+sits beside Share on the result screen after a shot (and on the session page, as before), and the
+replay video plays from the session page ("Watch it build up") and the result screen. The
+emulator's checks start from the new buttons ('sky': Find opens the list; 'darksky': the map from
+the bar; 'autopilot': Edit from the result opens the studio); 'tonight' moves to the next night
+when tonight's dark hours are over (until noon the planner's "tonight" is the night that has just
+ended).
 
 ### Timelapse and meteor highlights
 

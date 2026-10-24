@@ -94,9 +94,10 @@ import kotlin.math.tan
 
 /**
  * What the sky view shows: the sky now ([atMs] null), or later tonight; [target], the name of
- * something to find in it (from the planner's "worth a shot").
+ * something to find in it (from the planner's "worth a shot"); [pick], open with the list of
+ * things to find (the capture screen's Find button).
  */
-data class SkyViewRequest(val atMs: Long? = null, val target: String? = null)
+data class SkyViewRequest(val atMs: Long? = null, val target: String? = null, val pick: Boolean = false)
 
 /** The back camera's half field of view across and up the portrait screen, as tangents. */
 private fun fieldOfView(cam: CamInfo?): Pair<Float, Float> {
@@ -184,7 +185,7 @@ fun SkyOverlay(
     // ---- Find: what the arrow leads to - the Milky Way's core unless something else is picked
     val targets = remember(catalog) { catalog?.let { SkyTargets.all(it) } ?: emptyList() }
     var target by remember(request.target) { mutableStateOf(targets.firstOrNull { it.name == request.target }) }
-    var picking by remember { mutableStateOf(false) }
+    var picking by remember(request.pick) { mutableStateOf(request.pick) }
     val targetVec = remember(scene, target) { scene?.let { targetVector(it, target) } }
     // On it: the target within the middle of the view. A tick in the hand when it gets there.
     val centred by remember(targetVec, tanW, tanH) {

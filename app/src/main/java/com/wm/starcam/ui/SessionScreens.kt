@@ -132,6 +132,8 @@ fun SessionFlow(
     settings: AppSettings,
     onShield: () -> Unit,
     onOpenSession: (File) -> Unit,
+    /** The editing studio on a session's photo, from the result screen. */
+    onOpenStudio: (File) -> Unit,
 ) {
     val busy by engine?.busy.collectOr(null)
     val decision by engine?.decision.collectOr(null)
@@ -164,6 +166,7 @@ fun SessionFlow(
                 state, decision,
                 onClose = { engine?.dismissResult() },
                 onOpenSession = onOpenSession,
+                onEdit = onOpenStudio,
             )
             is CaptureState.Error -> ErrorStep(
                 vm, state,
@@ -1133,11 +1136,14 @@ private fun DoneStep(
     decision: AutoExposure.Decision?,
     onClose: () -> Unit,
     onOpenSession: (File) -> Unit,
+    onEdit: (File) -> Unit,
 ) {
     val c = Sc.colors
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var image by remember { mutableStateOf<ImageBitmap?>(null) }
+    // The studio develops the session's linear master: Edit waits for it to be there.
+    var hasMaster by remember(st.sessionDir) { mutableStateOf(false) }
     // Null until the file has been looked at. False when the stack finished but no JPEG was
     // written (out of storage or memory): the screen used to spin on a preview that never came
     // and offer to share a file that did not exist.
@@ -1169,6 +1175,7 @@ private fun DoneStep(
                 ?.let { decodeDownsampled(it.absolutePath, 1440)?.asImageBitmap() }
         }
         replayFrames = withContext(Dispatchers.IO) { StackReplay.frames(st.sessionDir).size }
+        hasMaster = withContext(Dispatchers.IO) { File(st.sessionDir, "out/master_linear16.tiff").isFile }
         header = withContext(Dispatchers.IO) {
             runCatching { JSONObject(File(st.sessionDir, "meta/session.json").readText()).optJSONObject("header") }.getOrNull()
         }
@@ -1346,8 +1353,12 @@ private fun DoneStep(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (result != null && photo != null) {
-                ScButton("Share", { sharePhoto(context, photo) }, Modifier.fillMaxWidth(),
-                    kind = ScButtonKind.Primary, icon = ScIcons.Share, height = 52.dp)
+                ActionRow {
+                    ScButton("Share", { sharePhoto(context, photo) }, Modifier.weight(1f),
+                        kind = ScButtonKind.Primary, icon = ScIcons.Share, height = 52.dp)
+                    ScButton("Edit", { onEdit(st.sessionDir) }, Modifier.weight(1f), icon = ScIcons.Edit,
+                        enabled = hasMaster, height = 52.dp)
+                }
                 ActionRow {
                     ScButton("Open", { openPhoto(context, photo) }, Modifier.weight(1f), icon = ScIcons.Open)
                     ScButton("Re-process", { onOpenSession(st.sessionDir) }, Modifier.weight(1f), icon = ScIcons.Refresh)

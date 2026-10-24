@@ -13,8 +13,8 @@
 #               in this photo": recognised as Orion the right way round, a labelled copy saved
 #   tonight     the Tonight planner opened from the viewfinder, for a place set with geo fix; what is
 #               worth a shot tonight listed, the first opened in the sky view to be found
-#   sky         the sky view: from the planner onto the viewfinder, closed, and from its own chip;
-#               Find: the North Star picked from the list, and where it stands
+#   sky         the sky view: from the top bar's Find (its list open), from the planner onto the
+#               viewfinder, closed, from its own chip; Find: the North Star picked, where it stands
 #   darksky     the dark-sky map from the top bar (showing your Bortle class) and from the planner:
 #               your sky, a suggested spot, planned for there
 #   calendar    the sky calendar: a year listed, the Geminids opened in the sky view
@@ -451,6 +451,18 @@ if (Wanted 'tonight') {
 if (Wanted 'sky') {
     A shell pm grant com.wm.starcam android.permission.ACCESS_COARSE_LOCATION 2>&1 | Out-Null
     Launch | Out-Null
+    # The top bar's Find: the sky view opens with its list of things to find.
+    $fromBar = $false
+    $bar = Nodes | Where-Object { $_.'content-desc' -like 'Find in the sky*' } | Select-Object -First 1
+    if ($bar) {
+        $c = Center $bar
+        A shell input tap $c[0] $c[1]
+        $fromBar = WaitFor 'Find in the sky\|' 20
+        Shot 'sky-find-bar'
+        Back
+        $n = Nodes | Where-Object { $_.'content-desc' -eq 'Close the sky view' } | Select-Object -First 1
+        if ($n) { $c = Center $n; A shell input tap $c[0] $c[1]; Start-Sleep -Seconds 1 }
+    }
     $chip = Nodes | Where-Object { $_.'content-desc' -like 'Tonight planner*' } | Select-Object -First 1
     $fromPlanner = $false
     if ($chip) {
@@ -500,8 +512,8 @@ if (Wanted 'sky') {
         $n = Nodes | Where-Object { $_.'content-desc' -eq 'Close the sky view' } | Select-Object -First 1
         if ($n) { $c = Center $n; A shell input tap $c[0] $c[1] }
     }
-    Check 'sky' ($fromPlanner -and $closed -and $fromChip -and $find -and $where) `
-        "planner=$fromPlanner closed=$closed chip=$fromChip find=$find where=$where"
+    Check 'sky' ($fromBar -and $fromPlanner -and $closed -and $fromChip -and $find -and $where) `
+        "bar=$fromBar planner=$fromPlanner closed=$closed chip=$fromChip find=$find where=$where"
 }
 
 # ---- the dark-sky map from the planner (the emulator in Amsterdam): your sky, the suggestions, one
@@ -597,6 +609,9 @@ if (Wanted 'autopilot') {
     $ap = $s.autopilot
     $used = $s.result.framesUsed
     $cloud = [int]$ap.leftOutCloud; $soft = [int]$ap.leftOutSoft; $refocused = [int]$ap.refocused; $checks = [int]$ap.checks
+    # Edit, beside Share on the result: the studio on this photo.
+    $edit = $false
+    if (Tap 'Edit') { $edit = WaitFor 'HOLD TO COMPARE' 90 }
     Back
     # Dawn: the sky brightening 60% a frame from attempt 8 ends a 16-frame plan early.
     Launch | Out-Null
@@ -606,8 +621,8 @@ if (Wanted 'autopilot') {
     $dawn = [string]$d.autopilot.finished -match 'brighter'
     $dawnUsed = $d.result.framesUsed
     Back
-    $ok = $done -and $said -and $used -eq 12 -and $cloud -eq 2 -and $soft -eq 2 -and $refocused -eq 1 -and $checks -ge 2 -and $dawn -and $dawnUsed -lt 16
-    Check 'autopilot' $ok "done=$done said=$said used=$used cloud=$cloud soft=$soft refocused=$refocused checks=$checks dawn=$dawn dawnUsed=$dawnUsed"
+    $ok = $done -and $said -and $edit -and $used -eq 12 -and $cloud -eq 2 -and $soft -eq 2 -and $refocused -eq 1 -and $checks -ge 2 -and $dawn -and $dawnUsed -lt 16
+    Check 'autopilot' $ok "done=$done said=$said edit=$edit used=$used cloud=$cloud soft=$soft refocused=$refocused checks=$checks dawn=$dawn dawnUsed=$dawnUsed"
 }
 
 # ---- Home releases the camera, return reopens it

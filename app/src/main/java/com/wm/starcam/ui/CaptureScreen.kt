@@ -80,7 +80,6 @@ import com.wm.starcam.darksky.SkyQuality
 import com.wm.starcam.session.AppSettings
 import com.wm.starcam.session.Mode
 import com.wm.starcam.session.Quality
-import com.wm.starcam.session.SessionRepository
 import com.wm.starcam.sensors.SkyPlaceStore
 import com.wm.starcam.ui.components.ScButton
 import com.wm.starcam.ui.components.ScButtonKind
@@ -182,6 +181,10 @@ fun CaptureScreen(
                     engine?.dismissResult()
                     onOpenSession(dir)
                 },
+                onOpenStudio = { dir ->
+                    engine?.dismissResult()
+                    onOpenStudio(dir)
+                },
             )
         }
 
@@ -258,7 +261,7 @@ private fun IdleLayout(
     val plan = remember(settings, camInfo) { planFor(settings, camInfo) }
 
     Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-        QuickBar(vm, idle, onOpenTonight, onOpenStudio, onOpenDarkSky)
+        QuickBar(vm, idle, onOpenTonight, onOpenDarkSky)
         Viewfinder(
             vm = vm,
             settings = settings,
@@ -287,34 +290,26 @@ private fun IdleLayout(
     }
 }
 
-/** The newest session the studio can open. */
-private fun latestStudio(repo: SessionRepository): File? = runCatching {
-    repo.sessionsRoot().listFiles { f -> f.isDirectory }?.sortedByDescending { it.name }
-        ?.firstOrNull { File(it, "out/master_linear16.tiff").isFile }
-}.getOrNull()
-
 /**
- * The top of the capture screen, one tap each: the Tonight planner, the editing studio on the
- * last photo, and the dark-sky map with how dark your own sky is. (A session's replay video is
- * on its own page.) Battery and temperature show on the viewfinder only when they matter
- * ([PowerWarning]).
+ * The top of the capture screen, the night's tools one tap each: the Tonight planner, Find (the
+ * sky view with its list of galaxies, planets and stars to be led to), and the dark-sky map with
+ * how dark your own sky is. Editing and a session's videos are with the photo itself (its page,
+ * and the result screen after a shot). Battery and temperature show on the viewfinder only when
+ * they matter ([PowerWarning]).
  */
 @Composable
 private fun QuickBar(
     vm: StarCamViewModel,
     idle: Boolean,
     onOpenTonight: () -> Unit,
-    onOpenStudio: (File) -> Unit,
     onOpenDarkSky: () -> Unit,
 ) {
     val context = LocalContext.current
-    var studio by remember { mutableStateOf<File?>(null) }
     var bortle by remember { mutableStateOf<Int?>(null) }
-    // Looked up again whenever the screen returns to idle: a session just finished, a place just
-    // changed in the planner.
+    // Looked up again whenever the screen returns to idle: a place may just have changed in the
+    // planner.
     LaunchedEffect(idle) {
         if (!idle) return@LaunchedEffect
-        studio = withContext(Dispatchers.IO) { latestStudio(vm.repo) }
         bortle = withContext(Dispatchers.Default) {
             runCatching {
                 val loc = SkyPlaceStore(context).load()?.loc ?: return@runCatching null
@@ -330,8 +325,9 @@ private fun QuickBar(
     ) {
         QuickAction(ScIcons.Moon, tonight, "Tonight planner: $tonight", Modifier.weight(1.25f),
             onClick = onOpenTonight)
-        QuickAction(ScIcons.Edit, "Edit", "Edit the last photo", Modifier.weight(1f),
-            enabled = studio != null) { studio?.let(onOpenStudio) }
+        QuickAction(ScIcons.Search, "Find", "Find in the sky: a galaxy, a planet, a star", Modifier.weight(1f)) {
+            vm.skyView.value = SkyViewRequest(pick = true)
+        }
         QuickAction(ScIcons.Map, bortle?.let { "Bortle $it" } ?: "Dark sky",
             "Dark-sky map" + (bortle?.let { ": your sky is Bortle $it" } ?: ""), Modifier.weight(1f),
             onClick = onOpenDarkSky)
