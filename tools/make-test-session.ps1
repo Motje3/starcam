@@ -16,6 +16,9 @@
 # -Sky orion (or -Sky "ra,dec" in degrees) draws the real sky instead of a random field: the star
 # catalogue's stars around that place at a 1500 px focal length (63 x 50 deg), with fainter stars
 # it does not have, and records the focal length - for "What's in this photo".
+#
+# -Mode METEOR records the session as a meteor watch and puts one meteor in frame 6 (a short bright
+# streak, in that frame only) in place of the satellite - for the meteor highlights.
 
 param(
     [string]$Name = (Get-Date -Format 'yyyyMMdd') + '_030000_astro',
@@ -24,7 +27,9 @@ param(
     [int]$Rotation = -1,
     [switch]$Push,
     [string]$Serial = '',
-    [string]$Sky = ''
+    [string]$Sky = '',
+    [ValidateSet('ASTRO', 'METEOR')]
+    [string]$Mode = 'ASTRO'
 )
 $ErrorActionPreference = 'Stop'
 
@@ -42,6 +47,8 @@ public static class StarCamTestSession {
 
     // The real sky's stars (-Sky): RAW px and brightness; null for a random field.
     public static double[] SkyX, SkyY, SkyA;
+    // A meteor watch (-Mode METEOR): a meteor in frame 6 instead of the satellite in frame 5.
+    public static bool Meteor;
 
     // Header layout: app/src/main/cpp/sraw.h.
     static void Header(BinaryWriter w, long expNs, int iso, long ts, float[] wb) {
@@ -115,11 +122,23 @@ public static class StarCamTestSession {
                             skyTint[((y & 1) << 1) | (x & 1)];
                     }
             }
-            if (f == 5)
+            if (f == 5 && !Meteor)
                 for (int x = 0; x < W; x++) {
                     double yy = 200 + 0.45 * x;
                     for (int y = (int)yy - 2; y <= (int)yy + 2; y++)
                         if (y >= 0 && y < H) img[y * W + x] += 400;
+                }
+            if (f == 6 && Meteor)
+                // 320 px from (600, 500), fading in and out along its way.
+                for (int k = 0; k <= 320; k++) {
+                    double t = k / 320.0, mx = 600 + 300 * t, my = 500 + 110 * t;
+                    double amp = 420 * Math.Sin(Math.PI * t);
+                    for (int y = (int)my - 3; y <= (int)my + 3; y++)
+                        for (int x = (int)mx - 1; x <= (int)mx + 1; x++) {
+                            double d2 = (y - my) * (y - my);
+                            // Tinted like the stars, so it comes out white, not magenta.
+                            img[y * W + x] += amp * Math.Exp(-d2 / 2.0) / 3.0 * skyTint[((y & 1) << 1) | (x & 1)];
+                        }
                 }
             for (int i = 0; i < nHot; i++) img[hy[i] * W + hx[i]] += 220;
             var path = Path.Combine(dir, "cache", string.Format("frame_{0:D4}.sraw", f));
@@ -224,6 +243,7 @@ if ($Sky) {
 
 if (Test-Path $out) { Remove-Item -Recurse -Force $out }
 foreach ($d in 'lights', 'darks', 'out', 'meta') { New-Item -ItemType Directory -Force (Join-Path $out $d) | Out-Null }
+[StarCamTestSession]::Meteor = ($Mode -eq 'METEOR')
 [StarCamTestSession]::Make($out, $Frames)
 [StarCamTestSession]::Replay($out, $Frames, ($Rotation -eq 90 -or $Rotation -eq 270))
 
@@ -232,7 +252,7 @@ $framesJson = (0..($Frames - 1) | ForEach-Object {
     "{`"index`":$_,`"exposureNs`":20000000000,`"iso`":800,`"starCount`":300,`"fwhm`":2.4,`"aligned`":true," +
         "`"gyroPeak`":0.001,`"bumped`":$(if ($_ -eq 3) { 'true' } else { 'false' })}"
 }) -join ','
-$json = '{"header":{"mode":"ASTRO","quality":"FAST","stackConfig":{"sigmaFirst":3.5,"sigmaFinal":2.8,' +
+$json = '{"header":{"mode":"' + $Mode + '","quality":"FAST","stackConfig":{"sigmaFirst":3.5,"sigmaFinal":2.8,' +
     '"hotPixelFix":true,"lensShading":true,"gradientRemoval":true,"stretchStrength":1,"saturation":1.25,' +
     '"chromaDenoise":true,"starSharpen":false,"foregroundComposite":false,"featherPx":40,"style":0' +
     $(if ($Rotation -ge 0) { ",`"rotation`":$Rotation" } else { '' }) + '},' +

@@ -68,9 +68,13 @@ object WhatsInPhoto {
         val epochMs = header?.optLong("startedAt")?.takeIf { it > 0 }
         var sol: PlateSolution? = null
         var tried = ""
-        for ((focal, tolerance) in focalGuesses(header, w, h)) {
+        // A photo of cloud costs every guess in full: the later guesses skip the mirrored search,
+        // and after ~12 s the answer is no.
+        for ((i, guess) in focalGuesses(header, w, h).withIndex()) {
+            if (i > 0 && System.currentTimeMillis() - t0 > 12_000L) break
+            val (focal, tolerance) = guess
             tried += String.format(java.util.Locale.US, " %.0f±%.0f%%", focal, tolerance * 100)
-            sol = PlateSolver.solve(stars, w, h, catalog, focal, tolerance)
+            sol = PlateSolver.solve(stars, w, h, catalog, focal, tolerance, tryMirrored = i == 0)
             if (sol != null) break
         }
         val ms = System.currentTimeMillis() - t0
@@ -92,11 +96,10 @@ object WhatsInPhoto {
         val long = max(w, h).toDouble()
         val rawLong = header?.let { max(it.optInt("rawWidth"), it.optInt("rawHeight")) } ?: 0
         val focalRaw = header?.optDouble("focalPx", Double.NaN) ?: Double.NaN
-        val guesses = ArrayList<Pair<Double, Double>>()
-        if (!focalRaw.isNaN() && focalRaw > 0 && rawLong > 0) guesses += focalRaw * long / rawLong to 0.05
+        // The camera's own: nothing else to try (a photo it does not solve has no sky in it to find).
+        if (!focalRaw.isNaN() && focalRaw > 0 && rawLong > 0) return listOf(focalRaw * long / rawLong to 0.05)
         // Across the long side: a main camera's ~74 deg, then the neighbours either way.
-        for (fov in listOf(74.0, 62.0, 86.0, 50.0)) guesses += long / 2 / tan(Math.toRadians(fov / 2)) to 0.13
-        return guesses
+        return listOf(74.0, 62.0, 86.0, 50.0).map { fov -> long / 2 / tan(Math.toRadians(fov / 2)) to 0.13 }
     }
 
     private fun save(dir: File, photo: File, w: Int, h: Int, sol: PlateSolution?, stars: Int, ms: Long) {

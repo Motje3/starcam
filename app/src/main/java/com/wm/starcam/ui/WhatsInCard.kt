@@ -1,5 +1,6 @@
 package com.wm.starcam.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,9 +12,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.wm.starcam.sky.SkyLabels
 import com.wm.starcam.ui.components.ScButton
@@ -140,6 +147,31 @@ private fun Fact(icon: ImageVector, text: String) {
         Icon(icon, null, Modifier.size(15.dp), tint = Sc.colors.text3)
         Spacer(Modifier.width(8.dp))
         Text(text, style = ScType.bodySmall, color = Sc.colors.text)
+    }
+}
+
+/**
+ * [labels] drawn over a photo that fills this box's width, shown [zoom] times around its middle
+ * and moved by [offset]: the names keep their size as the photo grows. [reserved] gives the
+ * parts of the box other things cover (in px, from the box's size and the density).
+ */
+@Composable
+fun SkyLabelsOverlay(
+    labels: SkyLabels,
+    modifier: Modifier = Modifier,
+    zoom: Float = 1f,
+    offset: Offset = Offset.Zero,
+    reserved: (Size, Float) -> List<android.graphics.RectF> = { _, _ -> emptyList() },
+) {
+    val context = LocalContext.current
+    val night = Sc.colors.night
+    val painter = remember(night) { SkyLabelPainter(context, night) }
+    Canvas(modifier) {
+        val s = zoom * size.width / labels.width
+        val dx = size.width / 2f * (1 - zoom) + offset.x
+        val dy = size.height / 2f * (1 - zoom) + offset.y
+        val keepClear = reserved(size, density)
+        drawIntoCanvas { painter.draw(it.nativeCanvas, labels, s, dx, dy, density, size.width, size.height, keepClear) }
     }
 }
 

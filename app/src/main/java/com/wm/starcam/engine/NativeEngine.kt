@@ -84,6 +84,15 @@ object NativeEngine {
         buffer: ByteBuffer, width: Int, height: Int, rowStrideBytes: Int, paramsJson: String
     ): Boolean
 
+    /**
+     * The timelapse video: kept RAW frame [srawPath] developed into [bitmap] (ARGB_8888, any size;
+     * fitted, turned by [rotation]) with the live preview's look; [darkPath] the session's master
+     * dark or "" (kept between calls until [developFrameRelease]). False when it cannot be read.
+     */
+    external fun developFrame(srawPath: String, darkPath: String, rotation: Int, bitmap: Bitmap): Boolean
+
+    external fun developFrameRelease()
+
     // ---- Editing studio: a session's linear master developed again with new settings ----
 
     /** Opens [tiffPath] (a master_linear16.tiff) with a preview of at most [previewLongEdge]. 0 = failed. */

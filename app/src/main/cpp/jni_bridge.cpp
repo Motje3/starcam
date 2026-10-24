@@ -16,6 +16,7 @@
 #include "selftest.h"
 #include "sim.h"
 #include "studio.h"
+#include "timelapse.h"
 
 namespace {
 
@@ -441,6 +442,49 @@ JNIEXPORT jboolean JNICALL Java_com_wm_starcam_engine_NativeEngine_simulateSky(
         SLOGE("simulateSky: native exception");
         return JNI_FALSE;
     }
+}
+
+// ---------- developFrame (the timelapse video: util/Timelapse.kt) ----------
+
+JNIEXPORT jboolean JNICALL Java_com_wm_starcam_engine_NativeEngine_developFrame(
+        JNIEnv* env, jobject /*thiz*/, jstring srawPath, jstring darkPath, jint rotation, jobject bitmap) {
+    try {
+        if (bitmap == nullptr) return JNI_FALSE;
+        AndroidBitmapInfo info;
+        if (AndroidBitmap_getInfo(env, bitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS ||
+            info.format != ANDROID_BITMAP_FORMAT_RGBA_8888 || info.width == 0 || info.height == 0 ||
+            info.stride < info.width * 4u) {
+            return JNI_FALSE;
+        }
+        std::vector<uint32_t> tmp((size_t)info.width * (size_t)info.height);
+        if (!starcam::develop_frame(jstr(env, srawPath), jstr(env, darkPath), (int)rotation, tmp.data(),
+                                    (int)info.width, (int)info.height)) {
+            return JNI_FALSE;
+        }
+        void* pixels = nullptr;
+        if (AndroidBitmap_lockPixels(env, bitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS ||
+            pixels == nullptr) {
+            return JNI_FALSE;
+        }
+        // ARGB ints to RGBA_8888 memory order, as getPreview does.
+        for (uint32_t y = 0; y < info.height; ++y) {
+            const uint32_t* src = tmp.data() + (size_t)y * info.width;
+            uint32_t* dst = reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(pixels) + (size_t)y * info.stride);
+            for (uint32_t x = 0; x < info.width; ++x) {
+                const uint32_t p = src[x];
+                dst[x] = 0xFF000000u | ((p & 0xFFu) << 16) | (p & 0xFF00u) | ((p >> 16) & 0xFFu);
+            }
+        }
+        AndroidBitmap_unlockPixels(env, bitmap);
+        return JNI_TRUE;
+    } catch (...) {
+        SLOGE("developFrame: native exception");
+        return JNI_FALSE;
+    }
+}
+
+JNIEXPORT void JNICALL Java_com_wm_starcam_engine_NativeEngine_developFrameRelease(JNIEnv* /*env*/, jobject /*thiz*/) {
+    starcam::develop_frame_release();
 }
 
 // ---------- runSelfTest ----------

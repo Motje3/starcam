@@ -21,7 +21,8 @@ add_library(starcam SHARED
         tiffout.cpp
         selftest.cpp
         sim.cpp
-        studio.cpp)
+        studio.cpp
+        timelapse.cpp)
 
 # NOT -ffast-math: it implies -ffinite-math-only, which lets Clang assume no NaN/Inf exists and
 # folds away the engine's deliberate NaN guards (post.cpp, tiffout.cpp, meteor.cpp, mask.cpp) and

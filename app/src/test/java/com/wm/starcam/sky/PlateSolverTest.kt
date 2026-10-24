@@ -29,6 +29,8 @@ class PlateSolverTest {
         for (s in catalog.stars) {
             if (s.mag > maxMag) continue
             val (xi, eta) = PlateSolver.tangent(s.raDeg, s.decDeg, t.ra, t.dec) ?: continue
+            // Beyond ~45 deg the distortion polynomial would fold a star back into the frame.
+            if (xi * xi + eta * eta > 1.0) continue
             val (x, y) = PlateSolver.toPixel(xi, eta, t.focal, t.angle, t.flipped, w / 2.0, h / 2.0, t.k)
             if (x < 0 || y < 0 || x >= w || y >= h) continue
             if (rnd.nextDouble() < lose) continue
@@ -172,6 +174,48 @@ class PlateSolverTest {
         val t = Truth(300.0, 35.0, 3000.0, Math.toRadians(40.0), false)
         val stars = photo(t, 4000, 3000, 1)
         assertNull(PlateSolver.solve(stars, 4000, 3000, catalog, focalPx = 3000.0, hint = 150.0 to -20.0))
+    }
+
+    @Test
+    fun anywhereInTheSky() {
+        // Forty fields all over the sky, as a phone's main camera takes them: any turn, the focal
+        // length a few percent off, barrel or pincushion, a quarter of the stars lost, false ones.
+        val rnd = Random(77)
+        var solved = 0
+        var slowest = 0.0
+        val misses = ArrayList<String>()
+        repeat(40) { k ->
+            val ra = rnd.nextDouble() * 360
+            val dec = Math.toDegrees(kotlin.math.asin(rnd.nextDouble() * 2 - 1))
+            val t = Truth(ra, dec, 3000.0, rnd.nextDouble() * 2 * Math.PI, false, k = rnd.nextDouble(-0.05, 0.02))
+            val stars = photo(t, 4000, 3000, 1000 + k, maxMag = 4.8f, lose = 0.25, fakes = 20)
+            val t0 = System.nanoTime()
+            val sol = PlateSolver.solve(stars, 4000, 3000, catalog, focalPx = 3000.0 * (1 + rnd.nextDouble(-0.03, 0.03)))
+            slowest = maxOf(slowest, (System.nanoTime() - t0) / 1e6)
+            val bright = catalog.stars.filter { it.mag < 3f }.firstOrNull { s ->
+                val p = PlateSolver.tangent(s.raDeg, s.decDeg, t.ra, t.dec)?.takeIf { (xi, eta) -> xi * xi + eta * eta < 1.0 }?.let {
+                    PlateSolver.toPixel(it.first, it.second, t.focal, t.angle, false, 2000.0, 1500.0, t.k)
+                }
+                p != null && p.first in 300.0..3700.0 && p.second in 300.0..2700.0
+            }
+            val ok = sol != null && bright != null && run {
+                val (xi, eta) = PlateSolver.tangent(bright.raDeg, bright.decDeg, t.ra, t.dec)!!
+                val (x, y) = PlateSolver.toPixel(xi, eta, t.focal, t.angle, false, 2000.0, 1500.0, t.k)
+                val p = sol.project(bright.raDeg, bright.decDeg)!!
+                hypot(p.first - x, p.second - y) < 4
+            }
+            if (ok) solved++ else misses += "ra %.0f dec %.0f k %.3f: %s".format(ra, dec, t.k, sol?.let { s0 ->
+                val (xi, eta) = PlateSolver.tangent(bright!!.raDeg, bright.decDeg, t.ra, t.dec)!!
+                val (x, y) = PlateSolver.toPixel(xi, eta, t.focal, t.angle, false, 2000.0, 1500.0, t.k)
+                val p = s0.project(bright.raDeg, bright.decDeg)!!
+                val pl = PlateSolver.tangent(bright.raDeg, bright.decDeg, s0.raDeg, s0.decDeg)!!
+                "off %.1f px at %.0f,%.0f -> %.0f,%.0f; plane %.4f,%.4f; matched %d rms %.2f k %.3f reach2 %.3f scale %.0f angle %.3f flip %s c %.1f,%.1f centre %.1f,%.1f %s".format(
+                    hypot(p.first - x, p.second - y), x, y, p.first, p.second, pl.first, pl.second, s0.matched, s0.rmsPx,
+                    s0.k, s0.kReach2, s0.scale, s0.angle, s0.flipped, s0.cx, s0.cy, s0.raDeg, s0.decDeg, bright.name ?: bright.designation)
+            } ?: "none (${stars.size} stars)")
+        }
+        println("anywhere: $solved of 40 solved, slowest ${slowest.toInt()} ms; missed: $misses")
+        assertTrue("$solved of 40: $misses", solved >= 38)
     }
 
     @Test

@@ -100,8 +100,11 @@ import com.wm.starcam.ui.theme.ScShapes
 import com.wm.starcam.ui.theme.ScType
 import com.wm.starcam.ui.theme.ScreenMargin
 import com.wm.starcam.ui.theme.scImageFilter
+import com.wm.starcam.sky.StarCatalog
 import com.wm.starcam.util.ShareCard
 import com.wm.starcam.util.StackReplay
+import com.wm.starcam.util.WhatsInPhoto
+import org.json.JSONObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -1144,6 +1147,14 @@ private fun DoneStep(
     var comparing by remember { mutableStateOf(false) }
     // Live-stack pictures kept during capture, for the replay video.
     var replayFrames by remember { mutableIntStateOf(0) }
+    // "What's in this photo", straight after the shot: the session's header has what it needs.
+    val catalog = remember { runCatching { StarCatalog.load(context) }.getOrNull() }
+    // Kept per photo: another result on this screen starts afresh.
+    var header by remember(st.jpegFile) { mutableStateOf<JSONObject?>(null) }
+    var whatsIn by remember(st.jpegFile) { mutableStateOf<WhatsInPhoto.Found?>(null) }
+    var identifying by remember(st.jpegFile) { mutableStateOf(false) }
+    var showLabels by remember(st.jpegFile) { mutableStateOf(true) }
+    var whatsInNote by remember(st.jpegFile) { mutableStateOf<String?>(null) }
     LaunchedEffect(st.jpegFile) {
         val file = st.jpegFile
         val (saved, bitmap) = withContext(Dispatchers.IO) {
@@ -1158,6 +1169,9 @@ private fun DoneStep(
                 ?.let { decodeDownsampled(it.absolutePath, 1440)?.asImageBitmap() }
         }
         replayFrames = withContext(Dispatchers.IO) { StackReplay.frames(st.sessionDir).size }
+        header = withContext(Dispatchers.IO) {
+            runCatching { JSONObject(File(st.sessionDir, "meta/session.json").readText()).optJSONObject("header") }.getOrNull()
+        }
     }
     val result = st.result
     val photo = remember(st, jpegSaved) {
@@ -1172,8 +1186,21 @@ private fun DoneStep(
                 if (result != null && img != null && comparing && one != null) {
                     CompareSlider(one, img, "1 frame", "Stacked · ${result.framesUsed}")
                 } else if (result != null && img != null) {
-                    Image(img, "The finished photo", Modifier.fillMaxWidth(),
-                        contentScale = ContentScale.FillWidth, colorFilter = scImageFilter)
+                    Box {
+                        Image(img, "The finished photo", Modifier.fillMaxWidth(),
+                            contentScale = ContentScale.FillWidth, colorFilter = scImageFilter)
+                        val labels = whatsIn?.labels
+                        if (labels != null && showLabels) {
+                            // Clear of the close button and the compare pill.
+                            SkyLabelsOverlay(labels, Modifier.matchParentSize()) { size, density ->
+                                listOf(
+                                    android.graphics.RectF(0f, 0f, 76 * density, 76 * density),
+                                    android.graphics.RectF(size.width - 200 * density, size.height - 54 * density,
+                                        size.width, size.height),
+                                )
+                            }
+                        }
+                    }
                 } else {
                     Box(Modifier.fillMaxWidth().height(if (result == null) 200.dp else 260.dp).background(c.sunken),
                         contentAlignment = Alignment.Center) {
@@ -1219,6 +1246,56 @@ private fun DoneStep(
                 }
                 st.warning?.let { ScNotice(it, tone = Tone.Warning, icon = ScIcons.Warning) }
                 if (st.autopilot.isNotEmpty()) AutopilotReport(st.autopilot)
+                val jpg = st.jpegFile
+                val mode = header?.optString("mode")
+                if (result != null && jpegSaved == true && jpg != null && catalog != null && mode != null && mode != "TRAILS") {
+                    fun labelled(gallery: Boolean, then: (File?, android.net.Uri?) -> Unit) {
+                        val labels = whatsIn?.labels ?: return
+                        whatsInNote = if (gallery) "Saving…" else null
+                        scope.launch {
+                            val (file, uri) = withContext(Dispatchers.IO) {
+                                WhatsInPhoto.saveLabelled(context, st.sessionDir.name, jpg, labels, c.night, gallery)
+                            }
+                            then(file, uri)
+                        }
+                    }
+                    WhatsInCard(
+                        found = whatsIn,
+                        working = identifying,
+                        takenAtMs = header?.optLong("startedAt")?.takeIf { it > 0 } ?: System.currentTimeMillis(),
+                        showLabels = showLabels,
+                        onShowLabels = { showLabels = it },
+                        onFind = {
+                            identifying = true
+                            whatsInNote = null
+                            scope.launch {
+                                val found = withContext(Dispatchers.Default) {
+                                    WhatsInPhoto.identify(st.sessionDir, jpg, header, catalog)
+                                }
+                                whatsIn = found
+                                identifying = false
+                                showLabels = true
+                                comparing = false
+                            }
+                        },
+                        onSave = {
+                            labelled(gallery = true) { file, uri ->
+                                whatsInNote = when {
+                                    uri != null -> "Saved to the gallery, in Pictures/StarCam."
+                                    file != null -> "Made, but the gallery would not take it; Share still works."
+                                    else -> "The labelled copy could not be made."
+                                }
+                            }
+                        },
+                        onShare = {
+                            labelled(gallery = false) { file, _ ->
+                                file?.let { photoUri(context, it) }?.let { sharePhoto(context, it) }
+                                    ?: run { whatsInNote = "The labelled copy could not be made." }
+                            }
+                        },
+                        note = whatsInNote,
+                    )
+                }
                 if (comparing && result != null && single != null) {
                     ScButton("Share 1 frame vs stacked", {
                         scope.launch {

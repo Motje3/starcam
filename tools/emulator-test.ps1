@@ -7,6 +7,8 @@
 #               as shot with the phone upright: 7 of 8 frames, a portrait photo, a 1-frame comparison
 #   studio      that session opened in the editing studio, restyled and saved as a new photo
 #   replay      that session's "watch it build up" video made, kept in the session and the gallery
+#   timelapse   that session's kept RAW frames developed into a timelapse video, kept and in the gallery
+#   meteors     a meteor watch with one meteor in it stacked: the meteor found and cut out of its frame
 #   whatsin     a session of the real sky (Orion, drawn from the star catalogue) stacked, then "What's
 #               in this photo": recognised as Orion the right way round, a labelled copy saved
 #   tonight     the Tonight planner opened from the viewfinder, for a place set with geo fix; what is
@@ -168,7 +170,7 @@ if (Wanted 'stack') {
     # Named for now, so it is the newest session and the first tile in the list.
     $now = Get-Date
     $name = $now.ToString('yyyyMMdd_HHmmss') + '_astro'
-    & (Join-Path $PSScriptRoot 'make-test-session.ps1') -Name $name -Rotation 90 -Push -Serial $Serial | Out-Null
+    powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'make-test-session.ps1') -Name $name -Rotation 90 -Push -Serial $Serial | Out-Null
     Launch | Out-Null
     Tap 'Sessions gallery' | Out-Null
     Start-Sleep -Seconds 2
@@ -257,6 +259,8 @@ if (Wanted 'replay') {
         A shell run-as com.wm.starcam rm -rf cache/replay_check 2>&1 | Out-Null
         for ($k = 0; $k -lt 6 -and -not ((AllText) -match '\|Make video\|'); $k++) { A shell input swipe 636 2000 636 1200 300; Start-Sleep -Milliseconds 700 }
         $card = Tap 'Make video'
+        # Its message comes under the buttons: the card's lower part into view.
+        A shell input swipe 636 1800 636 1300 300
         $made = WaitFor 'Saved to the gallery \(Movies' 240
         Shot 'replay'
         $mp4 = (A shell ls -l "$sessions/$name/out/stack_replay.mp4") -join ''
@@ -279,11 +283,86 @@ if (Wanted 'replay') {
     }
 }
 
+# ---- the timelapse of that session: its kept RAW frames developed one by one into a video
+if (Wanted 'timelapse') {
+    $sessions = '/sdcard/Android/media/com.wm.starcam/StarCam/sessions'
+    if (-not $name) {
+        Check 'timelapse' $false 'needs the stack check in the same run'
+    } else {
+        # Only frames read back from this video count.
+        A shell run-as com.wm.starcam rm -rf cache/timelapse_check 2>&1 | Out-Null
+        for ($k = 0; $k -lt 8 -and -not ((AllText) -match '\|Make timelapse\|'); $k++) { A shell input swipe 636 2000 636 1200 300; Start-Sleep -Milliseconds 700 }
+        $card = Tap 'Make timelapse'
+        $size = 0
+        $deadline = (Get-Date).AddSeconds(300)
+        while ((Get-Date) -lt $deadline -and $size -eq 0) {
+            Start-Sleep -Seconds 3
+            $mp4 = (A shell ls -l "$sessions/$name/out/timelapse.mp4" 2>$null) -join ''
+            if ($mp4 -match '\s(\d+)\s+\d{4}-\d\d-\d\d') { $size = [int64]$matches[1] }
+        }
+        Start-Sleep -Seconds 3
+        Shot 'timelapse'
+        $gallery = ((A shell content query --uri content://media/external/video/media --projection _display_name) -join '|') -match "starcam_${name}_timelapse"
+        A pull "$sessions/$name/out/timelapse.mp4" (Join-Path $shots 'timelapse.mp4') 2>&1 | Out-Null
+        $check = Join-Path $shots 'timelapse-check'
+        New-Item -ItemType Directory -Force $check | Out-Null
+        $readBack = 0
+        foreach ($f in (A shell run-as com.wm.starcam ls cache/timelapse_check)) {
+            if ($f -match '^at_\d+ms\.jpg$') {
+                # Copied by the device's shell: PowerShell would mangle binary output.
+                A shell "run-as com.wm.starcam cat cache/timelapse_check/$f > /data/local/tmp/$f" 2>&1 | Out-Null
+                A pull "/data/local/tmp/$f" (Join-Path $check $f) 2>&1 | Out-Null
+                $readBack++
+            }
+        }
+        Check 'timelapse' ($card -and $size -gt 20000 -and $gallery -and $readBack -eq 3) "card=$card bytes=$size gallery=$gallery read back=$readBack"
+    }
+}
+
+# ---- meteor highlights: a meteor watch with one meteor (make-test-session.ps1 -Mode METEOR) stacked,
+# the meteor shown cut out of its frame
+if (Wanted 'meteors') {
+    $sessions = '/sdcard/Android/media/com.wm.starcam/StarCam/sessions'
+    $mnow = Get-Date
+    $mname = $mnow.ToString('yyyyMMdd_HHmmss') + '_meteor'
+    powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'make-test-session.ps1') -Name $mname -Rotation 90 -Mode METEOR -Push -Serial $Serial | Out-Null
+    Launch | Out-Null
+    Tap 'Sessions gallery' | Out-Null
+    Start-Sleep -Seconds 2
+    $tile = Nodes | Where-Object { $_.text -match ('Today . ' + $mnow.ToString('HH:mm')) } | Select-Object -First 1
+    $stacked = $false; $caught = $false; $cut = $false
+    if ($tile) {
+        $c = Center $tile
+        A shell input tap $c[0] $c[1]
+        Start-Sleep -Seconds 3
+        for ($k = 0; $k -lt 5 -and -not ((AllText) -match '\|Stack\|'); $k++) { A shell input swipe 636 2200 636 900 300; Start-Sleep -Milliseconds 700 }
+        Tap 'Stack' | Out-Null
+        $stacked = WaitFor 'Done: the photo above is updated' 600
+        # The card sits under "What's in this photo".
+        for ($k = 0; $k -lt 5 -and -not ((AllText) -match 'meteor caught'); $k++) { A shell input swipe 636 2000 636 1300 300; Start-Sleep -Milliseconds 700 }
+        $caught = WaitFor '\|1 meteor caught\|' 30
+        $cut = WaitFor 'Meteor at \d\d:\d\d' 90
+        Shot 'meteors'
+        $thumb = Nodes | Where-Object { $_.'content-desc' -like 'Meteor at*' } | Select-Object -First 1
+        if ($thumb) {
+            $c = Center $thumb
+            A shell input tap $c[0] $c[1]
+            Start-Sleep -Seconds 2
+            Shot 'meteor-open'
+            Back
+        }
+    }
+    $files = A shell ls "$sessions/$mname/out/meteors/" 2>$null
+    $jpg = $files -match '^meteor_0006_0\.jpg$'
+    A pull "$sessions/$mname/out/meteors/meteor_0006_0.jpg" (Join-Path $shots 'meteor_0006.jpg') 2>&1 | Out-Null
+    Check 'meteors' ($stacked -and $caught -and $cut -and [bool]$jpg) "stacked=$stacked caught=$caught cut=$cut file=$([bool]$jpg)"
+}
+
 # ---- "What's in this photo" on a stacked session of the real sky (make-test-session.ps1 -Sky orion)
 if (Wanted 'whatsin') {
     $wnow = Get-Date
     $wname = $wnow.ToString('yyyyMMdd_HHmmss') + '_astro'
-    & (Join-Path $PSScriptRoot 'make-test-session.ps1') -Name $wname -Rotation 90 -Sky orion -Push -Serial $Serial | Out-Null
+    powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'make-test-session.ps1') -Name $wname -Rotation 90 -Sky orion -Push -Serial $Serial | Out-Null
     Launch | Out-Null
     Tap 'Sessions gallery' | Out-Null
     Start-Sleep -Seconds 2

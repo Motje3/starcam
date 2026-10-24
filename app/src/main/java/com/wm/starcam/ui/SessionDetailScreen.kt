@@ -1,6 +1,5 @@
 package com.wm.starcam.ui
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -41,9 +40,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.ContentScale
@@ -80,7 +77,9 @@ import com.wm.starcam.ui.theme.ScType
 import com.wm.starcam.ui.theme.ScreenMargin
 import com.wm.starcam.ui.theme.scImageFilter
 import com.wm.starcam.util.ShareCard
+import com.wm.starcam.util.MeteorHighlights
 import com.wm.starcam.util.StackReplay
+import com.wm.starcam.util.Timelapse
 import com.wm.starcam.util.WhatsInPhoto
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -130,6 +129,10 @@ private data class DetailData(
     /** Live-stack snapshots kept during capture, for the replay video. */
     val replayFrames: Int = 0,
     val replayBytes: Long = 0L,
+    /** Kept RAW frames a timelapse can be made of (the bumped ones left out). */
+    val timelapseFrames: Int = 0,
+    /** Meteors the stack found (METEOR mode), each to be shown cut out of its frame. */
+    val meteors: Int = 0,
     /** What the autopilot did while shooting (session.json "autopilot"); empty when nothing. */
     val autopilot: List<String> = emptyList(),
     val header: JSONObject? = null,
@@ -196,6 +199,8 @@ private fun loadDetail(dir: File, repo: SessionRepository, catalog: StarCatalog?
         stackedFile = stackJpg,
         replayFrames = replay.size,
         replayBytes = replay.sumOf { it.length() },
+        timelapseFrames = if (cache.size >= Timelapse.MIN_FRAMES) Timelapse.frames(dir).size else 0,
+        meteors = MeteorHighlights.meteors(dir).size,
         autopilot = json?.optJSONObject("autopilot")?.optJSONArray("report")?.let { a ->
             (0 until a.length()).mapNotNull { a.optString(it).takeIf { s -> s.isNotEmpty() } }
         } ?: emptyList(),
@@ -375,7 +380,8 @@ fun SessionDetailScreen(
                 }
                 // ---- What's in it: the constellations and the rest, named
                 val photoFile = d.jpgFile
-                if (photoFile != null && d.image != null && catalog != null) {
+                // Not for star trails: arcs, not points, so there are no stars to match.
+                if (photoFile != null && d.image != null && catalog != null && d.mode != Mode.TRAILS) {
                     fun labelled(gallery: Boolean, then: (File?, android.net.Uri?) -> Unit) {
                         val labels = whatsIn?.labels ?: return
                         whatsInNote = if (gallery) "Saving…" else null
@@ -423,6 +429,9 @@ fun SessionDetailScreen(
                         note = whatsInNote,
                     )
                 }
+
+                // ---- The meteors it caught, each cut out of its frame
+                if (d.meteors > 0) MeteorCard(dir, d.meteors)
 
                 // ---- What went into it
                 val st = d.stats
@@ -484,6 +493,12 @@ fun SessionDetailScreen(
                 if (d.replayFrames >= 2) {
                     val used = st?.framesUsed ?: d.frameCount
                     ReplayCard(dir, d.replayFrames, compareCaption(used, d.exposureNs, d.iso), enabled = !restacking,
+                        onPlay = onPlayVideo)
+                }
+
+                // ---- The night as a timelapse, from the kept RAW frames
+                if (d.timelapseFrames >= Timelapse.MIN_FRAMES) {
+                    TimelapseCard(dir, d.timelapseFrames, d.config?.rotation ?: -1, d.startedAt, enabled = !restacking,
                         onPlay = onPlayVideo)
                 }
 
@@ -609,7 +624,6 @@ fun SessionDetailScreen(
 @Composable
 private fun ZoomableImage(image: ImageBitmap?, labels: SkyLabels? = null) {
     val c = Sc.colors
-    val context = LocalContext.current
     if (image == null) {
         Box(Modifier.fillMaxWidth().height(200.dp).background(c.sunken), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -665,17 +679,9 @@ private fun ZoomableImage(image: ImageBitmap?, labels: SkyLabels? = null) {
             colorFilter = scImageFilter,
         )
         if (labels != null) {
-            // Drawn over the zoomed photo, not with it: the names keep their size as it grows.
-            val painter = remember(c.night) { SkyLabelPainter(context, c.night) }
-            Canvas(Modifier.matchParentSize()) {
-                val s = scale * size.width / labels.width
-                val dx = size.width / 2f * (1 - scale) + offset.x
-                val dy = size.height / 2f * (1 - scale) + offset.y
-                // The zoom badge in the top corner keeps its place free of names.
-                val badge = android.graphics.RectF(size.width - 240 * density, 0f, size.width, 56 * density)
-                drawIntoCanvas {
-                    painter.draw(it.nativeCanvas, labels, s, dx, dy, density, size.width, size.height, listOf(badge))
-                }
+            // Drawn over the zoomed photo, not with it; the zoom badge in the corner kept clear.
+            SkyLabelsOverlay(labels, Modifier.matchParentSize(), scale, offset) { size, density ->
+                listOf(android.graphics.RectF(size.width - 240 * density, 0f, size.width, 56 * density))
             }
         }
         ScGlass(Modifier.align(Alignment.TopEnd).padding(10.dp)) {

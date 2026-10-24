@@ -32,7 +32,8 @@ tonight), all computed on the phone; an
 brightness, contrast, colour and noise settings (saved as a new photo), **1 frame vs
 stacked**, a drag-to-compare view of what the stacking did, and **watch it build up**, a short
 video of the live stack growing from the first noisy frame into the finished photo (made on the
-phone, saved to the gallery).
+phone, saved to the gallery), a **timelapse** of the night from the RAW frames, and for a meteor
+watch each **meteor cut out** of the frame it flashed through, with the time it fell.
 
 While ASTRO shoots, an **autopilot** watches every frame: frames spoiled by cloud or soft stars are
 left out and replaced, passing cloud is waited out, a drifting focus is refocused on the stars,

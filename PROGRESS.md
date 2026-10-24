@@ -2,6 +2,33 @@
 
 ## The second night, 0.5.0 (2026-10-24)
 
+### Timelapse and meteor highlights
+
+Both come from the session's kept RAW frames (cache/), developed one at a time by a new native
+step (cpp/timelapse.cpp): the master dark's hot pixels and glow taken off (or, without a dark,
+pixels standing far above all their neighbours quieted), half-size colour from 2 x 2 superpixels,
+then the live preview's own look (render_preview: neutral sky at a fixed brightness, asinh
+stretch) turned upright like the photo.
+- **Timelapse** (session › Timelapse › Make timelapse): every kept frame in order, the bumped ones
+  left out, cross-faded so a short session still plays a few seconds smoothly (n/8 s, 3 to 20 s),
+  the time of night in the corner from the frames' sensor clock, and "42 frames · 23 minutes of
+  sky" over the last frame. 1600 px on the long side (within any phone's H.264 encoder), the
+  frame's own shape cropped by a few pixels rather than black bars. Kept in out/timelapse.mp4 and
+  Movies/StarCam; Play and Share from the card. Made outside the screen like the replay video.
+- **Meteor highlights** (METEOR sessions): the stack's report already lists each streak and what
+  it is (meteor, satellite, plane); every meteor is now cut out of the frame it flashed through -
+  4:3 the way it runs, with room round it - and shown on the session page as "3 meteors caught",
+  each with the time it fell; one opened large, to share. Made right after the stack, before
+  the frames may go (with "keep working files" off), and for older sessions whose frames are
+  kept, when the page opens; out/meteors/ with an index.
+- The replay video's encoder became util/VideoEncoder.kt, shared by both videos.
+
+Tested: unit tests for the frame list (bumped and dark left out, order), the play length, the
+report reading (only meteors, in the order they fell), the turn to upright and the crop; on the
+emulator 'timelapse' makes the video of the synthetic session (3.5 MB, in the gallery, three
+frames decoded back) and 'meteors' stacks a meteor watch with one meteor in frame 6
+(make-test-session.ps1 -Mode METEOR): "1 meteor caught", its cut-out, opened.
+
 ### Find in the sky
 
 Sky view › "Find: …" › any of 75 targets: the Milky Way's core, the Moon, the planets, the 32
@@ -24,7 +51,8 @@ list leaves out the part of the night already gone.
 
 ### What's in this photo
 
-Session › "What's in this photo" › **Find out**: the photo's own stars name what is in it - the
+Session › "What's in this photo" › **Find out** (and on the result screen straight after a shot;
+not for star trails): the photo's own stars name what is in it - the
 constellations (figures drawn, names placed clear of each other and of the lines), the named
 stars and how far away they are, the planets where they were that night, the nebulae, clusters
 and galaxies (32 of the best for a wide field, both hemispheres, with their distances), the

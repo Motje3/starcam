@@ -28,6 +28,7 @@ import com.wm.starcam.util.AppLog
 import com.wm.starcam.util.Diagnostics
 import com.wm.starcam.util.ImageRotation
 import com.wm.starcam.util.MediaSaver
+import com.wm.starcam.util.MeteorHighlights
 import com.wm.starcam.util.StackReplay
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -1291,6 +1292,10 @@ class CaptureEngine(
             }
             if (saved.jpegWritten) {
                 AppLog.i(TAG, "saved ${paths.finalJpg.name} (gallery: ${saved.galleryUri ?: "FAILED"})")
+                // The meteors cut out of their frames while the frames are still there.
+                if (s.mode == Mode.METEOR && result.meteorCount > 0) {
+                    withContext(Dispatchers.Default) { runCatching { MeteorHighlights.make(paths.dir) } }
+                }
                 // Only now, with the photo on disk, may the frames go (when the user keeps no
                 // working files): a failed save leaves them for a re-stack.
                 if (!s.keepRawCache) repo.deleteCacheFrames(paths.dir)
