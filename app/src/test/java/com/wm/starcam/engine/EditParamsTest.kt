@@ -15,6 +15,11 @@ class EditParamsTest {
         assertEquals(0.25, o.getDouble("contrastGap"), 0.005)
         assertEquals(0, o.getInt("rotation"))
         assertEquals(0, o.getInt("downEdge"))
+        // post.h: all of the light pollution removed, no extra detail, stars as they are.
+        assertEquals(1.0, o.getDouble("gradientStrength"), 1e-6)
+        assertEquals(0.0, o.getDouble("detail"), 1e-6)
+        assertEquals(0.0, o.getDouble("starReduction"), 1e-6)
+        assertEquals(0.0, o.getDouble("vignette"), 1e-6)
     }
 
     @Test
@@ -30,9 +35,19 @@ class EditParamsTest {
     @Test
     fun savedSettingsRoundTrip() {
         val p = EditParams(sky = 0.2f, contrast = 0.8f, ground = 0.03f, saturation = 1.6f, starColor = 0.9f,
-            warmth = -0.3f, tint = 0.2f, gradient = 0.5f, noise = 0.1f, sharpen = true, style = 1,
-            rotation = 270)
+            warmth = -0.3f, tint = 0.2f, gradient = 0.5f, noise = 0.1f, sharpen = true, detail = 0.7f,
+            smallerStars = 0.4f, vignette = 0.3f, style = 1, rotation = 270)
         assertEquals(p, EditParams.fromJson(JSONObject(p.toJson())))
+    }
+
+    @Test
+    fun settingsSavedBeforeDetailKeepTheirLook() {
+        // An edit.json from before the detail and star sliders: neither is applied.
+        val p = EditParams.fromJson(JSONObject("""{"sky":0.2,"gradient":0.9}"""))
+        assertEquals(0f, p.detail)
+        assertEquals(0f, p.smallerStars)
+        assertEquals(0f, p.vignette)
+        assertEquals(0.9f, p.gradient)
     }
 
     @Test

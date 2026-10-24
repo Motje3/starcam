@@ -22,10 +22,16 @@ data class EditParams(
     /** -1 green .. 1 magenta. */
     val tint: Float = 0f,
     /** Share of the light-pollution gradient removed. */
-    val gradient: Float = 0.9f,
+    val gradient: Float = 1f,
     /** Background noise reduction. */
     val noise: Float = 0.6f,
     val sharpen: Boolean = false,
+    /** 0..1: the Milky Way's structure, its dust lanes and star clouds, made stronger. */
+    val detail: Float = 0f,
+    /** 0..1: stars made smaller and fainter, so the Milky Way stands out. */
+    val smallerStars: Float = 0f,
+    /** 0..1: the corners darkened. */
+    val vignette: Float = 0f,
     /** 0 natural, 1 nightfall. */
     val style: Int = 0,
     /** Clockwise turn the photo is shown and saved with, relative to the master as stored. */
@@ -49,6 +55,9 @@ data class EditParams(
         put("noiseReduction", noise.toDouble())
         put("chromaDenoise", true)
         put("starSharpen", sharpen)
+        put("detail", detail.toDouble())
+        put("starReduction", smallerStars.toDouble())
+        put("vignette", vignette.toDouble())
         put("style", style)
         put("rotation", rotation)
         // Where the ground is in the master: known when it is upright or the user has turned it
@@ -67,6 +76,9 @@ data class EditParams(
         put("gradient", gradient.toDouble())
         put("noise", noise.toDouble())
         put("sharpen", sharpen)
+        put("detail", detail.toDouble())
+        put("smallerStars", smallerStars.toDouble())
+        put("vignette", vignette.toDouble())
         put("style", style)
         put("rotation", rotation)
     }.toString()
@@ -80,7 +92,9 @@ data class EditParams(
                 saturation = f("saturation", d.saturation), starColor = f("starColor", d.starColor),
                 warmth = f("warmth", d.warmth), tint = f("tint", d.tint),
                 gradient = f("gradient", d.gradient), noise = f("noise", d.noise),
-                sharpen = o.optBoolean("sharpen", d.sharpen), style = o.optInt("style", d.style),
+                sharpen = o.optBoolean("sharpen", d.sharpen), detail = f("detail", d.detail),
+                smallerStars = f("smallerStars", d.smallerStars), vignette = f("vignette", d.vignette),
+                style = o.optInt("style", d.style),
                 rotation = quarterTurn(o.optInt("rotation", d.rotation)),
             )
         }

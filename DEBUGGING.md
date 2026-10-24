@@ -182,21 +182,24 @@ part of the Milky Way, plain sky) per variant. Without arguments it renders a sy
 nightscape with known ground truth and prints metrics for classic and v2 side by side:
 
 ```
-classic  sky 0.358 flat 0.1585  mw +0.0975  ground 0.331  horizon +0.1401  rim +0.010/-0.011  starSat red 0.039 blue 0.028 ...
-v2       sky 0.137 flat 0.0567  mw +0.1154  ground 0.068  horizon +0.0196  rim +0.005/-0.003  starSat red 0.343 blue 0.144 ...
+classic  sky 0.358 flat 0.1585  mw +0.0975 (foot +0.1583 dark +0.0360)  ground 0.331  horizon +0.1401  rim +0.010/-0.011 ...
+v2       sky 0.141 flat 0.0101  mw +0.1212 (foot +0.1132 dark +0.0675)  ground 0.068  horizon -0.0005  rim +0.003/-0.000 ...
 ```
 
 sky = display level of the clean sky; flat = spread of its 64 px block medians (lower is flatter);
-mw = Milky Way above sky; ground = landscape level; horizon = sky just above the horizon against
+mw = Milky Way above sky (foot: its blocks in the lowest quarter above the horizon; dark: its
+darkest tenth, the lanes - both fall first when the light-pollution model eats into the band);
+ground = landscape level; horizon = sky just above the horizon against
 the rest; rim = brightest / darkest pixel within a few rows of the true horizon against the same
 window in plain sky (a bright or dark outline along silhouettes; both near 0 is right);
 starSat = colour of clearly red / blue stars; noise = pixel-scale luma and chroma noise.
-`-LabArgs` passes options: `--nofg`, `--nomw`, `--nograd`, `--noise 2.5` (times a 20-frame stack's
-noise), `--seed 11`, `--rot90` (landscape on the left; measured turned back, so its numbers should
-match the upright scene's), a variant list (`classic`, `v2`, and `preview` / `preview_old` for
-the capture screen's live-stack preview now / until 0.4) and post parameters (`sky=0.14
-gap=0.2 ground=0.05 gs=1 nr=0.8 starc=0.6 style=1 sharpen=1 order=3 down=0`). `-NoBuild` reruns
-the last build. `-Tiff <session>\out\master_linear16.tiff` develops a real session's master
+`-LabArgs` passes options: `--nofg`, `--nomw`, `--nograd`, `--mwflat` (the Milky Way lying low
+along the horizon instead of rising from it: what the light-pollution model must not take for
+glow), `--dome` (a town's light dome over part of the horizon), `--noise 2.5` (times a 20-frame stack's noise), `--seed 11`, `--rot90` (landscape on the
+left; measured turned back, so its numbers should match the upright scene's), a variant list
+(`classic`, `v2`, and `preview` / `preview_old` for the capture screen's live-stack preview now /
+until 0.4) and post parameters (`sky=0.14 gap=0.2 ground=0.05 gs=0.9 nr=0.8 starc=0.6 style=1
+sharpen=1 detail=0.5 smaller=0.5 warm=0.3 tint=-0.1 down=0`). `-NoBuild` reruns the last build. `-Tiff <session>\out\master_linear16.tiff` develops a real session's master
 instead: the way to judge a change on real sky data.
 
 ## Reading a log line

@@ -5,7 +5,8 @@
 #   cut-off     the app killed mid-session: the next launch says so
 #   stack       a synthetic starfield session (make-test-session.ps1) stacked from Sessions, recorded
 #               as shot with the phone upright: 7 of 8 frames, a portrait photo, a 1-frame comparison
-#   studio      that session opened in the editing studio, restyled and saved as a new photo
+#   studio      that session opened in the editing studio: the Vivid look picked from the looks'
+#               pictures, the Detail tab, restyled and saved as a new photo, the edit kept with it
 #   replay      that session's "watch it build up" video made, kept in the session and the gallery
 #   timelapse   that session's kept RAW frames developed into a timelapse video, kept and in the gallery
 #   meteors     a meteor watch with one meteor in it stacked: the meteor found and cut out of its frame
@@ -218,17 +219,29 @@ if (Wanted 'studio') {
         for ($k = 0; $k -lt 6 -and -not ((AllText) -match '\|Edit\|'); $k++) { A shell input swipe 636 900 636 2200 300; Start-Sleep -Milliseconds 700 }
         Tap 'Edit' | Out-Null
         $opened = WaitFor 'HOLD TO COMPARE' 90
-        Start-Sleep -Seconds 2
+        # The looks, each a picture of this photo: Vivid picked.
+        $looks = WaitFor 'Look: Mono' 30
+        Start-Sleep -Seconds 3
         Shot 'studio-open'
+        $vivid = Tap 'Look: Vivid'
+        Start-Sleep -Seconds 3
+        Shot 'studio-vivid'
+        Tap 'Detail' | Out-Null
+        $detail = WaitFor 'Milky Way detail.*Smaller stars' 10
+        Shot 'studio-detail'
         Tap 'Colour' | Out-Null
         Tap 'Nightfall' | Out-Null
         Start-Sleep -Seconds 3
         Shot 'studio-nightfall'
         Tap 'Save as new photo' | Out-Null
         $saved = WaitFor 'Saved to the gallery as a new photo' 180
-        $edit = (A shell ls "/sdcard/Android/media/com.wm.starcam/StarCam/sessions/$name/out/") -match "starcam_${name}_edit.jpg"
+        $out = "/sdcard/Android/media/com.wm.starcam/StarCam/sessions/$name/out"
+        $edit = (A shell ls "$out/") -match "starcam_${name}_edit.jpg"
+        # Kept with the session for the next time: the look's Milky Way detail in it.
+        $kept = ((A shell cat "$out/edit.json") -join '') -match '"detail":0\.5'
         Back
-        Check 'studio' ($opened -and $saved -and [bool]$edit) "opened=$opened saved=$saved file=$([bool]$edit)"
+        Check 'studio' ($opened -and $looks -and $vivid -and $detail -and $saved -and [bool]$edit -and $kept) `
+            "opened=$opened looks=$looks vivid=$vivid detail=$detail saved=$saved file=$([bool]$edit) kept=$kept"
     }
 }
 

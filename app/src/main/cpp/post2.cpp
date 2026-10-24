@@ -6,9 +6,11 @@
 //    the ground (from the phone's orientation, or searched for along every edge). Classic fitted
 //    its gradient polynomial through the dark ground too, which lifted the ground to a flat grey
 //    and left the sky above the horizon uneven.
-//  - The light-pollution gradient is fitted to sky cells only, rejecting the Milky Way's cells
-//    iteratively, and under the horizon the correction found at the horizon is carried straight
-//    down instead of extrapolating the polynomial into the ground.
+//  - Light pollution is modelled as a smooth surface under the sky (a cubic B-spline grid per
+//    channel), fitted to the sky between the stars - cells cut by the horizon included, where the
+//    glow is strongest - with the cells that have texture (the Milky Way, lit cloud) left out and
+//    the rest judged again and again, so the surface follows the background, a town's light dome
+//    included, and not the band. The landscape is left out of it.
 //  - The black point comes from the sky background, not from the darkest pixels of the frame
 //    (the ground, when there is one), so the sky is no longer grey. Sky and ground each get their
 //    own stretch, blended across a feathered horizon.
@@ -16,11 +18,14 @@
 //    denoise no longer runs over stars; colours beyond white are scaled down, not clipped, so
 //    bright stars keep their hue.
 //  - A light wavelet noise reduction on the luma, stars excluded.
+//  - For the editing studio: the Milky Way's structure made stronger and stars made smaller,
+//    both measured against a star-free copy of the sky.
 
 #include "post.h"
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <vector>
 
 #include "post_util.h"
@@ -33,33 +38,146 @@ using postutil::kTiny;
 using postutil::lumaOf;
 using postutil::smoothstepf;
 
-// Least squares: solves the n x n normal equations A c = b for three right-hand sides (one per
-// channel), n <= 10, by Gaussian elimination with partial pivoting. A and B are destroyed.
-bool solve_normal(double A[10][10], double B[10][3], int n, double out[3][10]) {
+// Solves the n x n system A x = b for three right-hand sides (one per channel) by Gaussian
+// elimination with partial pivoting. A (n*n) and B (n*3), row-major, are destroyed; out gets the
+// solution channel by channel (out[c*n + r]). False when singular.
+bool solve_dense(std::vector<double>& A, std::vector<double>& B, int n, std::vector<double>* out) {
     for (int col = 0; col < n; ++col) {
         int piv = col;
         for (int r = col + 1; r < n; ++r)
-            if (std::fabs(A[r][col]) > std::fabs(A[piv][col])) piv = r;
-        if (std::fabs(A[piv][col]) < 1e-12) return false;
+            if (std::fabs(A[(size_t)r * n + col]) > std::fabs(A[(size_t)piv * n + col])) piv = r;
+        if (std::fabs(A[(size_t)piv * n + col]) < 1e-18) return false;
         if (piv != col) {
-            for (int k = 0; k < n; ++k) std::swap(A[col][k], A[piv][k]);
-            for (int k = 0; k < 3; ++k) std::swap(B[col][k], B[piv][k]);
+            for (int k = 0; k < n; ++k) std::swap(A[(size_t)col * n + k], A[(size_t)piv * n + k]);
+            for (int k = 0; k < 3; ++k) std::swap(B[(size_t)col * 3 + k], B[(size_t)piv * 3 + k]);
         }
         for (int r = col + 1; r < n; ++r) {
-            const double f = A[r][col] / A[col][col];
+            const double f = A[(size_t)r * n + col] / A[(size_t)col * n + col];
             if (f == 0.0) continue;
-            for (int k = col; k < n; ++k) A[r][k] -= f * A[col][k];
-            for (int k = 0; k < 3; ++k) B[r][k] -= f * B[col][k];
+            for (int k = col; k < n; ++k) A[(size_t)r * n + k] -= f * A[(size_t)col * n + k];
+            for (int k = 0; k < 3; ++k) B[(size_t)r * 3 + k] -= f * B[(size_t)col * 3 + k];
         }
     }
+    out->assign((size_t)3 * n, 0.0);
     for (int c = 0; c < 3; ++c) {
         for (int r = n - 1; r >= 0; --r) {
-            double s = B[r][c];
-            for (int k = r + 1; k < n; ++k) s -= A[r][k] * out[c][k];
-            out[c][r] = s / A[r][r];
+            double v = B[(size_t)r * 3 + c];
+            for (int k = r + 1; k < n; ++k) v -= A[(size_t)r * n + k] * (*out)[(size_t)c * n + k];
+            (*out)[(size_t)c * n + r] = v / A[(size_t)r * n + r];
         }
     }
     return true;
+}
+
+// Uniform cubic B-spline over [0, 1] with k >= 4 control points: the first of the four control
+// points that carry weight at t, and their weights.
+inline void bspline(double t, int k, int* first, double w[4]) {
+    const int m = k - 3;
+    double s = std::min(1.0, std::max(0.0, t)) * m;
+    const int j = std::min(m - 1, (int)std::floor(s));
+    s -= j;
+    const double s2 = s * s, s3 = s2 * s;
+    w[0] = (1.0 - 3.0 * s + 3.0 * s2 - s3) / 6.0;
+    w[1] = (3.0 * s3 - 6.0 * s2 + 4.0) / 6.0;
+    w[2] = (-3.0 * s3 + 3.0 * s2 + 3.0 * s + 1.0) / 6.0;
+    w[3] = s3 / 6.0;
+    *first = j;
+}
+
+// The sky's background as a smooth surface over the image (u, v in 0..1): a tensor-product cubic
+// B-spline with kx x ky control values per channel.
+struct SkySurface {
+    int kx = 0, ky = 0;
+    std::vector<double> c;  // 3 * kx * ky, channel-major, rows of kx
+
+    double eval(int ch, double u, double v) const {
+        int jx, jy;
+        double wx[4], wy[4];
+        bspline(u, kx, &jx, wx);
+        bspline(v, ky, &jy, wy);
+        const double* cc = &c[(size_t)ch * kx * ky];
+        double s = 0.0;
+        for (int b = 0; b < 4; ++b)
+            for (int a = 0; a < 4; ++a) s += wy[b] * wx[a] * cc[(size_t)(jy + b) * kx + jx + a];
+        return s;
+    }
+    double luma(double u, double v) const {
+        return 0.299 * eval(0, u, v) + 0.587 * eval(1, u, v) + 0.114 * eval(2, u, v);
+    }
+};
+
+// lumaOf's weights, for models fitted per channel.
+constexpr double kLumaW[3] = {0.299, 0.587, 0.114};
+
+// A patch of plain sky: its background colour and luma, and where it is (u, v in 0..1).
+struct SkySample {
+    double rgb[3];
+    double lum, u, v;
+    double mottle = 0.0;  // structure within it beyond a smooth curve, in units of its noise (0: unknown)
+    int col = 0, row = 0; // its place in the grid of cells
+};
+
+// Fits the surface to the samples in [use] by penalised least squares: the data, and the
+// curvature of the control grid (second differences along both axes and the twist) weighted
+// relative to the data's own weight - along x by [lamX], along y by [lamY], each given for every
+// control point (kx * ky, rows of kx). Control points with no sky near them (under the landscape)
+// follow from the curvature alone: the surface carries on smoothly. False when too few samples
+// are left.
+bool fit_surface(const std::vector<SkySample>& smp, const std::vector<uint8_t>& use,
+                 const std::vector<double>& lamX, const std::vector<double>& lamY, SkySurface* out) {
+    const int kx = out->kx, ky = out->ky, n = kx * ky;
+    std::vector<double> A((size_t)n * n, 0.0), B((size_t)n * 3, 0.0);
+    int used = 0;
+    for (size_t i = 0; i < smp.size(); ++i) {
+        if (!use[i]) continue;
+        int jx, jy;
+        double wx[4], wy[4];
+        bspline(smp[i].u, kx, &jx, wx);
+        bspline(smp[i].v, ky, &jy, wy);
+        int id[16];
+        double phi[16];
+        for (int b = 0; b < 4; ++b)
+            for (int a = 0; a < 4; ++a) {
+                id[b * 4 + a] = (jy + b) * kx + jx + a;
+                phi[b * 4 + a] = wy[b] * wx[a];
+            }
+        for (int pp = 0; pp < 16; ++pp) {
+            for (int qq = 0; qq < 16; ++qq) A[(size_t)id[pp] * n + id[qq]] += phi[pp] * phi[qq];
+            for (int k = 0; k < 3; ++k) B[(size_t)id[pp] * 3 + k] += phi[pp] * smp[i].rgb[k];
+        }
+        ++used;
+    }
+    if (used < 12) return false;
+    double tr = 0.0;
+    for (int r = 0; r < n; ++r) tr += A[(size_t)r * n + r];
+    const double unit = tr / n;
+    auto pen = [&](const int* id, const double* co, int m, double wgt) {
+        for (int a = 0; a < m; ++a)
+            for (int b = 0; b < m; ++b) A[(size_t)id[a] * n + id[b]] += wgt * unit * co[a] * co[b];
+    };
+    static const double d2[3] = {1.0, -2.0, 1.0}, tw[4] = {1.0, -1.0, -1.0, 1.0};
+    for (int y = 0; y < ky; ++y) {
+        for (int x = 0; x < kx; ++x) {
+            const size_t at = (size_t)y * kx + x;
+            if (x >= 1 && x + 1 < kx) {
+                const int id[3] = {y * kx + x - 1, y * kx + x, y * kx + x + 1};
+                pen(id, d2, 3, lamX[at]);
+            }
+            if (y >= 1 && y + 1 < ky) {
+                const int id[3] = {(y - 1) * kx + x, y * kx + x, (y + 1) * kx + x};
+                pen(id, d2, 3, lamY[at]);
+            }
+            if (x + 1 < kx && y + 1 < ky) {
+                const int id[4] = {y * kx + x, y * kx + x + 1, (y + 1) * kx + x, (y + 1) * kx + x + 1};
+                const double lx = 0.25 * (lamX[at] + lamX[at + 1] + lamX[at + kx] + lamX[at + kx + 1]);
+                const double ly = 0.25 * (lamY[at] + lamY[at + 1] + lamY[at + kx] + lamY[at + kx + 1]);
+                pen(id, tw, 4, 2.0 * std::sqrt(lx * ly));
+            }
+        }
+    }
+    // A whisker of ridge: the system is never singular, whatever the sky covers.
+    for (int r = 0; r < n; ++r) A[(size_t)r * n + r] += 1e-9 * tr / n + 1e-12;
+    return solve_dense(A, B, n, &out->c);
 }
 
 inline float srgb_to_linear(float v) {
@@ -162,13 +280,19 @@ float ground_depth(const Cells& c, int down, std::vector<int>* depthOut) {
         for (int v = UH - 1; v >= UH * 2 / 5; --v) {
             const float s = at(c.starFrac, u, v), l = at(c.luma, u, v);
             const bool dark = l < 0.9f * refLuma;
+            // Star count over five cells side by side: in the glow over a town, which hides most
+            // faint stars, one cell in a few comes out empty by chance; real ground is empty
+            // all along.
+            float sWide = 0.0f;
+            for (int k = -2; k <= 2; ++k) sWide += at(c.starFrac, clampi(u + k, 0, UW - 1), v);
+            sWide *= 0.2f;
             // Above landscape already found, a cell under half the sky's brightness continues it
             // unless clearly starrier than the sky: texture, lit windows and stars mirrored in a
             // lake fool the star count, not the darkness (two such cells used to end the
             // landscape and leave the rest of it black). It never starts one: a dim lower sky
             // (uncorrected vignetting, a moonlit gradient) has stars and fails the strict test.
             const bool groundLike = (s < starCut &&
-                (starry ? (dark || s < 0.25f * starCut) : l < 0.75f * refLuma)) ||
+                (starry ? (dark || std::max(s, sWide) < 0.25f * starCut) : l < 0.75f * refLuma)) ||
                 (d > 0 && l < 0.5f * refLuma && s < std::max(3.0f * refStar, 0.02f));
             if (groundLike) {
                 d = UH - v;
@@ -355,6 +479,37 @@ double stretch_k(double L, double t) {
     return std::sqrt(lo * hi);
 }
 
+// Three passes of a running box over a gw x gh grid, together close to a Gaussian of [sigma]
+// cells. Outside the grid counts as zero: blurring values times weights and the weights alike
+// and dividing (normalized convolution) fills holes from around them and keeps the edges true.
+void box_blur3(std::vector<float>& a, int gw, int gh, float sigma) {
+    const int r = std::max(1, (int)std::lround((std::sqrt(4.0f * sigma * sigma + 1.0f) - 1.0f) * 0.5f));
+    const float inv = 1.0f / (float)(2 * r + 1);
+    std::vector<float> t(a.size());
+    for (int pass = 0; pass < 3; ++pass) {
+        parallel_for(0, gh, [&](int y) {
+            const float* in = &a[(size_t)y * gw];
+            float* o = &t[(size_t)y * gw];
+            double s = 0.0;
+            for (int x = 0; x <= std::min(r, gw - 1); ++x) s += in[x];
+            for (int x = 0; x < gw; ++x) {
+                o[x] = (float)s * inv;
+                if (x + r + 1 < gw) s += in[x + r + 1];
+                if (x - r >= 0) s -= in[x - r];
+            }
+        });
+        parallel_for(0, gw, [&](int x) {
+            double s = 0.0;
+            for (int y = 0; y <= std::min(r, gh - 1); ++y) s += t[(size_t)y * gw + x];
+            for (int y = 0; y < gh; ++y) {
+                a[(size_t)y * gw + x] = (float)s * inv;
+                if (y + r + 1 < gh) s += t[(size_t)(y + r + 1) * gw + x];
+                if (y - r >= 0) s -= t[(size_t)(y - r) * gw + x];
+            }
+        });
+    }
+}
+
 }  // namespace
 
 void postprocess_v2(ImageF& rgb, const PostParams& p, const ProgressFn& progress) {
@@ -475,103 +630,369 @@ void postprocess_v2(ImageF& rgb, const PostParams& p, const ProgressFn& progress
         int st = 2;
         while ((int64_t)(w / st) * (int64_t)(h / st) > 1500000) st += 2;
 
-        // ---------------- sky gradient (sky cells only, Milky Way rejected) ----------------
-        // Light pollution falls off steeply above the horizon and then flattens, which a quadratic
-        // follows only halfway; a cubic does better when the sky fills the frame, but over the
-        // smaller sky above a landscape it starts to eat into the Milky Way. Auto picks by that.
-        const int order = p.gradientOrder > 0 ? p.gradientOrder : (ground.found ? 2 : 3);
-        const int nTerms = order >= 3 ? 10 : 6;
-        double coef[3][10] = {};
+        // ---------------- sky background: light pollution as a smooth surface ----------------
+        // Samples: cells about a 24th of the long edge, sky pixels only - a cell cut by the
+        // horizon counts with its sky part, placed where that part is, since the glow is
+        // strongest just above the horizon - stars masked. A cell's value is the mean of its
+        // middle 40% by luma: the sky between the stars, unbiased by a gradient across the cell.
+        // Cells with texture (the Milky Way, lit cloud) are left out; a first model, free along
+        // the height but nearly straight across, tells the cells something smooth lifts above the
+        // background - glow when it rises from the horizon, a town's light dome; then the B-spline
+        // surface, fitted and re-judged in turn, follows the background: free to bend with the
+        // glow's steep rise and round a dome near the horizon, stiff from side to side higher up,
+        // where the band is.
+        SkySurface surf;
         double ref[3] = {0, 0, 0};
         bool fitted = false;
-        auto basis = [nTerms](double X, double Y, double* phi) {
-            phi[0] = 1.0; phi[1] = X; phi[2] = Y; phi[3] = X * Y; phi[4] = X * X; phi[5] = Y * Y;
-            if (nTerms > 6) {
-                phi[6] = X * X * X; phi[7] = X * X * Y; phi[8] = X * Y * Y; phi[9] = Y * Y * Y;
-            }
-        };
-        auto model = [&coef, &basis, nTerms](int c, double X, double Y) {
-            double phi[10];
-            basis(X, Y, phi);
-            double m = 0.0;
-            for (int a = 0; a < nTerms; ++a) m += coef[c][a] * phi[a];
-            return m;
-        };
         if (p.gradientRemoval && p.gradientStrength > 0.0f) {
-            struct Cell { double med[3]; double lum, X, Y; };
-            std::vector<Cell> cells;
-            const int gx = std::min(32, w), gy = std::min(32, h);
-            std::vector<float> vr, vg, vb, vl;
-            for (int cy = 0; cy < gy; ++cy) {
-                const int ys = (int)((int64_t)cy * h / gy), ye = (int)((int64_t)(cy + 1) * h / gy);
-                for (int cx = 0; cx < gx; ++cx) {
-                    const int xs = (int)((int64_t)cx * w / gx), xe = (int)((int64_t)(cx + 1) * w / gx);
-                    vr.clear(); vg.clear(); vb.clear(); vl.clear();
-                    bool touchesGround = false;
-                    for (int y = ys; y < ye && !touchesGround; y += 2) {
-                        const int hy = std::min(hh - 1, y >> 1);
-                        const float* row = &img[(size_t)y * w * 3];
-                        for (int x = xs; x < xe; x += 2) {
-                            if (groundAt(x, y) > 0.01f) { touchesGround = true; break; }
-                            const int hx = std::min(hw - 1, x >> 1);
-                            if (mask2[(size_t)hy * hw + hx]) continue;
-                            const float* q = row + (size_t)x * 3;
-                            vr.push_back(q[0]); vg.push_back(q[1]); vb.push_back(q[2]);
-                            vl.push_back(lumaOf(q));
+            const int cs = std::max(16, (int)std::lround(std::max(w, h) / 24.0));
+            const int gx = (w + cs - 1) / cs, gy = (h + cs - 1) / cs;
+            std::vector<std::vector<SkySample>> rowSamples((size_t)gy);
+            parallel_for(0, gy, [&](int cy) {
+                try {
+                    struct Px { float l; int x, y; };
+                    std::vector<Px> v;
+                    std::vector<float> diffs;
+                    const int ys = cy * cs, ye = std::min(h, ys + cs);
+                    for (int cx = 0; cx < gx; ++cx) {
+                        const int xs = cx * cs, xe = std::min(w, xs + cs);
+                        v.clear();
+                        diffs.clear();
+                        int seen = 0;
+                        for (int y = ys; y < ye; y += 2) {
+                            const int hy = std::min(hh - 1, y >> 1);
+                            const float* row = &img[(size_t)y * w * 3];
+                            float prev = -1.0f;
+                            for (int x = xs; x < xe; x += 2) {
+                                ++seen;
+                                if (groundAt(x, y) > 0.01f || mask2[(size_t)hy * hw + std::min(hw - 1, x >> 1)]) {
+                                    prev = -1.0f;
+                                    continue;
+                                }
+                                const float l = lumaOf(row + (size_t)x * 3);
+                                if (prev >= 0.0f) diffs.push_back(std::fabs(l - prev));
+                                prev = l;
+                                v.push_back({l, x, y});
+                            }
                         }
+                        if ((int)v.size() < std::max(24, seen / 5)) continue;
+                        // Its texture: the medians of 4 x 4 parts of it, less the best quadratic
+                        // through them (a glow's smooth curve), against what noise alone would
+                        // leave (from the differences between neighbouring samples). Light
+                        // pollution is smooth; the Milky Way and lit cloud are not. A cell the
+                        // horizon cuts has parts with too little sky: unknown.
+                        double mottle = 0.0;
+                        if (diffs.size() > 64) {
+                            std::vector<float> part[16];
+                            const int cw = std::max(1, xe - xs), ch = std::max(1, ye - ys);
+                            for (const Px& q : v) part[std::min(3, (q.y - ys) * 4 / ch) * 4 + std::min(3, (q.x - xs) * 4 / cw)].push_back(q.l);
+                            double A6[6][6] = {}, B6[6][3] = {}, co[3][6];
+                            double med[16];
+                            int minN = 1 << 30;
+                            bool ok = true;
+                            for (int k = 0; k < 16 && ok; ++k) {
+                                if (part[k].size() < 8) { ok = false; break; }
+                                minN = std::min(minN, (int)part[k].size());
+                                med[k] = median_of(part[k]);
+                                const double X = (k % 4) - 1.5, Y = (k / 4) - 1.5;
+                                const double ph[6] = {1.0, X, Y, X * Y, X * X, Y * Y};
+                                for (int a = 0; a < 6; ++a) {
+                                    for (int b = 0; b < 6; ++b) A6[a][b] += ph[a] * ph[b];
+                                    B6[a][0] += ph[a] * med[k];
+                                }
+                            }
+                            if (ok && postutil::solve6x6(A6, B6, co)) {
+                                std::vector<float> res;
+                                for (int k = 0; k < 16; ++k) {
+                                    const double X = (k % 4) - 1.5, Y = (k / 4) - 1.5;
+                                    const double m = co[0][0] + co[0][1] * X + co[0][2] * Y + co[0][3] * X * Y + co[0][4] * X * X + co[0][5] * Y * Y;
+                                    res.push_back((float)std::fabs(med[k] - m));
+                                }
+                                const float sigPix = 1.4826f * median_of(diffs) / std::sqrt(2.0f);
+                                const float sigPart = 1.2533f * sigPix / std::sqrt((float)minN);
+                                mottle = sigPart > 0.0f ? 1.4826 * median_of(res) / sigPart : 0.0;
+                            }
+                        }
+                        std::sort(v.begin(), v.end(), [](const Px& a, const Px& b) { return a.l < b.l; });
+                        const size_t i0 = v.size() * 3 / 10, i1 = std::max(i0 + 1, v.size() * 7 / 10);
+                        SkySample sm{};
+                        double sx = 0.0, sy = 0.0;
+                        for (size_t i = i0; i < i1; ++i) {
+                            const float* q = &img[((size_t)v[i].y * w + v[i].x) * 3];
+                            for (int k = 0; k < 3; ++k) sm.rgb[k] += q[k];
+                            sm.lum += v[i].l;
+                        }
+                        // Placed at the centre of all its sky pixels, not of the whole cell.
+                        for (const Px& q : v) {
+                            sx += q.x;
+                            sy += q.y;
+                        }
+                        const double inv = 1.0 / (double)(i1 - i0);
+                        for (int k = 0; k < 3; ++k) sm.rgb[k] *= inv;
+                        sm.lum *= inv;
+                        sm.u = w > 1 ? sx / (double)v.size() / (double)(w - 1) : 0.5;
+                        sm.v = h > 1 ? sy / (double)v.size() / (double)(h - 1) : 0.5;
+                        sm.mottle = mottle;
+                        sm.col = cx;
+                        sm.row = cy;
+                        rowSamples[(size_t)cy].push_back(sm);
                     }
-                    if (touchesGround || vl.size() < 8) continue;
-                    Cell c;
-                    c.med[0] = median_of(vr); c.med[1] = median_of(vg); c.med[2] = median_of(vb);
-                    c.lum = median_of(vl);
-                    c.X = (w > 1) ? (double)(xs + xe - 1) / (double)(w - 1) - 1.0 : 0.0;
-                    c.Y = (h > 1) ? (double)(ys + ye - 1) / (double)(h - 1) - 1.0 : 0.0;
-                    cells.push_back(c);
-                }
+                } catch (...) {}
+            });
+            std::vector<SkySample> cells;
+            for (const auto& r : rowSamples) cells.insert(cells.end(), r.begin(), r.end());
+            // Structured: well above the texture of a typical cell (plain sky, mostly). Too few
+            // cells to judge (a tiny frame): no cell is either.
+            float mottleCut = 0.0f;
+            {
+                std::vector<float> m;
+                for (const SkySample& c : cells)
+                    if (c.mottle > 0.0) m.push_back((float)c.mottle);
+                if (m.size() >= 16) mottleCut = std::max(3.0f, 2.5f * median_of(m));
+            }
+            auto structured = [&](const SkySample& c) { return mottleCut > 0.0f && c.mottle > mottleCut; };
+            auto smooth = [&](const SkySample& c) { return mottleCut > 0.0f && c.mottle > 0.0 && c.mottle <= mottleCut; };
+            // Next to structure: the band's smooth fringe, never taken for a dome.
+            std::vector<uint8_t> fringe(cells.size(), 0);
+            {
+                std::vector<uint8_t> grid((size_t)gx * gy, 0);
+                for (const SkySample& c : cells)
+                    if (structured(c)) grid[(size_t)c.row * gx + c.col] = 1;
+                for (size_t i = 0; i < cells.size(); ++i)
+                    for (int dy = -1; dy <= 1; ++dy)
+                        for (int dx = -1; dx <= 1; ++dx) {
+                            const int cx = cells[i].col + dx, cy = cells[i].row + dy;
+                            if (cx >= 0 && cy >= 0 && cx < gx && cy < gy && grid[(size_t)cy * gx + cx]) fringe[i] = 1;
+                        }
             }
             std::vector<uint8_t> use(cells.size(), 1);
-            {   // start without the brightest tenth (the Milky Way's core, a lit cloud)
-                std::vector<float> l;
-                for (const Cell& c : cells) l.push_back((float)c.lum);
-                const float cut = percentile_of(l, 0.9f);
-                for (size_t i = 0; i < cells.size(); ++i) use[i] = cells[i].lum <= cut;
-            }
-            for (int iter = 0; iter < 4 && (int)cells.size() >= 2 * nTerms; ++iter) {
-                double A[10][10] = {}, B[10][3] = {};
-                int used = 0;
-                for (size_t i = 0; i < cells.size(); ++i) {
-                    if (!use[i]) continue;
-                    const Cell& c = cells[i];
-                    double phi[10];
-                    basis(c.X, c.Y, phi);
-                    for (int a = 0; a < nTerms; ++a) {
-                        for (int b = 0; b < nTerms; ++b) A[a][b] += phi[a] * phi[b];
-                        for (int k = 0; k < 3; ++k) B[a][k] += phi[a] * c.med[k];
+            for (size_t i = 0; i < cells.size(); ++i) use[i] = !structured(cells[i]);
+            const int down = ground.found ? ground.up.down : (p.downEdge >= 0 ? p.downEdge : 0);
+            const bool sideways = down == 1 || down == 3;
+            // The cells column by column (upright), from the ground's edge up.
+            std::vector<std::vector<int>> columns((size_t)(sideways ? gy : gx));
+            {
+                std::vector<int> order(cells.size());
+                for (size_t i = 0; i < cells.size(); ++i) order[i] = (int)i;
+                auto upOf = [&](const SkySample& c) {
+                    switch (down) {
+                        case 1: return c.col;
+                        case 2: return c.row;
+                        case 3: return gx - 1 - c.col;
+                        default: return gy - 1 - c.row;
                     }
-                    ++used;
-                }
-                double trial[3][10] = {};
-                if (used < nTerms + 4 || !solve_normal(A, B, nTerms, trial)) break;
-                std::copy(&trial[0][0], &trial[0][0] + 30, &coef[0][0]);
-                fitted = true;
-                // Re-select: cells well above the model are the Milky Way (or a lit cloud).
-                std::vector<float> res(cells.size());
+                };
+                std::sort(order.begin(), order.end(), [&](int a, int b) { return upOf(cells[(size_t)a]) < upOf(cells[(size_t)b]); });
+                for (int i : order) columns[(size_t)(sideways ? cells[(size_t)i].row : cells[(size_t)i].col)].push_back(i);
+            }
+            // A cell is background unless it has structure, stands well above the model (by the
+            // scatter of the cells below it, which the band - only ever adding light - cannot
+            // widen) or, with structure, far below it (a piece of landscape, a dark cloud). A
+            // smooth one standing high is glow all the same when it rises straight from the
+            // horizon, cell on cell, away from the band: a town's light dome.
+            // Under the band the surface only guesses, bridging from the sky on either side; the
+            // band can only add light, so wherever the guess comes out above one of the cells the
+            // band lifted, that cell holds it down (dark lanes at its foot had turned black where
+            // the bridge rose toward a dome beside it).
+            std::vector<uint8_t> lifted;
+            auto classify = [&](const std::function<double(const SkySample&)>& model, double floor) {
+                std::vector<float> res(cells.size()), below;
                 for (size_t i = 0; i < cells.size(); ++i) {
-                    const Cell& c = cells[i];
-                    const double m = 0.299 * model(0, c.X, c.Y) + 0.587 * model(1, c.X, c.Y) +
-                                     0.114 * model(2, c.X, c.Y);
-                    res[i] = (float)(c.lum - m);
+                    res[i] = (float)(cells[i].lum - model(cells[i]));
+                    if (res[i] < 0.0f) below.push_back(-res[i]);
                 }
-                std::vector<float> ar;
-                for (size_t i = 0; i < cells.size(); ++i) if (use[i]) ar.push_back(std::fabs(res[i]));
-                const float sig = std::max(1.4826f * median_of(ar), 1e-6f);
-                for (size_t i = 0; i < cells.size(); ++i) use[i] = res[i] < 1.5f * sig && res[i] > -3.0f * sig;
+                const float sig = std::max(below.empty() ? 0.0f : 1.4826f * median_of(below), (float)floor);
+                for (size_t i = 0; i < cells.size(); ++i)
+                    use[i] = !structured(cells[i]) && res[i] < 3.0f * sig && (res[i] > -4.0f * sig || smooth(cells[i]));
+                if (lifted.empty()) {
+                    lifted.assign(cells.size(), 0);
+                    for (size_t i = 0; i < cells.size(); ++i) lifted[i] = structured(cells[i]) && res[i] > 0.0f;
+                } else {
+                    for (size_t i = 0; i < cells.size(); ++i)
+                        if (lifted[i] && res[i] < 0.0f) use[i] = 1;
+                }
+                for (const std::vector<int>& colm : columns) {
+                    for (size_t k = 0; k < colm.size(); ++k) {
+                        const SkySample& c = cells[(size_t)colm[k]];
+                        const bool high = res[(size_t)colm[k]] >= 3.0f * sig;
+                        // The cell the horizon cuts has too little sky to judge its texture:
+                        // it counts with the one above it.
+                        const bool unknown = c.mottle <= 0.0;
+                        const bool glow = high && !fringe[(size_t)colm[k]] &&
+                                          (smooth(c) || (unknown && k == 0 && k + 1 < colm.size() &&
+                                                         smooth(cells[(size_t)colm[k + 1]])));
+                        if (!high) {
+                            if (k == 0) continue;
+                            break;
+                        }
+                        if (!glow) break;
+                        use[(size_t)colm[k]] = 1;
+                    }
+                }
+            };
+            // The first pass, the glow as a model to judge the cells by: light pollution changes
+            // mostly with height above the horizon and only gently from side to side, so a model
+            // free in height (a B-spline of eight control points) but only quadratic across, fitted
+            // without the textured cells, follows the glow however steep it rises over a town, yet
+            // not a band crossing the sky.
+            const int kh = 8, nq = 2 * kh + 1;
+            auto phiOf = [&](const SkySample& c, double* phi) {
+                const double hgt = sideways ? c.u : c.v, across = 2.0 * (sideways ? c.v : c.u) - 1.0;
+                int j;
+                double wh[4];
+                bspline(hgt, kh, &j, wh);
+                for (int k = 0; k < nq; ++k) phi[k] = 0.0;
+                // A level and a side-to-side slope for every height, and one curve across.
+                for (int k = 0; k < 4; ++k) {
+                    phi[j + k] = wh[k];
+                    phi[kh + j + k] = wh[k] * across;
+                }
+                phi[2 * kh] = across * across;
+            };
+            // Fitted to the lower quarter of the cells (quantile regression by reweighted least
+            // squares): the band, which only adds light, hardly pulls on it.
+            std::vector<double> q;
+            std::vector<double> wgt(cells.size(), 1.0);
+            const double tau = 0.25;
+            double medLum = 0.0;
+            {
+                std::vector<float> l;
+                for (const SkySample& c : cells) l.push_back((float)c.lum);
+                medLum = l.empty() ? 0.0 : median_of(l);
+            }
+            for (size_t i = 0; i < cells.size(); ++i)
+                if (structured(cells[i])) wgt[i] = 0.0;
+            for (int iter = 0; iter < 10 && cells.size() >= 16; ++iter) {
+                std::vector<double> A((size_t)nq * nq, 0.0), B((size_t)nq * 3, 0.0), sol;
+                double phi[24];
+                for (size_t i = 0; i < cells.size(); ++i) {
+                    if (wgt[i] == 0.0) continue;
+                    phiOf(cells[i], phi);
+                    for (int a = 0; a < nq; ++a) {
+                        if (phi[a] == 0.0) continue;
+                        for (int b = 0; b < nq; ++b) A[(size_t)a * nq + b] += wgt[i] * phi[a] * phi[b];
+                        for (int k = 0; k < 3; ++k) B[(size_t)a * 3 + k] += wgt[i] * phi[a] * cells[i].rgb[k];
+                    }
+                }
+                double tr = 0.0;
+                for (int r = 0; r < nq; ++r) tr += A[(size_t)r * nq + r];
+                // A little curvature penalty along the height, on the levels and the slopes.
+                for (int base = 0; base <= kh; base += kh) {
+                    for (int k = 1; k + 1 < kh; ++k) {
+                        const int id[3] = {base + k - 1, base + k, base + k + 1};
+                        const double co[3] = {1.0, -2.0, 1.0};
+                        for (int a = 0; a < 3; ++a)
+                            for (int b = 0; b < 3; ++b) A[(size_t)id[a] * nq + id[b]] += 0.02 * tr / nq * co[a] * co[b];
+                    }
+                }
+                for (int r = 0; r < nq; ++r) A[(size_t)r * nq + r] += 1e-9 * tr / nq + 1e-12;
+                // The levels along the height are kept convex: glow falls away from the horizon,
+                // steeply and then gently (or rises toward the moon), and never humps the way a
+                // band lying along the horizon does. Where the fit humps, the bend is held straight,
+                // the worst place first.
+                std::vector<uint8_t> straight((size_t)kh, 0);
+                bool solved = false;
+                for (int pass = 0; pass < kh; ++pass) {
+                    std::vector<double> Ak = A, Bk = B;
+                    for (int k = 1; k + 1 < kh; ++k) {
+                        if (!straight[(size_t)k]) continue;
+                        const int id[3] = {k - 1, k, k + 1};
+                        const double co[3] = {1.0, -2.0, 1.0};
+                        for (int a = 0; a < 3; ++a)
+                            for (int b = 0; b < 3; ++b) Ak[(size_t)id[a] * nq + id[b]] += 1e4 * tr / nq * co[a] * co[b];
+                    }
+                    if (!solve_dense(Ak, Bk, nq, &sol)) break;
+                    solved = true;
+                    int worst = -1;
+                    double most = 1e-3 * medLum;
+                    for (int k = 1; k + 1 < kh; ++k) {
+                        double d2 = 0.0;
+                        for (int c = 0; c < 3; ++c)
+                            d2 += kLumaW[c] * (sol[(size_t)c * nq + k - 1] - 2.0 * sol[(size_t)c * nq + k] + sol[(size_t)c * nq + k + 1]);
+                        if (-d2 > most) {
+                            most = -d2;
+                            worst = k;
+                        }
+                    }
+                    if (worst < 0) break;
+                    straight[(size_t)worst] = 1;
+                }
+                if (!solved) break;
+                q.swap(sol);
+                const double eps = 1e-3 * std::max(medLum, 1e-6);
+                for (size_t i = 0; i < cells.size(); ++i) {
+                    phiOf(cells[i], phi);
+                    double m[3] = {0, 0, 0};
+                    for (int k = 0; k < 3; ++k)
+                        for (int a = 0; a < nq; ++a) m[k] += q[(size_t)k * nq + a] * phi[a];
+                    const double r = cells[i].lum - (0.299 * m[0] + 0.587 * m[1] + 0.114 * m[2]);
+                    if (!structured(cells[i])) wgt[i] = (r > 0.0 ? tau : 1.0 - tau) / std::max(std::fabs(r), eps);
+                }
+            }
+            if (!q.empty()) {
+                classify([&](const SkySample& c) {
+                    double phi[24], m[3] = {0, 0, 0};
+                    phiOf(c, phi);
+                    for (int k = 0; k < 3; ++k)
+                        for (int a = 0; a < nq; ++a) m[k] += q[(size_t)k * nq + a] * phi[a];
+                    return 0.299 * m[0] + 0.587 * m[1] + 0.114 * m[2];
+                }, 2e-3 * medLum);
+            }
+            // The surface: control points a ninth of the short side apart along the height, a
+            // little wider across. Bending along the height costs little, across a great deal: the
+            // glow rises steeply over a town but changes only gently from side to side, and a band
+            // standing up from the horizon would need a sharp bend across.
+            const int shortSide = std::max(1, std::min(w, h));
+            auto controls = [shortSide](int len, double perShort) {
+                return clampi((int)std::lround(perShort * len / shortSide), 6, 14);
+            };
+            const int kHeight = controls(sideways ? w : h, 9.0), kAcross = controls(sideways ? h : w, 7.5);
+            surf.kx = sideways ? kHeight : kAcross;
+            surf.ky = sideways ? kAcross : kHeight;
+            const double lamH = 0.02, lamA = 30.0;
+            // Toward the horizon the stiffness across gives way - as free as along the height up
+            // to a tenth of the frame above it, as stiff as everywhere else from 45% up - so the
+            // surface bends round a town's light dome there. (Freer and higher, it took too much
+            // of the band's foot, where it can only guess the sky under the band.)
+            double horizonUp = 0.0;  // the horizon's height above the ground's edge, 0..1
+            if (ground.found) {
+                std::vector<float> hz;
+                const float uh = (float)ground.up.uh();
+                for (float r : ground.horizon)
+                    if (r < uh) hz.push_back(1.0f - r / uh);
+                if (!hz.empty()) horizonUp = median_of(hz);
+            }
+            const size_t nc = (size_t)surf.kx * surf.ky;
+            std::vector<double> lamX(nc), lamY(nc);
+            for (int y = 0; y < surf.ky; ++y) {
+                for (int x = 0; x < surf.kx; ++x) {
+                    const int j = sideways ? x : y, k = sideways ? surf.kx : surf.ky;
+                    const double t = std::min(1.0, std::max(0.0, (double)(j - 1) / (double)(k - 3)));
+                    const double up = (down == 0 || down == 3) ? 1.0 - t : t;
+                    double e = std::min(1.0, std::max(0.0, (up - horizonUp - 0.1) / 0.35));
+                    e = e * e * (3.0 - 2.0 * e);
+                    const double across = lamH + (lamA - lamH) * e;
+                    const size_t at = (size_t)y * surf.kx + x;
+                    lamX[at] = sideways ? lamH : across;
+                    lamY[at] = sideways ? across : lamH;
+                }
+            }
+            for (int iter = 0; iter < 3 && cells.size() >= 16; ++iter) {
+                SkySurface trial = surf;
+                if (!fit_surface(cells, use, lamX, lamY, &trial)) break;
+                surf = trial;
+                fitted = true;
+                // Judged again against the surface, which follows the glow more closely.
+                if (iter < 2) classify([&surf](const SkySample& c) { return surf.luma(c.u, c.v); }, 2e-3 * medLum);
             }
             if (fitted) {
-                // Subtract down to the darkest modelled sky: light pollution only ever adds light.
+                // Taken down to the darkest of the modelled sky: light pollution only ever adds.
                 ref[0] = ref[1] = ref[2] = 1e9;
-                for (const Cell& c : cells)
-                    for (int k = 0; k < 3; ++k) ref[k] = std::min(ref[k], model(k, c.X, c.Y));
+                for (const SkySample& c : cells)
+                    for (int k = 0; k < 3; ++k) ref[k] = std::min(ref[k], surf.eval(k, c.u, c.v));
+                int kept = 0;
+                for (uint8_t u : use) kept += u;
+                SLOG("postprocess_v2: sky surface %dx%d from %d of %zu cells", surf.kx, surf.ky, kept, cells.size());
             }
         }
 
@@ -586,7 +1007,7 @@ void postprocess_v2(ImageF& rgb, const PostParams& p, const ProgressFn& progress
         if (ground.found) {
             gFine.assign((size_t)w * h, 0);
             parallel_for(0, h, [&](int y) {
-                const double Y = (h > 1) ? 2.0 * y / (h - 1) - 1.0 : 0.0;
+                const double V = (h > 1) ? (double)y / (h - 1) : 0.5;
                 const float* row = &img[(size_t)y * w * 3];
                 uint8_t* grow = &gFine[(size_t)y * w];
                 const int hy = std::min(hh - 1, y >> 1);
@@ -597,11 +1018,7 @@ void postprocess_v2(ImageF& rgb, const PostParams& p, const ProgressFn& progress
                     const float below = (float)ground.up.row(hx, hy) - ground.horizon[(size_t)ground.up.column(hx, hy)];
                     if (g >= 1.0f && below >= 3.0f) { grow[x] = 255; continue; }
                     float skyL = skyRefL;
-                    if (fitted) {
-                        const double X = (w > 1) ? 2.0 * x / (w - 1) - 1.0 : 0.0;
-                        skyL = (float)(0.299 * model(0, X, Y) + 0.587 * model(1, X, Y) +
-                                       0.114 * model(2, X, Y));
-                    }
+                    if (fitted) skyL = (float)surf.luma(w > 1 ? (double)x / (w - 1) : 0.5, V);
                     const float r = lumaOf(row + (size_t)x * 3) / std::max(skyL, kTiny);
                     grow[x] = (uint8_t)std::lround(254.0f * (1.0f - smoothstepf(0.55f, 0.85f, r)));
                 }
@@ -613,20 +1030,37 @@ void postprocess_v2(ImageF& rgb, const PostParams& p, const ProgressFn& progress
 
         if (fitted) {
             const float s = clampf(p.gradientStrength, 0.0f, 1.0f);
+            // The surface's weights along a row, worked out once for every column.
+            std::vector<int> jxs((size_t)w);
+            std::vector<double> wxs((size_t)w * 4);
+            for (int x = 0; x < w; ++x) bspline(w > 1 ? (double)x / (w - 1) : 0.5, surf.kx, &jxs[(size_t)x], &wxs[(size_t)x * 4]);
             // The glow is in the air in front of the sky, not on the ground: the landscape is
             // left as it is and gets its own black point below.
             parallel_for(0, h, [&](int y) {
-                const double Y = (h > 1) ? 2.0 * y / (h - 1) - 1.0 : 0.0;
+                int jy;
+                double wy[4];
+                bspline(h > 1 ? (double)y / (h - 1) : 0.5, surf.ky, &jy, wy);
+                // The surface along this row: the control rows folded into one per channel.
+                std::vector<double> rowC((size_t)3 * surf.kx, 0.0);
+                for (int k = 0; k < 3; ++k)
+                    for (int cx = 0; cx < surf.kx; ++cx)
+                        for (int b = 0; b < 4; ++b)
+                            rowC[(size_t)k * surf.kx + cx] += wy[b] * surf.c[((size_t)k * surf.ky + jy + b) * surf.kx + cx];
                 float* row = &img[(size_t)y * w * 3];
                 for (int x = 0; x < w; ++x) {
                     const float sky = 1.0f - groundFine(x, y);
                     if (sky <= 0.0f) continue;
-                    const double X = (w > 1) ? 2.0 * x / (w - 1) - 1.0 : 0.0;
+                    const int jx = jxs[(size_t)x];
+                    const double* wx = &wxs[(size_t)x * 4];
                     float* q = row + (size_t)x * 3;
-                    for (int k = 0; k < 3; ++k) q[k] -= sky * (float)(s * (model(k, X, Y) - ref[k]));
+                    for (int k = 0; k < 3; ++k) {
+                        const double* rc = &rowC[(size_t)k * surf.kx + jx];
+                        const double m = wx[0] * rc[0] + wx[1] * rc[1] + wx[2] * rc[2] + wx[3] * rc[3];
+                        q[k] -= sky * (float)(s * (m - ref[k]));
+                    }
                 }
             });
-            SLOG("postprocess_v2: sky gradient removed");
+            SLOG("postprocess_v2: sky background removed");
         }
         report(30);
 
@@ -955,6 +1389,141 @@ void postprocess_v2(ImageF& rgb, const PostParams& p, const ProgressFn& progress
                 SLOG("postprocess_v2: noise reduction %.2f (wavelet sigma %.4f %.4f)", amount, sig1, sig2);
             }
         }
+        // ---------------- Milky Way detail and smaller stars (the editing studio's) ------------
+        // Both work against the sky without its stars: luma on a coarse grid (about 800 cells
+        // along the long edge) on a perceptual scale (square root), star and landscape pixels left
+        // out and the holes they leave filled from around them. Sizes are fractions of the frame,
+        // so the studio's small preview shows what the saved photo will.
+        const float detail = clampf(p.detail, 0.0f, 1.0f), smaller = clampf(p.starReduction, 0.0f, 1.0f);
+        if (detail > 0.0f || smaller > 0.0f) {
+            const int longEdge = std::max(w, h);
+            const int f = std::max(1, longEdge / 800);
+            const int gw = (w + f - 1) / f, gh = (h + f - 1) / f;
+            const std::vector<uint8_t> starArea = dilatedMask(maskRaw, hw, hh, 2);
+            std::vector<float> num((size_t)gw * gh, 0.0f), den((size_t)gw * gh, 0.0f);
+            parallel_for(0, gh, [&](int gy) {
+                for (int gx = 0; gx < gw; ++gx) {
+                    float sum = 0.0f;
+                    int n = 0, all = 0;
+                    for (int y = gy * f; y < std::min(h, gy * f + f); ++y) {
+                        const uint8_t* mrow = &starArea[(size_t)std::min(hh - 1, y >> 1) * hw];
+                        const float* row = &img[(size_t)y * w * 3];
+                        for (int x = gx * f; x < std::min(w, gx * f + f); ++x) {
+                            ++all;
+                            if (mrow[std::min(hw - 1, x >> 1)] || groundFine(x, y) > 0.5f) continue;
+                            sum += std::sqrt(std::max(0.0f, lumaOf(row + (size_t)x * 3)));
+                            ++n;
+                        }
+                    }
+                    if (n > 0) {
+                        const size_t i = (size_t)gy * gw + gx;
+                        den[i] = (float)n / (float)all;
+                        num[i] = sum / (float)all;
+                    }
+                }
+            });
+            // The sky smoothed at [frac] of the long edge; cells too far from any sky stay -1.
+            auto smoothed = [&](float frac) {
+                std::vector<float> a = num, b = den;
+                const float sg = std::max(0.5f, frac * (float)longEdge / (float)f);
+                box_blur3(a, gw, gh, sg);
+                box_blur3(b, gw, gh, sg);
+                for (size_t i = 0; i < a.size(); ++i) a[i] = b[i] > 1e-3f ? a[i] / b[i] : -1.0f;
+                return a;
+            };
+            const std::vector<float> fine = smoothed(0.0015f);
+            // Detail: the structure between a few pixels and a fiftieth of the frame - dust lanes,
+            // star clouds - made stronger; the band's overall glow and the pixel noise are not.
+            // Only where the sky is brighter than its plain background (the Milky Way, not the
+            // empty sky, whose faint blotches would come up with it).
+            std::vector<float> band;
+            if (detail > 0.0f) {
+                band = smoothed(0.02f);
+                std::vector<float> v;
+                for (size_t i = 0; i < fine.size(); i += 3)
+                    if (fine[i] >= 0.0f) v.push_back(fine[i]);
+                const float plain = v.empty() ? 0.0f : median_of(v);
+                for (size_t i = 0; i < band.size(); ++i) {
+                    const float lift = smoothstepf(1.05f * plain, 1.4f * plain, band[i]);
+                    band[i] = fine[i] >= 0.0f && band[i] >= 0.0f ? lift * (fine[i] - band[i]) : 0.0f;
+                }
+            }
+            // A grid value at a pixel, bilinear over the corners that have sky.
+            auto sample = [&](const std::vector<float>& g, int x, int y, float none) {
+                const float fx = clampf(((float)x + 0.5f) / (float)f - 0.5f, 0.0f, (float)(gw - 1));
+                const float fy = clampf(((float)y + 0.5f) / (float)f - 0.5f, 0.0f, (float)(gh - 1));
+                const int x0 = (int)fx, y0 = (int)fy, x1 = std::min(x0 + 1, gw - 1), y1 = std::min(y0 + 1, gh - 1);
+                const float tx = fx - (float)x0, ty = fy - (float)y0;
+                const float v[4] = {g[(size_t)y0 * gw + x0], g[(size_t)y0 * gw + x1], g[(size_t)y1 * gw + x0],
+                                    g[(size_t)y1 * gw + x1]};
+                const float wt[4] = {(1 - tx) * (1 - ty), tx * (1 - ty), (1 - tx) * ty, tx * ty};
+                float s = 0.0f, ws = 0.0f;
+                for (int k = 0; k < 4; ++k) {
+                    if (v[k] < 0.0f) continue;
+                    s += wt[k] * v[k];
+                    ws += wt[k];
+                }
+                return ws > 1e-4f ? s / ws : none;
+            };
+            // Smaller stars: each star's profile steepened against its own peak - the core kept,
+            // the wings pulled down toward the sky around it - so it shrinks and fades without a
+            // dark hole. Judged over a round 5x5 at full size, 3x3 on small frames (the preview).
+            // Read from a copy: the rows change meanwhile.
+            const int reach = longEdge >= 3000 ? 2 : 1;
+            const float steep = 3.0f * smaller;
+            std::vector<float> L;
+            if (steep > 0.0f) {
+                L.resize((size_t)w * h);
+                parallel_for(0, h, [&](int y) {
+                    const float* row = &img[(size_t)y * w * 3];
+                    for (int x = 0; x < w; ++x) L[(size_t)y * w + x] = lumaOf(row + (size_t)x * 3);
+                });
+            }
+            const float gain = 1.6f * detail;
+            parallel_for(0, h, [&](int y) {
+                const uint8_t* mrow = &starArea[(size_t)std::min(hh - 1, y >> 1) * hw];
+                float* row = &img[(size_t)y * w * 3];
+                for (int x = 0; x < w; ++x) {
+                    const float sky = 1.0f - groundFine(x, y);
+                    if (sky <= 0.0f) continue;
+                    float* q = row + (size_t)x * 3;
+                    const float Y = L.empty() ? lumaOf(q) : L[(size_t)y * w + x];
+                    float Yn = Y;
+                    if (!L.empty() && mrow[std::min(hw - 1, x >> 1)]) {
+                        float mn = Y, mx = Y;
+                        for (int dy = -reach; dy <= reach; ++dy) {
+                            const float* lr = &L[(size_t)clampi(y + dy, 0, h - 1) * w];
+                            for (int dx = -reach; dx <= reach; ++dx) {
+                                if (dx * dx + dy * dy > 5) continue;
+                                const float v = lr[clampi(x + dx, 0, w - 1)];
+                                mn = std::min(mn, v);
+                                mx = std::max(mx, v);
+                            }
+                        }
+                        // Never below the sky here: what is under the star stays.
+                        const float bg = sample(fine, x, y, -1.0f);
+                        const float base = std::max(mn, bg >= 0.0f ? std::min(Y, bg * bg) : Y);
+                        if (Y > base && mx > base) {
+                            const float t = (Y - base) / (mx - base);
+                            Yn = Y + sky * ((Y - base) * std::pow(t, steep) + base - Y);
+                        }
+                    }
+                    if (gain > 0.0f) {
+                        const float P = std::sqrt(std::max(0.0f, Yn)) + gain * sky * sample(band, x, y, 0.0f);
+                        Yn = P > 0.0f ? P * P : 0.0f;
+                    }
+                    if (Yn == Y) continue;
+                    // Colour kept: scaled where there is luma to scale, the rest added as grey.
+                    const float sc = Y > 1e-5f ? std::min(Yn / Y, 4.0f) : 0.0f;
+                    const float add = Yn - sc * Y;
+                    q[0] = std::max(0.0f, q[0] * sc + add);
+                    q[1] = std::max(0.0f, q[1] * sc + add);
+                    q[2] = std::max(0.0f, q[2] * sc + add);
+                }
+            });
+            SLOG("postprocess_v2: detail %.2f, smaller stars %.2f (grid %dx%d)", detail, smaller, gw, gh);
+        }
+
         // ---------------- optional star sharpening (as classic) ----------------
         report(86);
         if (p.starSharpen) {
@@ -1011,6 +1580,24 @@ void postprocess_v2(ImageF& rgb, const PostParams& p, const ProgressFn& progress
             });
         }
 
+        // ---------------- vignette (the editing studio's) ----------------
+        // The corners darkened so the eye stays on the sky: an ellipse fitted to the frame, the
+        // middle untouched, the very corners up to 60% darker.
+        const float vig = clampf(p.vignette, 0.0f, 1.0f);
+        if (vig > 0.0f) {
+            parallel_for(0, h, [&](int y) {
+                const float dy = h > 1 ? 2.0f * (float)y / (float)(h - 1) - 1.0f : 0.0f;
+                float* row = &img[(size_t)y * w * 3];
+                for (int x = 0; x < w; ++x) {
+                    const float dx = w > 1 ? 2.0f * (float)x / (float)(w - 1) - 1.0f : 0.0f;
+                    const float g = 1.0f - 0.6f * vig * smoothstepf(0.15f, 1.0f, 0.5f * (dx * dx + dy * dy));
+                    float* q = row + (size_t)x * 3;
+                    q[0] *= g;
+                    q[1] *= g;
+                    q[2] *= g;
+                }
+            });
+        }
         report(90);
 
         // ---------------- colour-preserving clip + sRGB gamma ----------------

@@ -28,8 +28,10 @@ frame by daylight, or leads you with an arrow to whatever you pick to find (a ga
 North Star) — and a **Tonight planner** (whether tonight is a Milky Way night, the best
 window, when it gets dark, the Moon, how high the core climbs, and what else is worth a shot
 tonight), all computed on the phone; an
-**editing studio** that develops a session's master again with your own sky/landscape
-brightness, contrast, colour and noise settings (saved as a new photo), **1 frame vs
+**editing studio** that develops a session's master again - a look picked from small pictures
+of the photo itself (Vivid, Deep, Nightfall, Mono...), or your own sky/landscape brightness,
+contrast, colour, light-pollution removal, Milky Way detail, smaller stars, vignette and noise
+settings (saved as a new photo), **1 frame vs
 stacked**, a drag-to-compare view of what the stacking did, and **watch it build up**, a short
 video of the live stack growing from the first noisy frame into the finished photo (made on the
 phone, saved to the gallery), a **timelapse** of the night from the RAW frames, and for a meteor

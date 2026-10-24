@@ -121,6 +121,15 @@ Scene render_scene(const SceneOptions& o) {
     s.mwX1 = 0.80f * (float)W;
     s.mwY1 = -0.05f * (float)H;
     s.mwSigma = 0.09f * (float)W;
+    if (o.milkyWayFlat) {
+        // An arch low over the landscape, nearly level: the light-pollution model must not take
+        // it for glow that changes with height.
+        s.mwX0 = -0.05f * (float)W;
+        s.mwY0 = 0.50f * (float)H;
+        s.mwX1 = 1.05f * (float)W;
+        s.mwY1 = 0.36f * (float)H;
+        s.mwSigma = 0.06f * (float)W;
+    }
 
     const float sky0[3] = {0.050f, 0.052f, 0.056f};
     const float lpCol[3] = {1.0f, 0.72f, 0.42f};
@@ -143,9 +152,21 @@ Scene render_scene(const SceneOptions& o) {
             } else {
                 for (int c = 0; c < 3; ++c) v[c] = sky0[c];
                 if (o.gradient) {
-                    const float t = std::max(0.0f, (horizonMean - fy) / (0.30f * (float)H));
+                    // Without a landscape the frame looks higher: the glow keeps rising to its
+                    // bottom edge instead of stopping at a horizon that is not there.
+                    float t = (horizonMean - fy) / (0.30f * (float)H);
+                    if (o.foreground) t = std::max(0.0f, t);
                     const float side = 0.75f + 0.5f * (fx / (float)W);
                     const float lp = 0.045f * std::exp(-t) * side;
+                    for (int c = 0; c < 3; ++c) v[c] += lp * lpCol[c];
+                }
+                if (o.dome) {
+                    // A town off to the right: brightest over a fifth of the horizon, falling
+                    // away sideways and, faster, upward.
+                    float t = (horizonMean - fy) / (0.18f * (float)H);
+                    if (o.foreground) t = std::max(0.0f, t);
+                    const float a = (fx - 0.72f * (float)W) / (0.16f * (float)W);
+                    const float lp = 0.06f * std::exp(-t) * std::exp(-0.5f * a * a);
                     for (int c = 0; c < 3; ++c) v[c] += lp * lpCol[c];
                 }
                 if (o.milkyWay) {

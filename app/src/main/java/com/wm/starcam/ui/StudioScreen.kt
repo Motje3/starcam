@@ -5,12 +5,15 @@ import android.graphics.Matrix
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -30,15 +33,21 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewModelScope
 import com.wm.starcam.StarCamViewModel
 import com.wm.starcam.engine.EditParams
+import com.wm.starcam.engine.Look
 import com.wm.starcam.engine.NativeEngine
 import com.wm.starcam.session.stackPhoto
 import com.wm.starcam.ui.components.ScButton
@@ -55,6 +64,7 @@ import com.wm.starcam.ui.components.ScTopBar
 import com.wm.starcam.ui.components.Tone
 import com.wm.starcam.ui.theme.Sc
 import com.wm.starcam.ui.theme.ScIcons
+import com.wm.starcam.ui.theme.ScShapes
 import com.wm.starcam.ui.theme.ScType
 import com.wm.starcam.ui.theme.ScreenMargin
 import com.wm.starcam.ui.theme.scImageFilter
@@ -90,7 +100,7 @@ private class StudioSession(private var handle: Long) {
     }
 }
 
-private data class StudioInfo(val previewWidth: Int, val previewHeight: Int)
+private data class StudioInfo(val previewWidth: Int, val previewHeight: Int, val thumbWidth: Int, val thumbHeight: Int)
 
 /** What opening a master yields; the session is closed by whoever owns this. */
 private class Opened(
@@ -102,14 +112,17 @@ private class Opened(
     val original: Bitmap?,
 )
 
-private fun develop(s: StudioSession, info: StudioInfo, p: EditParams, upright: Boolean): Bitmap? {
+/** The preview developed with [p], or with [thumb] the much smaller picture a look shows. */
+private fun develop(s: StudioSession, info: StudioInfo, p: EditParams, upright: Boolean, thumb: Boolean = false): Bitmap? {
+    val w = if (thumb) info.thumbWidth else info.previewWidth
+    val h = if (thumb) info.thumbHeight else info.previewHeight
+    if (w <= 0 || h <= 0) return null
     val turned = p.rotation == 90 || p.rotation == 270
-    val bmp = Bitmap.createBitmap(
-        if (turned) info.previewHeight else info.previewWidth,
-        if (turned) info.previewWidth else info.previewHeight,
-        Bitmap.Config.ARGB_8888,
-    )
-    val ok = s.use { NativeEngine.studioRender(it, p.toOptionsJson(upright), bmp) } == true
+    val bmp = Bitmap.createBitmap(if (turned) h else w, if (turned) w else h, Bitmap.Config.ARGB_8888)
+    val json = p.toOptionsJson(upright)
+    val ok = s.use {
+        if (thumb) NativeEngine.studioRenderThumb(it, json, bmp) else NativeEngine.studioRender(it, json, bmp)
+    } == true
     return if (ok) bmp else null
 }
 
@@ -118,10 +131,11 @@ private fun turned(b: Bitmap, rotation: Int): Bitmap =
         Matrix().apply { postRotate(rotation.toFloat()) }, true)
 
 /**
- * The editing studio: a session's linear master developed again with the user's own settings
- * (brightness of sky and landscape, contrast, colour, light pollution, noise), previewed live and
- * saved as a new photo beside the original, which stays as it was. The settings are kept with the
- * session, so the studio reopens where it was left.
+ * The editing studio: a session's linear master developed again with the user's own settings -
+ * a look picked from pictures of this very photo, or the brightness of sky and landscape,
+ * contrast, colour, light pollution, a vignette, the Milky Way's detail, smaller stars, noise -
+ * previewed live and saved as a new photo beside the original, which stays as it was. The settings
+ * are kept with the session, so the studio reopens where it was left.
  */
 @Composable
 fun StudioScreen(dir: File, vm: StarCamViewModel, onBack: () -> Unit) {
@@ -168,7 +182,8 @@ fun StudioScreen(dir: File, vm: StarCamViewModel, onBack: () -> Unit) {
                 if (h == 0L) return@withContext null
                 val s = StudioSession(h).also { opened = it }
                 val io = JSONObject(NativeEngine.studioInfo(h))
-                val i = StudioInfo(io.optInt("previewWidth"), io.optInt("previewHeight"))
+                val i = StudioInfo(io.optInt("previewWidth"), io.optInt("previewHeight"),
+                    io.optInt("thumbWidth"), io.optInt("thumbHeight"))
                 // "Before" is the photo the session made; developed defaults if it is gone.
                 val orig = stackPhoto(dir).takeIf { it.isFile }?.let { decodeDownsampled(it.absolutePath, PREVIEW_EDGE) }
                     ?: develop(s, i, dflt, up)
@@ -201,6 +216,19 @@ fun StudioScreen(dir: File, vm: StarCamViewModel, onBack: () -> Unit) {
         val img = withContext(Dispatchers.Default) { develop(s, i, params, upright) }
         if (img != null) preview = img.asImageBitmap()
         developing = false
+    }
+    // The looks' pictures: this photo in each look, with the current clean-up and turn. Made
+    // again only when those change; moving a tone slider leaves them be.
+    var thumbs by remember { mutableStateOf<Map<Look, ImageBitmap>>(emptyMap()) }
+    val untoned = Look.NATURAL.applyTo(params)
+    LaunchedEffect(untoned, session) {
+        val s = session ?: return@LaunchedEffect
+        val i = info ?: return@LaunchedEffect
+        delay(300)
+        for (look in Look.entries) {
+            val b = withContext(Dispatchers.Default) { develop(s, i, look.applyTo(untoned), upright, thumb = true) }
+            if (b != null) thumbs = thumbs + (look to b.asImageBitmap())
+        }
     }
     // The original, turned the way the edit is.
     val before = remember(original, params.rotation) { original?.let { turned(it, params.rotation).asImageBitmap() } }
@@ -295,7 +323,7 @@ fun StudioScreen(dir: File, vm: StarCamViewModel, onBack: () -> Unit) {
         }
         // ---- the controls
         Column(Modifier.fillMaxWidth().padding(horizontal = ScreenMargin, vertical = 10.dp)) {
-            ScSegmented(listOf("Light", "Colour", "Clean-up", "Frame"), tab, { tab = it },
+            ScSegmented(listOf("Looks", "Light", "Colour", "Detail", "Frame"), tab, { tab = it },
                 Modifier.fillMaxWidth(), enabled = session != null && !saving)
             Column(
                 Modifier.fillMaxWidth().height(232.dp).verticalScroll(rememberScrollState())
@@ -303,7 +331,8 @@ fun StudioScreen(dir: File, vm: StarCamViewModel, onBack: () -> Unit) {
             ) {
                 val enabled = session != null && !saving
                 when (tab) {
-                    0 -> {
+                    0 -> LookGrid(thumbs, params, enabled) { params = it.applyTo(params) }
+                    1 -> {
                         StudioSlider("Sky brightness", pct(params.sky / 0.16f), params.sky, 0.05f..0.32f, enabled) {
                             params = params.copy(sky = it)
                         }
@@ -313,15 +342,21 @@ fun StudioScreen(dir: File, vm: StarCamViewModel, onBack: () -> Unit) {
                         StudioSlider("Landscape brightness", pct(params.ground / 0.07f), params.ground, 0f..0.22f, enabled) {
                             params = params.copy(ground = it)
                         }
+                        StudioSlider("Light pollution removal", pct(params.gradient), params.gradient, 0f..1f, enabled) {
+                            params = params.copy(gradient = it)
+                        }
+                        StudioSlider("Vignette", pct(params.vignette), params.vignette, 0f..1f, enabled) {
+                            params = params.copy(vignette = it)
+                        }
                     }
-                    1 -> {
+                    2 -> {
                         Column(Modifier.padding(bottom = 5.dp)) {
                             ScLabel("Style")
                             ScSegmented(listOf("Natural", "Nightfall"), params.style,
                                 { params = params.copy(style = it) },
                                 Modifier.fillMaxWidth().padding(top = 6.dp), enabled = enabled)
                         }
-                        StudioSlider("Saturation", pct(params.saturation / 1.25f), params.saturation, 0.3f..2.2f, enabled) {
+                        StudioSlider("Saturation", pct(params.saturation / 1.25f), params.saturation, 0f..2.2f, enabled) {
                             params = params.copy(saturation = it)
                         }
                         StudioSlider("Star colour", pct(params.starColor / 0.4f), params.starColor, 0f..1.4f, enabled) {
@@ -334,9 +369,12 @@ fun StudioScreen(dir: File, vm: StarCamViewModel, onBack: () -> Unit) {
                             params = params.copy(tint = it)
                         }
                     }
-                    2 -> {
-                        StudioSlider("Light pollution removal", pct(params.gradient), params.gradient, 0f..1f, enabled) {
-                            params = params.copy(gradient = it)
+                    3 -> {
+                        StudioSlider("Milky Way detail", pct(params.detail), params.detail, 0f..1f, enabled) {
+                            params = params.copy(detail = it)
+                        }
+                        StudioSlider("Smaller stars", pct(params.smallerStars), params.smallerStars, 0f..1f, enabled) {
+                            params = params.copy(smallerStars = it)
                         }
                         StudioSlider("Noise reduction", pct(params.noise), params.noise, 0f..1f, enabled) {
                             params = params.copy(noise = it)
@@ -372,6 +410,55 @@ fun StudioScreen(dir: File, vm: StarCamViewModel, onBack: () -> Unit) {
                 enabled = session != null && !saving, height = 52.dp,
             )
         }
+    }
+}
+
+/** The looks, four to a row: each a small picture of this photo in it. */
+@Composable
+private fun LookGrid(thumbs: Map<Look, ImageBitmap>, current: EditParams, enabled: Boolean, onPick: (Look) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Look.entries.chunked(4).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { look ->
+                    LookTile(look, thumbs[look], look.matches(current), enabled, Modifier.weight(1f)) { onPick(look) }
+                }
+                repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LookTile(
+    look: Look,
+    thumb: ImageBitmap?,
+    selected: Boolean,
+    enabled: Boolean,
+    modifier: Modifier,
+    onClick: () -> Unit,
+) {
+    val c = Sc.colors
+    Column(
+        modifier.clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .semantics(mergeDescendants = true) {
+                contentDescription = "Look: ${look.label}"
+                this.selected = selected
+            },
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+            Modifier.fillMaxWidth().aspectRatio(1f).clip(ScShapes.segmentItem).background(c.sunken)
+                .border(if (selected) 2.dp else 1.dp, if (selected) c.selectedBorder else c.hairline, ScShapes.segmentItem),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (thumb != null) {
+                Image(thumb, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, colorFilter = scImageFilter)
+            } else {
+                ScSpinner(size = 14.dp)
+            }
+        }
+        Text(look.label, style = ScType.label, color = if (selected) c.accentText else c.text2,
+            modifier = Modifier.padding(top = 4.dp))
     }
 }
 

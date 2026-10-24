@@ -11,7 +11,9 @@ struct SceneOptions {
     uint32_t seed = 7;
     bool foreground = true;   // dark landscape below an irregular horizon
     bool milkyWay = true;     // diagonal band with dust lanes
+    bool milkyWayFlat = false; // the band lying along the horizon instead of rising from it
     bool gradient = true;     // light pollution towards the horizon and one side
+    bool dome = false;        // a town's light dome: a glow over one part of the horizon only
     float noise = 1.0f;       // 1 = a 20-frame stack of 20 s ISO 1600 phone frames
 };
 

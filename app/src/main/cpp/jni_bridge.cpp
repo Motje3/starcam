@@ -540,8 +540,8 @@ JNIEXPORT jstring JNICALL Java_com_wm_starcam_engine_NativeEngine_studioInfo(
     }
 }
 
-JNIEXPORT jboolean JNICALL Java_com_wm_starcam_engine_NativeEngine_studioRender(
-        JNIEnv* env, jobject /*thiz*/, jlong handle, jstring optionsJson, jobject bitmap) {
+// The studio's preview ([thumb] false) or thumbnail developed into an ARGB_8888 bitmap.
+static jboolean studioRenderInto(JNIEnv* env, jlong handle, jstring optionsJson, jobject bitmap, bool thumb) {
     try {
         starcam::Studio* s = studio(handle);
         if (s == nullptr || bitmap == nullptr) return JNI_FALSE;
@@ -555,8 +555,9 @@ JNIEXPORT jboolean JNICALL Java_com_wm_starcam_engine_NativeEngine_studioRender(
             return JNI_FALSE;
         }
         std::vector<uint32_t> tmp((size_t)info.width * (size_t)info.height);
-        if (!s->renderPreview(pp, rotation, tmp.data(), (int)info.width, (int)info.height))
-            return JNI_FALSE;
+        const bool ok = thumb ? s->renderThumb(pp, rotation, tmp.data(), (int)info.width, (int)info.height)
+                              : s->renderPreview(pp, rotation, tmp.data(), (int)info.width, (int)info.height);
+        if (!ok) return JNI_FALSE;
         void* pixels = nullptr;
         if (AndroidBitmap_lockPixels(env, bitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS ||
             pixels == nullptr) {
@@ -577,6 +578,16 @@ JNIEXPORT jboolean JNICALL Java_com_wm_starcam_engine_NativeEngine_studioRender(
         SLOGE("studioRender: native exception");
         return JNI_FALSE;
     }
+}
+
+JNIEXPORT jboolean JNICALL Java_com_wm_starcam_engine_NativeEngine_studioRender(
+        JNIEnv* env, jobject /*thiz*/, jlong handle, jstring optionsJson, jobject bitmap) {
+    return studioRenderInto(env, handle, optionsJson, bitmap, false);
+}
+
+JNIEXPORT jboolean JNICALL Java_com_wm_starcam_engine_NativeEngine_studioRenderThumb(
+        JNIEnv* env, jobject /*thiz*/, jlong handle, jstring optionsJson, jobject bitmap) {
+    return studioRenderInto(env, handle, optionsJson, bitmap, true);
 }
 
 JNIEXPORT jstring JNICALL Java_com_wm_starcam_engine_NativeEngine_studioExport(

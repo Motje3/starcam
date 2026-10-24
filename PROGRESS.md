@@ -2,6 +2,62 @@
 
 ## The second night, 0.5.0 (2026-10-24)
 
+### Light pollution removed properly; looks, Milky Way detail and smaller stars in the studio
+
+(The user found the light-pollution removal weak.) Rebuilt and measured with `tools\postlab`:
+- **The sky's background is a smooth surface now** (post2.cpp): a cubic B-spline grid per
+  channel, fitted to cells of sky between the stars - cells cut by the horizon count with their sky
+  part, where the glow is strongest. Free to bend along the height (the glow over a town rises
+  steeply); from side to side free near the horizon, so it bends round a town's light dome, and
+  stiff higher up, where the Milky Way is. 0.4 fitted one quadratic or cubic to the whole sky: it
+  could not follow a town's glow, left the sky uneven and still ate into the Milky Way.
+- **What is glow and what is not** is told by texture: light pollution is smooth, the Milky Way
+  and lit cloud are not (each cell's 4 x 4 part medians against a smooth curve, in units of their
+  noise). Textured cells are left out; a smooth cell standing high above the glow model counts
+  when it rises straight from the horizon, away from the band (a dome); where the surface, which
+  can only guess under the band, comes out above one of the band's cells, that cell holds it down.
+  The glow model to judge by is fitted to the lower quarter of the cells and kept convex along the
+  height (glow falls away from the horizon; it never humps the way a band lying along it does).
+- **All of it is removed** by default (0.4 left a tenth; the studio's slider still goes down).
+- **A false landscape is gone.** In the brightest glow most faint stars drown, and one cell in a
+  few came out star-free by chance and started a "landscape" there; the sky above it then got the
+  landscape's curve: a bright pillar standing on the horizon, or orange blocks along the bottom of
+  a frame with no landscape at all. A bright star-free cell now starts one only when the cells
+  beside it are star-free too.
+
+Synthetic nightscape (sky flatness, lower is flatter), 0.4 as shipped → now: 0.057 → 0.010, the
+sky just above the horizon +0.020 → -0.0005 against the rest, Milky Way contrast 0.115 → 0.121;
+a town's light dome (new scene, `--dome`) 0.147 → 0.017; without a Milky Way 0.033 → 0.008;
+without a landscape 0.097 → 0.015 (and without either, the residual vignetting, 0.102 → 0.011);
+the Milky Way lying along the horizon (`--mwflat`) 0.043 → 0.010; a noisier stack 0.063 → 0.010.
+Under a sky with no light pollution the band keeps 97% of its contrast, 89% at its foot by the
+horizon and in its dark lanes (new metrics). Classic is unchanged (same numbers).
+
+The editing studio:
+- **Looks**: the studio opens on seven looks, each shown as a small picture of the photo itself
+  (developed from a thumbnail, long edge 320, made again when the clean-up or the turn changes):
+  Natural (the look the photo was made with), Vivid, Deep, Nightfall, Warm, Cool and Mono. A look
+  sets the tone - brightness, contrast, colour, Milky Way detail, vignette - and leaves the
+  clean-up, the landscape and the turn as they are; the sliders then fine-tune it.
+- **Milky Way detail**: the structure between a few pixels and a fiftieth of the frame (dust
+  lanes, star clouds) made stronger, worked on a star-free copy of the sky on a perceptual scale,
+  and only where the sky is brighter than its plain background, so the empty sky's faint blotches
+  do not come up with it.
+- **Smaller stars**: each star's profile steepened against its own peak - the core kept, the
+  wings pulled down to the sky around it - so stars shrink and the Milky Way stands out, without
+  the dark rings a plain minimum filter leaves.
+- **Vignette**: the corners darkened, so the eye stays on the sky.
+- Tabs regrouped: Looks · Light (with light-pollution removal and the vignette) · Colour
+  (saturation down to 0) · Detail (Milky Way detail, smaller stars, noise reduction, star
+  sharpening) · Frame. Sizes are fractions of the frame, so the preview shows what the saved photo
+  will.
+
+Tested: postlab scenes (above; also the ground on the left and another seed); unit tests for the
+looks (Natural is the photo's own look, a look leaves the clean-up and the turn alone, Mono has
+no colour) and the saved settings (an edit.json from before keeps its look); the emulator's
+'studio' check picks Vivid from the looks' pictures, opens the Detail tab and finds the look's
+detail in the saved edit.json.
+
 ### The top bar: Tonight, Find, the dark-sky map
 
 (On the user's call.) The capture screen's top bar now holds the night's tools only:

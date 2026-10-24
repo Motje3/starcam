@@ -24,15 +24,17 @@ struct PostParams {
     int downEdge = -1;
     float skyLevel = 0.16f;        // display brightness the sky background lands at
     float groundLevel = 0.07f;     // display brightness of the landscape's median
-    float gradientStrength = 0.9f; // share of the fitted light-pollution gradient that is removed
+    float gradientStrength = 1.0f; // share of the fitted light-pollution gradient that is removed
     float noiseReduction = 0.6f;   // 0..1, background luma noise reduction
     float starColor = 0.4f;        // extra chroma in stars, on top of saturation
     // How far above black the sky background sits, as a fraction of its brightness: the
     // contrast control. Smaller is punchier and shows more noise.
     float contrastGap = 0.25f;
-    int gradientOrder = 0;         // sky gradient model: 2 quadratic, 3 cubic, 0 auto
     float warmth = 0.0f;           // -1..1 white balance towards blue / amber (editing studio)
     float tint = 0.0f;             // -1..1 white balance towards green / magenta (editing studio)
+    float detail = 0.0f;           // 0..1, the sky's structure (dust lanes, star clouds) made stronger
+    float starReduction = 0.0f;    // 0..1, stars made smaller and fainter
+    float vignette = 0.0f;         // 0..1, the corners darkened
 };
 
 // The v2 pipeline behind postprocess() for version >= 2. Same contract.

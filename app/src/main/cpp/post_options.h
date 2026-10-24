@@ -26,6 +26,9 @@ inline PostParams read_post_params(const jsonmini::Obj& opt) {
     pp.contrastGap = (float)opt.num("contrastGap", pp.contrastGap);
     pp.warmth = (float)opt.num("warmth", 0.0);
     pp.tint = (float)opt.num("tint", 0.0);
+    pp.detail = (float)opt.num("detail", pp.detail);
+    pp.starReduction = (float)opt.num("starReduction", pp.starReduction);
+    pp.vignette = (float)opt.num("vignette", pp.vignette);
     pp.downEdge = clampi(opt.numi("downEdge", -1), -1, 3);
     return pp;
 }

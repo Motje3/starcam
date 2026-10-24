@@ -98,7 +98,7 @@ object NativeEngine {
     /** Opens [tiffPath] (a master_linear16.tiff) with a preview of at most [previewLongEdge]. 0 = failed. */
     external fun studioOpen(tiffPath: String, previewLongEdge: Int): Long
 
-    /** {width, height, previewWidth, previewHeight} of the master as stored. */
+    /** {width, height, previewWidth, previewHeight, thumbWidth, thumbHeight} of the master as stored. */
     external fun studioInfo(handle: Long): String
 
     /**
@@ -106,6 +106,9 @@ object NativeEngine {
      * options' "rotation"). Blocking, well under a second at preview size.
      */
     external fun studioRender(handle: Long, optionsJson: String, bitmap: Bitmap): Boolean
+
+    /** [studioRender] from the much smaller thumbnail (thumbWidth x thumbHeight, turned): the looks' pictures. */
+    external fun studioRenderThumb(handle: Long, optionsJson: String, bitmap: Bitmap): Boolean
 
     /** Develops the full master and writes RGB8 to [outPath]. Returns {ok, error, width, height}. */
     external fun studioExport(handle: Long, optionsJson: String, outPath: String): String

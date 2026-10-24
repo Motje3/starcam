@@ -3,7 +3,8 @@
 // each variant treats the sky, the Milky Way, the ground, star colour and noise. Built with the NDK
 // for the x86_64 emulator by run.ps1; see DEBUGGING.md.
 //
-//   postlab scene <outdir> [variants] [--nofg] [--nomw] [--nograd] [--noise X] [--seed N]
+//   postlab scene <outdir> [variants] [--nofg] [--nomw] [--nograd] [--mwflat] [--dome] [--noise X]
+//                 [--seed N]
 //   postlab tiff <master_linear16.tiff> <outdir> [variants]
 //
 // variants: comma list of classic,v2 (default both), preview / preview_old (the live-stack preview
@@ -98,6 +99,7 @@ bool read_tiff16(const std::string& path, ImageF* out) {
 
 struct Metrics {
     float skyMed = 0, skyFlat = 0, mwContrast = 0, groundMed = 0, horizonDelta = 0;
+    float mwLow = 0, mwDark = 0;  // the band's foot (lowest quarter above the horizon), its darkest tenth
     float rimBright = 0, rimDark = 0;
     float redSat = 0, blueSat = 0, hueOk = 0, lumaNoise = 0, chromaNoise = 0;
     int nRed = 0, nBlue = 0;
@@ -123,7 +125,7 @@ Metrics measure(const ImageF& img, const lab::Scene& s) {
         if (s.hasMilkyWay && s.mwDistance((float)x, (float)y) < 2.5f * s.mwSigma) return false;
         return true;
     };
-    std::vector<float> skyBlocks, mwBlocks, nearHorizon, groundV, v;
+    std::vector<float> skyBlocks, mwBlocks, mwLowBlocks, nearHorizon, groundV, v;
     const int B = 64;
     for (int by = 0; by + B <= H; by += B) {
         for (int bx = 0; bx + B <= W; bx += B) {
@@ -140,7 +142,12 @@ Metrics measure(const ImageF& img, const lab::Scene& s) {
                     for (int x = bx; x < bx + B; ++x)
                         if (s.starLight[(size_t)y * W + x] < 0.3f * s.noiseSigma)
                             v.push_back(luma(img.px(x, y)));
-                if (v.size() > (size_t)(0.5f * B * B)) mwBlocks.push_back(median(v));
+                if (v.size() > (size_t)(0.5f * B * B)) {
+                    const float med = median(v);
+                    mwBlocks.push_back(med);
+                    const float foot = s.hasForeground ? s.horizonY[(int)cx] : (float)H;
+                    if (foot - (float)(by + B) < 0.25f * (float)H) mwLowBlocks.push_back(med);
+                }
             }
         }
     }
@@ -149,7 +156,11 @@ Metrics measure(const ImageF& img, const lab::Scene& s) {
         m.skyMed = median(sb);
         m.skyFlat = starcam::percentile_of(sb, 0.95f) - starcam::percentile_of(sb, 0.05f);
     }
-    if (!mwBlocks.empty()) m.mwContrast = median(mwBlocks) - m.skyMed;
+    if (!mwBlocks.empty()) {
+        m.mwContrast = median(mwBlocks) - m.skyMed;
+        m.mwDark = starcam::percentile_of(mwBlocks, 0.10f) - m.skyMed;
+    }
+    if (!mwLowBlocks.empty()) m.mwLow = median(mwLowBlocks) - m.skyMed;
     if (s.hasForeground) {
         for (int y = 0; y < H; y += 2) {
             for (int x = 0; x < W; x += 2) {
@@ -275,7 +286,11 @@ starcam::PostParams params_for(const std::string& variant, const std::vector<std
         else if (k == "nr") p.noiseReduction = v;
         else if (k == "starc") p.starColor = v;
         else if (k == "down") p.downEdge = (int)v;
-        else if (k == "order") p.gradientOrder = (int)v;
+        else if (k == "detail") p.detail = v;
+        else if (k == "smaller") p.starReduction = v;
+        else if (k == "vig") p.vignette = v;
+        else if (k == "warm") p.warmth = v;
+        else if (k == "tint") p.tint = v;
     }
     return p;
 }
@@ -315,6 +330,8 @@ int main(int argc, char** argv) {
         if (a == "--nofg") so.foreground = false;
         else if (a == "--nomw") so.milkyWay = false;
         else if (a == "--nograd") so.gradient = false;
+        else if (a == "--mwflat") so.milkyWayFlat = true;
+        else if (a == "--dome") so.dome = true;
         else if (a == "--noise" && i + 1 < argc) so.noise = std::strtof(argv[++i], nullptr);
         else if (a == "--seed" && i + 1 < argc) so.seed = (uint32_t)std::atoi(argv[++i]);
         else if (a == "--rot90") rot90 = true;
@@ -385,10 +402,10 @@ int main(int argc, char** argv) {
                 img = std::move(back);
             }
             const Metrics m = measure(img, scene);
-            std::printf("%-8s %5ld ms  sky %.3f flat %.4f  mw %+.4f  ground %.3f  horizon %+.4f  "
-                        "rim %+.3f/%+.3f  starSat red %.3f blue %.3f hue %.2f (n=%d/%d)  "
+            std::printf("%-8s %5ld ms  sky %.3f flat %.4f  mw %+.4f (foot %+.4f dark %+.4f)  ground %.3f  "
+                        "horizon %+.4f  rim %+.3f/%+.3f  starSat red %.3f blue %.3f hue %.2f (n=%d/%d)  "
                         "noise luma %.4f chroma %.4f\n",
-                        v.c_str(), ms, m.skyMed, m.skyFlat, m.mwContrast, m.groundMed,
+                        v.c_str(), ms, m.skyMed, m.skyFlat, m.mwContrast, m.mwLow, m.mwDark, m.groundMed,
                         m.horizonDelta, m.rimBright, m.rimDark, m.redSat, m.blueSat, m.hueOk, m.nRed,
                         m.nBlue, m.lumaNoise, m.chromaNoise);
         } else {
