@@ -516,7 +516,12 @@ if (Wanted 'darksky') {
             if (Tap 'Nearest darker sky') {
                 $spot = WaitFor 'Navigate' 10
                 Shot 'darksky-spot'
-                if (Tap 'Plan there') { $planned = WaitFor 'Planned for' 30 }
+                if (Tap 'Plan there') {
+                    # The planner for there; its "Planned for" note is at the foot of the page.
+                    WaitFor 'Show me the sky|Planned for' 30 | Out-Null
+                    for ($k = 0; $k -lt 6 -and -not ((AllText) -match 'Planned for'); $k++) { A shell input swipe 636 2000 636 1000 300; Start-Sleep -Milliseconds 700 }
+                    $planned = (AllText) -match 'Planned for'
+                }
             }
         }
     }
