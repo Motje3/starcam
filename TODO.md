@@ -76,6 +76,16 @@ features are Pro is decided after the testing.
       local `.env`, gitignored, kept out of this public repo). An organisation account skips the
       12 testers / 14 days closed test.
 
+## Next: the new look
+
+The owner finds the current screens weak and is having an image AI redesign them (4 Nov 2026):
+the app's screens, taken with `tools\ui-shots.ps1`, went to it with a brief (keep every control
+and piece of information, dark only, the new icon's purple night sky). When the mockups and their
+style sheet come back:
+- [ ] Build them in Compose, screen by screen, the red night-vision variant included.
+- [ ] Retake the screens (`tools\ui-shots.ps1`, `tools\store-shots.ps1`) and make the store
+      screenshots from them: the owner's AI designs the frames around the real screens.
+
 ## Worth doing
 
 - [x] Try 0.5.0's new features under a real night sky before the upload.
