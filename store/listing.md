@@ -37,7 +37,7 @@ PLAN THE NIGHT
 • Dark-sky map: how dark your sky is (its Bortle class) and where the nearest darker sky is
 
 PRIVATE
-Stelli has no internet permission, no accounts, no ads and no tracking. Your photos and your location stay on your phone.
+Stelli works fully offline, with no accounts, no ads and no tracking. Your photos and your location stay on your phone.
 
 TIPS
 Use a tripod, or lean the phone against something that does not move. Get away from street lights, and pick a night without much Moon: the planner shows when.

@@ -71,6 +71,12 @@ name or logo.
   not ask for location).
 - **Later, not now:** from 27 January 2027 apps that target Android 17 (API 37) must use Android's
   location button for one-off location requests.
+- **A paid upgrade brings the internet permission.** Play Billing Library 9.1.0 depends on
+  Google's datatransport libraries, and `transport-backend-cct` 3.1.8 declares INTERNET and
+  ACCESS_NETWORK_STATE (read from the libraries on Google's Maven, 4 Nov 2026). So the listing
+  says "works fully offline", which stays true, rather than "no internet permission". When an
+  in-app purchase comes, the privacy policy, the Data safety answers and the app's own "Stelli has
+  no internet access" lines (Tonight, the sky calendar, the dark-sky map) change with it.
 
 ## Form answers
 
