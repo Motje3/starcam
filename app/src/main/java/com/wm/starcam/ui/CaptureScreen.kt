@@ -134,6 +134,7 @@ fun CaptureScreen(
     val cameraError by vm.cameraError.collectAsState()
     val camInfo by vm.camInfo.collectAsState()
     val cameraLost by vm.cameraLost.collectAsState()
+    val noRawCamera by vm.noRawCamera.collectAsState()
     val sessionStart by engine?.sessionStartedAtMs.collectOr(0L)
 
     var showPro by rememberSaveable { mutableStateOf(false) }
@@ -196,6 +197,7 @@ fun CaptureScreen(
                 val sessionRunning = state !is CaptureState.Idle && state !is CaptureState.Done
                 CameraProblemCard(
                     message = msg,
+                    noRaw = noRawCamera,
                     cameraLost = cameraLost,
                     sessionRunning = sessionRunning,
                     // Reopening under a running session would tear the camera down beneath it;
@@ -983,6 +985,7 @@ private fun BarItem(label: String, selected: Boolean = false, content: @Composab
 @Composable
 private fun CameraProblemCard(
     message: String,
+    noRaw: Boolean,
     cameraLost: Boolean,
     sessionRunning: Boolean,
     onReopen: (() -> Unit)?,
@@ -1002,9 +1005,13 @@ private fun CameraProblemCard(
                     contentAlignment = Alignment.Center,
                 ) { Icon(ScIcons.Warning, null, Modifier.size(20.dp), tint = c.error) }
                 Spacer(Modifier.width(12.dp))
-                Text("Camera problem", style = ScType.titleSmall, color = c.text)
+                Text(if (noRaw) "No RAW camera" else "Camera problem", style = ScType.titleSmall, color = c.text)
             }
             Text(message, style = ScType.body, color = c.text2, modifier = Modifier.padding(top = 12.dp))
+            if (noRaw) {
+                Text("The Tonight planner, Find and the dark-sky map at the top still work.",
+                    style = ScType.bodySmall, color = c.text3, modifier = Modifier.padding(top = 6.dp))
+            }
             if (cameraLost) {
                 Text("Frames already captured are safe on disk.", style = ScType.bodySmall,
                     color = c.text3, modifier = Modifier.padding(top = 6.dp))

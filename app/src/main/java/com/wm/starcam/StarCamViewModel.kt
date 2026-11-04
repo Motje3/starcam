@@ -53,6 +53,14 @@ class StarCamViewModel(app: Application) : AndroidViewModel(app) {
     private val _cameraError = MutableStateFlow<String?>(null)
     val cameraError: StateFlow<String?> = _cameraError
 
+    /**
+     * No back camera gives apps RAW, so nothing can be shot on this phone. The planner, the sky
+     * view and the dark-sky map still work, and the camera card says so: a Play reviewer's phone
+     * may be such a phone.
+     */
+    private val _noRawCamera = MutableStateFlow(false)
+    val noRawCamera: StateFlow<Boolean> = _noRawCamera
+
     private val _camInfo = MutableStateFlow<CamInfo?>(null)
     val camInfo: StateFlow<CamInfo?> = _camInfo
 
@@ -173,8 +181,10 @@ class StarCamViewModel(app: Application) : AndroidViewModel(app) {
                 ?: CamMeta.pickMainCamera(app)
             if (cam == null) {
                 AppLog.e(TAG, "no RAW-capable back camera found")
+                _noRawCamera.value = true
                 _cameraError.value =
-                    "This device does not expose a RAW-capable back camera to apps — Stelli cannot run."
+                    "Stelli makes its photos from the camera's RAW frames, and this phone does not " +
+                        "give apps RAW from its back camera, so it cannot take photos here."
                 return@launch
             }
             _camInfo.value = cam
