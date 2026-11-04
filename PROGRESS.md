@@ -1,5 +1,20 @@
 # StarCam build progress (PLAN.md §10)
 
+## The store look: the owner's icon, new screenshots (2026-11-04)
+
+- **The icon is the owner's artwork** (a Milky Way over a snowy peak): `store/icon-512.png` for
+  Play and `drawable-nodpi/ic_launcher_art.png` for the launcher, the whole picture inset into the
+  72 dp the launcher's mask shows, its edge colour (#1C163C) behind it. Themed icons keep the star,
+  and so do the notifications. The release AAB and APK are rebuilt with it (0.5.1, versionCode 10,
+  never uploaded): still no INTERNET permission, 16 KB-aligned, signed with the upload key.
+- **Screenshots with a big icon and a short headline** over a large phone that runs off the
+  bottom edge, in a colour per screen: `tools/store-screens.html`, filled in and drawn by Edge
+  (headless) in `tools/store-screens.ps1`, from the emulator's screens. The Tonight screen is shown
+  scrolled to "Worth a shot tonight"; behind Find, the emulator camera's test scene is blacked
+  out, as the night would be. Four for now: the dark-sky map, what to shoot tonight, Find, the sky
+  calendar. Real results from the phone go first when they come.
+- `tools/store-graphics.ps1` now draws only the feature graphic.
+
 ## Ready for Play review, 0.5.1 (2026-11-04)
 
 What Play's review needs from the app and the repository (PLAY_STORE.md has the policy reading):

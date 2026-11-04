@@ -84,7 +84,10 @@ features are Pro is decided after the testing.
 - [x] "Needs a phone whose back camera gives apps RAW photos" in the store description. (Making
       RAW required in the manifest instead would hide the app from phones that deliver RAW
       without declaring it: `launch and revenue plan.md`, item 3.)
-- [ ] Screenshots of real results for the listing (a stacked photo, the studio): phone
-      screenshots, added to `tools\store-graphics.ps1`'s list.
+- [ ] Screenshots of real results for the listing (a stacked photo, 1 frame vs stacked, What's in
+      this photo): phone screenshots, first in `tools\store-screens.ps1`'s list. Also: the sky
+      calendar with its Meteors filter (the Geminids) for the meteor screenshot.
+- [ ] **Feature graphic** from the owner's artwork (asked of an image AI, 4 Nov 2026), with the
+      name and tagline set in Geist on top; the current one still has the old star.
 - [ ] Tablets and foldables: with target SDK 36, Android 16 ignores the portrait lock on large
       screens. Test on a tablet emulator, or exclude tablets in Play Console (Device catalog).

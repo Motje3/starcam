@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- The launcher icon is the store icon (store/icon-512.png, also drawable-nodpi/ic_launcher_art):
+     the whole picture in the 72 dp the launcher's mask shows, its edge colour behind it. Themed
+     icons (Android 13+) show the star. -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@color/ic_launcher_background" />
-    <foreground android:drawable="@drawable/ic_star_vector" />
+    <foreground>
+        <inset android:drawable="@drawable/ic_launcher_art" android:inset="16.667%" />
+    </foreground>
     <monochrome android:drawable="@drawable/ic_star_vector" />
 </adaptive-icon>

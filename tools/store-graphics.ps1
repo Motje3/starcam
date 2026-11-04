@@ -1,31 +1,15 @@
-# The Play Store graphics, drawn from the app's own icon and font:
-#   store\icon-512.png            the 512 x 512 store icon (the launcher icon, full square: Play rounds it)
-#   store\feature-graphic.png     the 1024 x 500 feature graphic (24-bit, no transparency)
-#   store\screenshots\*.png       phone screenshots on a 1080 x 1920 canvas (9:16) with a caption:
-#                                 the emulator's and the phone's are 2.2:1, and Play takes at most 2:1
+# The Play Store feature graphic, store\feature-graphic.png (1024 x 500, 24-bit, no
+# transparency), drawn from the app's star and font:
 #
 #   powershell -ExecutionPolicy Bypass -File tools\store-graphics.ps1
 #
-# The screenshots come from tools\store-shots.ps1 (field-logs\store-shots); a phone screenshot goes
-# in by adding a line to $Screens. Photos in the listing must be real Stelli results.
+# The icon is the owner's artwork in store\icon-512.png, also the launcher icon
+# (res/drawable-nodpi/ic_launcher_art.png); the screenshots come from tools\store-screens.ps1.
 
-param(
-    [string]$Shots = (Join-Path $PSScriptRoot '..\field-logs\store-shots')
-)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 $project = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $out = Join-Path $project 'store'
-New-Item -ItemType Directory -Force (Join-Path $out 'screenshots') | Out-Null
-
-# Screenshot file (in $Shots, or a full path) and its caption, in store order.
-$Screens = @(
-    @('darksky.png', 'How dark is your sky, and where is it darker?'),
-    @('tonight-worth.png', 'What is worth a shot tonight, and when'),
-    @('find.png', 'Find galaxies, planets and the North Star'),
-    @('calendar.png', 'Meteor showers, eclipses and new moons where you are'),
-    @('tonight.png', 'Plan the night: darkness, the Moon and the Milky Way')
-)
 
 $night = [System.Drawing.ColorTranslator]::FromHtml('#0A0B14')
 $deep = [System.Drawing.ColorTranslator]::FromHtml('#121A38')
@@ -78,7 +62,7 @@ function NightSky($g, [int]$w, [int]$h, [int]$seed, [int]$count) {
     }
 }
 
-# The launcher icon's star (res/drawable/ic_star_vector.xml, a 108 x 108 viewport).
+# The star of the app's notification icon (res/drawable/ic_star_vector.xml, a 108 x 108 viewport).
 $StarPaths = @(
     @('M54,24 L58.5,49.5 L84,54 L58.5,58.5 L54,84 L49.5,58.5 L24,54 L49.5,49.5 Z', $starBlue),
     @('M74,32 L75.5,36.5 L80,38 L75.5,39.5 L74,44 L72.5,39.5 L68,38 L72.5,36.5 Z', $starWhite),
@@ -93,14 +77,6 @@ function DrawStar($g, [float]$x0, [float]$y0, [float]$scale) {
     }
 }
 
-# ---- icon: the viewport's middle 96 units across 512 px, so the star keeps clear of Play's rounding
-$bmp, $g = Canvas 512 512 ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
-$g.Clear($night)
-$s = 512 / 96
-DrawStar $g (-6 * $s) (-6 * $s) $s
-$bmp.Save((Join-Path $out 'icon-512.png'), [System.Drawing.Imaging.ImageFormat]::Png)
-$g.Dispose(); $bmp.Dispose()
-
 # ---- feature graphic: the star and the name on a night sky
 $bmp, $g = Canvas 1024 500 ([System.Drawing.Imaging.PixelFormat]::Format24bppRgb)
 NightSky $g 1024 500 7 420
@@ -112,39 +88,4 @@ $g.DrawString('Stelli', $title, (New-Object System.Drawing.SolidBrush($starWhite
 $g.DrawString('Night sky photos from your phone', $tag, (New-Object System.Drawing.SolidBrush($textDim)), 462, 304)
 $bmp.Save((Join-Path $out 'feature-graphic.png'), [System.Drawing.Imaging.ImageFormat]::Png)
 $g.Dispose(); $bmp.Dispose()
-
-# ---- screenshots: each on a 1080 x 1920 night sky, its caption above it
-Remove-Item (Join-Path $out 'screenshots\*.png') -ErrorAction SilentlyContinue  # numbered afresh
-$caption = Font 'geist_semibold.ttf' 60
-$n = 0
-foreach ($sc in $Screens) {
-    $src = if ([IO.Path]::IsPathRooted($sc[0])) { $sc[0] } else { Join-Path $Shots $sc[0] }
-    if (-not (Test-Path $src)) { Write-Host "missing: $src"; continue }
-    $n++
-    $bmp, $g = Canvas 1080 1920 ([System.Drawing.Imaging.PixelFormat]::Format24bppRgb)
-    NightSky $g 1080 1920 (100 + $n) 260
-    $fmt = New-Object System.Drawing.StringFormat
-    $fmt.Alignment = [System.Drawing.StringAlignment]::Center
-    $g.DrawString($sc[1], $caption, (New-Object System.Drawing.SolidBrush($starWhite)),
-        (New-Object System.Drawing.RectangleF(70, 70, 940, 200)), $fmt)
-    $shot = [System.Drawing.Image]::FromFile($src)
-    $h = 1560; $w = [int]($shot.Width * $h / $shot.Height)
-    $x = [int]((1080 - $w) / 2); $y = 300
-    # Rounded like a phone's screen, with a hairline edge.
-    $r = 44
-    $path = New-Object System.Drawing.Drawing2D.GraphicsPath
-    $path.AddArc($x, $y, 2 * $r, 2 * $r, 180, 90)
-    $path.AddArc($x + $w - 2 * $r, $y, 2 * $r, 2 * $r, 270, 90)
-    $path.AddArc($x + $w - 2 * $r, $y + $h - 2 * $r, 2 * $r, 2 * $r, 0, 90)
-    $path.AddArc($x, $y + $h - 2 * $r, 2 * $r, 2 * $r, 90, 90)
-    $path.CloseFigure()
-    $g.SetClip($path)
-    $g.DrawImage($shot, $x, $y, $w, $h)
-    $g.ResetClip()
-    $g.DrawPath((New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(90, $starBlue), 3)), $path)
-    $shot.Dispose()
-    $name = '{0}-{1}' -f $n, [IO.Path]::GetFileName($src)
-    $bmp.Save((Join-Path $out "screenshots\$name"), [System.Drawing.Imaging.ImageFormat]::Png)
-    $g.Dispose(); $bmp.Dispose()
-}
-Write-Host "store graphics in $out ($n screenshots)"
+Write-Host "feature graphic in $out"

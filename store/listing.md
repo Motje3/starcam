@@ -43,11 +43,12 @@ TIPS
 Use a tripod, or lean the phone against something that does not move. Get away from street lights, and pick a night without much Moon: the planner shows when.
 ```
 
-**App icon**: `icon-512.png` · **Feature graphic**: `feature-graphic.png` ·
-**Phone screenshots**: `screenshots\*.png` (1080 x 1920, in order), taken on the emulator by
-`tools\store-shots.ps1` and framed by `tools\store-graphics.ps1`. Add screenshots of real
-results from the phone (a stacked photo, the studio) when you have them: put the phone's
-screenshot in `tools\store-graphics.ps1`'s list with a caption and run it again.
+**App icon**: `icon-512.png`, the owner's artwork (4 Nov 2026), also the launcher icon ·
+**Feature graphic**: `feature-graphic.png` · **Phone screenshots**: `screenshots\*.png`
+(1080 x 1920, in order): the emulator's screens (`tools\store-shots.ps1`) under a big icon and
+a short headline, drawn by `tools\store-screens.ps1`. Add screenshots of real results from the
+phone (a stacked photo, the studio) when you have them, first in the list: a line in that
+script's `$Screens` with the phone screenshot's full path and a headline, then run it again.
 
 ## Store settings
 

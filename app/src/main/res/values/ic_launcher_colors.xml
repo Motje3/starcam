@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#0A0B14</color>
+    <!-- The launcher art's edge colour (its average border pixel). -->
+    <color name="ic_launcher_background">#1C163C</color>
 </resources>

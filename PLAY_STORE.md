@@ -55,8 +55,8 @@ name or logo.
   dark-sky map at the top still work (they do). The description says in its second paragraph
   that the app needs such a phone.
 - **Screenshots**: the long side may be at most twice the short one. The phone's 1272 × 2800
-  screenshots are 2.2 : 1 and are refused as they are: `tools\store-graphics.ps1` places them on
-  a 1080 × 1920 canvas (9:16, which Play recommends anyway) with a caption.
+  screenshots are 2.2 : 1 and are refused as they are: `tools\store-screens.ps1` places them on
+  a 1080 × 1920 canvas (9:16, which Play recommends anyway) under an icon and a headline.
 - **Photos in the listing** must be real Stelli results, like the shoot's; no stock astro photos.
 - **Wording**: no names of other apps (Siril, PixInsight…), no device or brand logos, no "best",
   "#1", "free" or "new" in the title, icon or feature graphic, no comparisons with other apps, no
