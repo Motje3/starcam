@@ -1,62 +1,63 @@
 # Stelli: to do before Google Play
 
-Checked 2026-10-29 on 0.5.0 (versionCode 9). `gradlew bundleRelease` builds a 12 MB AAB, but it
-is unsigned. Updated 2026-11-03: the Play Console account is verified, the night-sky shoot is
-done, and the app is renamed **Stelli** in 0.5.1 (app id `com.wm.stelli`, store name "Stelli:
-Night Sky Camera"; PROGRESS.md has the details). The rest below is still open. PLAY_STORE.md
-has the policy check (4 Nov 2026) and the answer to every Play Console form.
+Updated 2026-11-04 on 0.5.1 (versionCode 10). Everything that needed no decision is done: the
+upload key and the signed AAB, the privacy policy and terms of use (on the web and in the app),
+the reworded card for phones without RAW, the release build checked on the emulator, and the store
+listing texts and graphics (`store/`). What is left happens in Play Console, on GitHub and on the
+phone. PLAY_STORE.md has the policy check (4 Nov 2026) and the answer to every Play Console form.
 
 Already fine: target SDK 36, arm64 only, 16 KB pages, no internet or advertising-ID permission (so
-Data safety can say "no data collected"), coarse location only when the planner asks, inexact night
-alerts, the data and font licences credited in Settings, a clear message on phones without RAW.
+Data safety can say "no data collected"), coarse location only after "Use my location", inexact
+night alerts, the data and font licences credited in Settings.
 
 ## Must do
 
-- [ ] **Upload key.** Create it once with the keytool command in DEBUGGING.md ("Release builds"),
-      copy `keystore.properties.example` to `keystore.properties`, and back up the `.jks` and its
-      passwords outside the repo (a lost upload key means asking Google for a reset). Then build
-      the signed AAB with `gradlew bundleRelease`.
-- [ ] **Privacy policy.** Play wants one in Play Console and, because the app uses the camera and
-      location, a link inside the app too. Write it (what the app reads, that it has no internet
-      permission, whether location goes into the photos), publish it on a public page (e.g. the
-      W&M Websolutions site), add the link to Settings (`ui/SettingsScreen.kt`) and enter the URL
-      in Play Console. PLAY_STORE.md lists what it has to cover.
-- [ ] **Trader status and terms of service.** Declare W&M Websolutions a trader (Manage account ›
-      Account details › About you, then per app under App content). A trader's apps each need a
-      terms of service link: publish a terms page next to the privacy policy.
-- [ ] **Check the release build.** R8 minifies it and can break things the debug build doesn't
-      show; the last release build checked was 0.3.3. `tools\emulator-test.ps1` drives debug
-      builds only (release builds ignore its session hook), so go through the 0.4 and 0.5 screens
-      by hand on the emulator: a session, studio, replay video, planner, sky view, calendar,
-      autopilot, timelapse, meteors.
-- [x] **Play Console account.** Sign up as an organisation for W&M Websolutions with its D-U-N-S
-      number (in the local `.env`, gitignored, kept out of this public repo), with the name and address as D&B and the KVK have
-      them, and pay the USD 25 fee. The company name, address, email and phone become public on
-      the listing. An organisation account skips the 12 testers / 14 days closed test.
+- [ ] **Publish the privacy policy and terms.** On GitHub: the repository's Settings › Pages ›
+      Deploy from a branch, `main`, `/docs`. They are then at
+      https://motje3.github.io/starcam/legal/privacy.html and `.../legal/terms.html` (or put
+      `docs/legal` on another site; the app shows its own copy either way).
+- [ ] **Trader status.** Play Console › Manage account (Account details) › About you: trader. Then
+      per app, App content: confirm it and give the terms link.
 - [ ] **Create the app.** Name "Stelli: Night Sky Camera", package `com.wm.stelli` (the first
       upload fixes it for good), English (United Kingdom), App, Free.
-- [ ] **Play Console forms.**
-  - [ ] Store listing: 512 x 512 icon, 1024 x 500 feature graphic, at least 2 screenshots, a short
-        description (up to 80 characters) and a full one, category Photography.
+- [ ] **Play Console forms** (answers in PLAY_STORE.md, texts and graphics in `store/`):
+  - [ ] Store listing: `store/listing.md`, `icon-512.png`, `feature-graphic.png`, `screenshots/`.
   - [ ] Price: Free. A free app can never become paid, but a Pro unlock can be added later.
-  - [ ] Content rating questionnaire and target audience (13+ or 18+).
+  - [ ] Content rating questionnaire, target audience 13+.
   - [ ] Data safety: no data collected or shared.
-  - [ ] Foreground service declaration for the camera service (`foregroundServiceType="camera"`),
-        with a link to a short video of a session carrying on with the screen off.
+  - [ ] Privacy policy: the URL above.
   - [ ] The rest of App content: ads no; app access: everything works without a login; news,
         government, financial and health apps: no.
+- [ ] **Foreground service declaration** (it appears once the AAB is uploaded): the texts in
+      PLAY_STORE.md, and a video of a session carrying on with the screen off, recorded on the
+      phone (the steps are there too), as an unlisted YouTube link.
+- [ ] **First upload**: `app/build/outputs/bundle/release/app-release.aab` to Internal testing
+      first, with Play App Signing (Google's key). Then download the APK Play makes from it (App
+      bundle explorer) and check it has no INTERNET permission (automatic protection).
+- [x] **Upload key.** Created 4 Nov 2026 in `D:\Code\keys` (outside the repository), with its
+      password in the README beside it and in `keystore.properties` (git-ignored). **Back up that
+      folder off this computer** (password manager, USB stick or cloud drive).
+- [x] **Privacy policy and terms of use.** `docs/legal`, shown in the app under Settings ›
+      Advanced from the same files. Contact: info@siteaanpakkers.com (chosen 4 Nov 2026:
+      `wm-websolutions.nl` is not registered, so info@wm-websolutions.nl receives nothing). Give
+      the Play listing the same email.
+- [x] **Check the release build.** `tools\emulator-test.ps1 -Release`, see PROGRESS.md.
+- [x] **Play Console account.** Organisation W&M Websolutions with its D-U-N-S number (in the
+      local `.env`, gitignored, kept out of this public repo). An organisation account skips the
+      12 testers / 14 days closed test.
 
 ## Worth doing
 
 - [x] Try 0.5.0's new features under a real night sky before the upload.
-- [ ] Reword the "Camera problem … Stelli cannot run" card a phone without RAW shows: say what
-      the camera lacks and that the planner, sky view, calendar and map still work. A reviewer's
-      phone may be such a phone.
-- [ ] Put "needs a phone with a RAW camera" in the store description: RAW is optional in the
-      manifest, so Play offers the app to any phone with a camera. Or make it required
-      (`launch and revenue plan.md`, item 3); the OnePlus 15 declares the RAW feature.
+- [x] Reword the card a phone without RAW shows: "No RAW camera", and that the planner, Find and
+      the dark-sky map still work.
+- [x] "Needs a phone whose back camera gives apps RAW photos" in the store description. (Making
+      RAW required in the manifest instead would hide the app from phones that deliver RAW
+      without declaring it: `launch and revenue plan.md`, item 3.)
+- [ ] Screenshots of real results for the listing (a stacked photo, the studio): phone
+      screenshots, added to `tools\store-graphics.ps1`'s list.
 - [ ] Tablets and foldables: with target SDK 36, Android 16 ignores the portrait lock on large
-      screens. Test on a tablet emulator, or exclude tablets in Play Console.
+      screens. Test on a tablet emulator, or exclude tablets in Play Console (Device catalog).
 - [ ] Before putting a Play build on the phone (internal testing first), copy
       `Android/media/com.wm.stelli/Stelli` to the PC: a Play build can't update the debug
       build, and uninstalling deletes every session. The old StarCam build stays on the phone

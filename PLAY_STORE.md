@@ -18,9 +18,10 @@ name or logo.
 - **Permissions** (read from the built APK): camera, coarse location, camera foreground service,
   wake lock, notifications, boot, vibrate. No internet, no advertising ID, no permission to read
   photos or videos, no exact alarms, no background location, no accessibility service.
-- **Asked in context.** The camera is asked for after the intro says why. Location only when the
-  planner's "Use my location" is tapped, under a line saying what it is for and that it stays on
-  the phone; "Enter coordinates" works if it is refused.
+- **Asked in context.** The camera is asked for after the intro says why. Location only when
+  "Use my location" is tapped (in the planner, the sky calendar, the dark-sky map or the sky
+  view), under a line saying what it is for and that it stays on the phone; "Enter coordinates"
+  works if it is refused.
 - **No location in photos** (no GPS in EXIF). The planner's place is kept on the phone, for the
   planner and the night alerts, and nowhere else.
 - **No accounts, ads, purchases or third-party SDKs.** Nothing leaves the phone unless the user
@@ -31,27 +32,31 @@ name or logo.
 
 1. **Trader status (EU and UK).** New accounts must declare it straight away: Play Console ›
    Manage account (Account details) › About you, then confirm it per app under App content.
-   W&M Websolutions is a business, so it is a trader: each app then needs a **terms of service
-   link**, and the company's contact details (from 1 March 2027 also its D-U-N-S number) show on
-   the listing.
-2. **Privacy policy page** on the W&M site: public HTML (no PDF), not editable by visitors, titled
-   "Privacy policy", naming W&M Websolutions and Stelli. Link it in Play Console (App content ›
-   Privacy policy) and in the app (Settings). What it must say is below.
-3. **Terms of service page** on the same site (needed as a trader).
-4. **Foreground service declaration** with a video (text below).
-5. **Store listing** within the specs below.
+   W&M Websolutions is a business, so it is a trader: Play asks for a **terms of service link**
+   for each app ("You will also be asked to provide the link to the terms of service for each of
+   your apps", Trader status declaration, read 4 Nov 2026), and from 1 March 2027 the listing
+   shows the contact details, the D-U-N-S number and that link. Deadline for all accounts:
+   1 February 2027; new accounts at once.
+2. **Privacy policy**: written, `docs/legal/privacy.html` (public HTML, titled as a privacy
+   policy, naming W&M Websolutions and Stelli), and shown in the app under Settings › Advanced
+   from the same file; contact info@siteaanpakkers.com. Still to do: publishing it (GitHub Pages,
+   TODO.md) and its URL in Play Console (App content › Privacy policy).
+3. **Terms of service**: written, `docs/legal/terms.html`, in the app beside the privacy policy;
+   published with it.
+4. **Foreground service declaration** with a video (text below). The video needs the phone.
+5. **Store listing**: `store/listing.md` and the graphics beside it.
 6. The other **App content** forms (answers below).
-7. **The release build** checked by hand on the emulator (R8; TODO.md).
+7. **The release build**: checked on the emulator with `tools\emulator-test.ps1 -Release`.
 
 ## Review risks, and what to do about them
 
-- **A reviewer's phone without RAW** shows "Camera problem … Stelli cannot run", although the
-  planner, sky view, calendar and dark-sky map all work. Reword that card (what this camera lacks,
-  what still works) and say "needs a phone whose camera gives apps RAW photos" in the first lines
-  of the description.
+- **A reviewer's phone without RAW** shows the "No RAW camera" card: that Stelli makes its
+  photos from RAW frames and this phone gives apps none, and that the planner, Find and the
+  dark-sky map at the top still work (they do). The description says in its second paragraph
+  that the app needs such a phone.
 - **Screenshots**: the long side may be at most twice the short one. The phone's 1272 × 2800
-  screenshots are 2.2 : 1 and are refused as they are: place them on a 1080 × 1920 canvas (9:16,
-  which Play recommends anyway).
+  screenshots are 2.2 : 1 and are refused as they are: `tools\store-graphics.ps1` places them on
+  a 1080 × 1920 canvas (9:16, which Play recommends anyway) with a caption.
 - **Photos in the listing** must be real Stelli results, like the shoot's; no stock astro photos.
 - **Wording**: no names of other apps (Siril, PixInsight…), no device or brand logos, no "best",
   "#1", "free" or "new" in the title, icon or feature graphic, no comparisons with other apps, no
@@ -119,6 +124,8 @@ No. Digital purchases: No. Unrestricted internet access: No. Expected: Everyone,
 
 ### Store listing
 
+The texts to paste and the graphics are in `store/` (`listing.md`). The specs they meet:
+
 - **App name**: "Stelli: Night Sky Camera", 24 of 30 characters. (The create form counted 25:
   check for a stray space.)
 - **Short description** up to 80 characters; **full description** up to 4,000.
@@ -128,7 +135,10 @@ No. Digital purchases: No. Unrestricted internet access: No. Expected: Everyone,
   most twice the short one; 1080 × 1920 recommended.
 - **Category** Photography; a contact email is required.
 
-### The privacy policy: what it has to cover
+### The privacy policy: what it covers
+
+Written in `docs/legal/privacy.html` against this list (the address is left out, as on the W&M
+site, where it is still to be filled in; the KVK number is in):
 
 - **Who**: W&M Websolutions (the name on the Play listing), its address, and an email address
   for privacy questions.

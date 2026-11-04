@@ -1,5 +1,28 @@
 # StarCam build progress (PLAN.md §10)
 
+## Ready for Play review, 0.5.1 (2026-11-04)
+
+What Play's review needs from the app and the repository (PLAY_STORE.md has the policy reading):
+- **Phones without RAW** get a "No RAW camera" card instead of "Camera problem … Stelli cannot
+  run": Stelli makes its photos from RAW frames, this phone gives apps none, and the Tonight
+  planner, Find and the dark-sky map at the top still work (`noRawCamera` in the view model).
+  Checked on the emulator started with `-camera-back none`.
+- **Privacy policy and terms of use** in `docs/legal`: plain HTML pages for the web (GitHub
+  Pages, `docs/`), and the same files packed into the app's assets (app/build.gradle.kts) and
+  shown under Settings › Advanced, so Play's "privacy policy inside the app" works without
+  internet access and the two can never differ. `util/LegalPage.kt` reads the pages' blocks
+  (h1, h2, p, li); `LegalPageTest` checks both pages read whole and carry no `{{placeholder}}`.
+- **Upload key and the signed bundle.** `D:\Code\keys\stelli-upload.jks` (outside the
+  repository, see DEBUGGING.md), `keystore.properties` git-ignored. The release APK and AAB are
+  signed with it, target API 36, arm64, 16 KB-aligned, and have no INTERNET permission (aapt2).
+- **The release build on the emulator**: `tools\emulator-test.ps1 -Release` runs the checks on
+  the R8 build, sessions started from the shutter.
+- **The store listing** in `store/`: the texts (`listing.md`), the 512 px icon and the
+  1024 x 500 feature graphic drawn from the launcher icon and the app's Geist font, and the
+  emulator's screens (`tools\store-shots.ps1`, demo-mode status bar) framed at 1080 x 1920 with
+  captions (`tools\store-graphics.ps1`). The sky view is left out: on the emulator it is drawn
+  over the camera's test scene.
+
 ## The name: Stelli, 0.5.1 (2026-11-03)
 
 Renamed before the first Play upload, because other apps already use "StarCam" (a StarCam app on
