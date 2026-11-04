@@ -34,10 +34,10 @@ PLAN THE NIGHT
 • Tonight: when it gets dark, where the Moon and the Milky Way are, and what is worth a shot
 • Sky view: hold the phone up and see the Milky Way, the stars and the Moon drawn over the camera; Find leads you to a galaxy, a planet or the North Star
 • Sky calendar: meteor showers, new and full moons, eclipses, planets at their best and the Milky Way season for where you are, with night alerts if you want them
-• Dark-sky map: how dark your sky is (its Bortle class) and where the nearest darker sky is
+• Dark-sky map: an estimate of how dark your sky is (its Bortle class) and where the nearest darker sky is
 
 PRIVATE
-Stelli works fully offline, with no accounts, no ads and no tracking. Your photos and your location stay on your phone.
+Stelli works fully offline, with no accounts, no ads and no tracking. Your photos and your location stay on your phone unless you share them.
 
 TIPS
 Use a tripod, or lean the phone against something that does not move. Get away from street lights, and pick a night without much Moon: the planner shows when.
