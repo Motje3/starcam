@@ -66,6 +66,7 @@ import com.wm.starcam.ui.theme.ScIcons
 import com.wm.starcam.ui.theme.ScShapes
 import com.wm.starcam.ui.theme.ScType
 import com.wm.starcam.ui.theme.ScreenMargin
+import com.wm.starcam.util.LegalPage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -84,7 +85,7 @@ enum class SettingsTab(val label: String, val blurb: String) {
     Advanced("Advanced", "Camera troubleshooting, diagnostics and app info."),
 }
 
-private enum class SettingsAction { Diagnostics, Probe, SelfTest, Intro, Reset, Licences }
+private enum class SettingsAction { Diagnostics, Probe, SelfTest, Intro, Reset, Licences, Privacy, Terms }
 
 /*
  * Every setting is described once, as data: its tab, label, current value, control and the
@@ -749,6 +750,8 @@ private val Defs: List<Def> = listOf(
     Link(SettingsTab.Advanced, "Engine self-test", null, "Checks the stacking engine on a synthetic starfield", SettingsAction.SelfTest),
     Link(SettingsTab.Advanced, "Reset all settings", null, "Back to the defaults. Sessions are not touched.", SettingsAction.Reset, danger = true),
     Link(SettingsTab.Advanced, "Licences and data", null, "Map and star data sources · Geist fonts (SIL OFL)", SettingsAction.Licences),
+    Link(SettingsTab.Advanced, "Privacy policy", null, "Nothing leaves the phone unless you share it", SettingsAction.Privacy),
+    Link(SettingsTab.Advanced, "Terms of use", null, "Free, as it is · your photos are yours", SettingsAction.Terms),
 )
 
 @Composable
@@ -771,6 +774,8 @@ fun SettingsScreen(
     var openHelp by remember { mutableStateOf<String?>(null) }
     var confirmReset by remember { mutableStateOf(false) }
     var showLicences by remember { mutableStateOf(false) }
+    // The legal page open in a dialog: its asset, docs/legal on the web.
+    var legalPage by remember { mutableStateOf<String?>(null) }
     fun up(t: (AppSettings) -> AppSettings) = vm.settingsStore.update(t)
 
     val run: (SettingsAction) -> Unit = { a ->
@@ -781,6 +786,8 @@ fun SettingsScreen(
             SettingsAction.Intro -> onReplayIntro()
             SettingsAction.Reset -> confirmReset = true
             SettingsAction.Licences -> showLicences = true
+            SettingsAction.Privacy -> legalPage = "privacy.html"
+            SettingsAction.Terms -> legalPage = "terms.html"
         }
     }
     val version = remember {
@@ -869,6 +876,7 @@ fun SettingsScreen(
         )
     }
     if (showLicences) LicencesDialog { showLicences = false }
+    legalPage?.let { page -> LegalDialog(page) { legalPage = null } }
 }
 
 @Composable
@@ -1010,6 +1018,53 @@ private fun LicencesDialog(onDismiss: () -> Unit) {
                 Text("Copyright 2024 The Geist Project Authors (github.com/vercel/geist-font)",
                     style = ScType.caption, color = c.text3, modifier = Modifier.padding(bottom = 10.dp))
                 Text(text, style = ScType.data, color = c.text2)
+            }
+            Box(Modifier.fillMaxWidth().padding(top = 16.dp), contentAlignment = Alignment.CenterEnd) {
+                ScButton("Close", onDismiss, height = 44.dp)
+            }
+        }
+    }
+}
+
+/**
+ * The privacy policy or the terms of use, from the same page as on the web (docs/legal), so that
+ * Play's "privacy policy inside the app" is there without internet access.
+ */
+@Composable
+private fun LegalDialog(asset: String, onDismiss: () -> Unit) {
+    val c = Sc.colors
+    val context = LocalContext.current
+    var blocks by remember { mutableStateOf<List<LegalPage.Block>?>(null) }
+    LaunchedEffect(asset) {
+        blocks = withContext(Dispatchers.IO) {
+            runCatching {
+                LegalPage.parse(context.assets.open(asset).bufferedReader().use { it.readText() })
+            }.getOrDefault(emptyList())
+        }
+    }
+    ScDialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier.fillMaxWidth().background(c.surface)
+                .border(1.dp, c.hairline, ScShapes.card).padding(20.dp),
+        ) {
+            val all = blocks.orEmpty()
+            Text(all.firstOrNull { it.kind == LegalPage.Kind.Title }?.text.orEmpty(),
+                style = ScType.titleSmall, color = c.text)
+            Column(Modifier.padding(top = 8.dp).heightIn(max = 480.dp).verticalScroll(rememberScrollState())) {
+                if (blocks?.isEmpty() == true) Text("Text unavailable.", style = ScType.body, color = c.text3)
+                for (b in all) when (b.kind) {
+                    LegalPage.Kind.Title -> Unit
+                    LegalPage.Kind.Updated -> Text(b.text, style = ScType.caption, color = c.text3,
+                        modifier = Modifier.padding(bottom = 10.dp))
+                    LegalPage.Kind.Heading -> Text(b.text, style = ScType.headline, color = c.text,
+                        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
+                    LegalPage.Kind.Paragraph -> Text(b.text, style = ScType.bodySmall, color = c.text2,
+                        modifier = Modifier.padding(bottom = 8.dp))
+                    LegalPage.Kind.Item -> Row(Modifier.padding(bottom = 6.dp)) {
+                        Text("•", style = ScType.bodySmall, color = c.text3, modifier = Modifier.width(14.dp))
+                        Text(b.text, style = ScType.bodySmall, color = c.text2)
+                    }
+                }
             }
             Box(Modifier.fillMaxWidth().padding(top = 16.dp), contentAlignment = Alignment.CenterEnd) {
                 ScButton("Close", onDismiss, height = 44.dp)

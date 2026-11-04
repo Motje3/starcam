@@ -73,6 +73,9 @@ android {
     buildFeatures {
         compose = true
     }
+    // The privacy policy and terms of use in Settings are the web pages themselves (docs/legal,
+    // also what Play Console links to), packed as assets: the two cannot drift apart.
+    sourceSets["main"].assets.srcDir(rootProject.file("docs/legal"))
     externalNativeBuild {
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")
