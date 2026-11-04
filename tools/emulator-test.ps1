@@ -29,12 +29,17 @@
 #   powershell -ExecutionPolicy Bypass -File tools\emulator-test.ps1 -Build -Only stack,session
 #
 # The AVD (starcam_ui: API 34, 1272x2800 @ 560 dpi, back camera "emulated" with RAW) is described
-# in DEBUGGING.md. Debug builds only: the session hook is ignored by release builds.
+# in DEBUGGING.md. -Release runs the checks on the release build instead (R8-minified, signed with
+# the upload key from keystore.properties): its sessions start from the shutter, as release builds
+# ignore the adb hook, and the autopilot check is left out, its simulated sky being debug-only.
+#
+#   powershell -ExecutionPolicy Bypass -File tools\emulator-test.ps1 -Release -Build
 
 param(
     [string]$Avd = 'starcam_ui',
     [string]$Serial = 'emulator-5554',
     [switch]$Build,
+    [switch]$Release,
     [string[]]$Only = @(),
     # Deletes every session on the emulator first (each run leaves a few; the AVD's storage is small).
     [switch]$Clean
@@ -93,6 +98,22 @@ function Launch {
     if ((AllText) -match 'notifications') { Tap 'Allow' | Out-Null }
     WaitFor 'Start astro capture' 15
 }
+# A session as the shutter starts it: through the adb hook in a debug build, with the shutter
+# itself in a release build, once the camera is ready and the shutter enabled.
+function StartSession {
+    if (-not $Release) {
+        A shell am start -n com.wm.stelli/com.wm.starcam.MainActivity --ez session true 2>&1 | Out-Null
+        return
+    }
+    $deadline = (Get-Date).AddSeconds(30)
+    while ((Get-Date) -lt $deadline) {
+        $s = Nodes | Where-Object { $_.'content-desc' -eq 'Start astro capture' -and $_.enabled -eq 'true' } | Select-Object -First 1
+        if ($s) { break }
+        Start-Sleep -Milliseconds 700
+    }
+    Start-Sleep -Milliseconds 1500  # the viewfinder session settles, as the hook waits too
+    Tap 'Start astro capture' | Out-Null
+}
 function Check([string]$name, [bool]$ok, [string]$detail = '') {
     $results[$name] = if ($ok) { "PASS $detail" } else { "FAIL $detail" }
     Write-Host ("{0,-11} {1}" -f $name, $results[$name])
@@ -113,14 +134,23 @@ if ($Build) {
     $env:JAVA_HOME = Join-Path $env:LOCALAPPDATA 'Android\jdk17'
     $env:ANDROID_HOME = $sdk
     Push-Location $project
-    & .\gradlew.bat assembleDebug --console=plain | Out-Null
+    & .\gradlew.bat $(if ($Release) { 'assembleRelease' } else { 'assembleDebug' }) --console=plain | Out-Null
     Pop-Location
 }
 if ($Clean) {
     if ($Serial -notlike 'emulator-*') { throw '-Clean is for the emulator only: it deletes every session' }
     A shell rm -rf /sdcard/Android/media/com.wm.stelli/Stelli/sessions 2>&1 | Out-Null
 }
-A install -r (Join-Path $project 'app\build\outputs\apk\debug\app-debug.apk') | Out-Null
+$apk = Join-Path $project $(if ($Release) { 'app\build\outputs\apk\release\app-release.apk' } else { 'app\build\outputs\apk\debug\app-debug.apk' })
+$installed = (A install -r $apk 2>&1) -join ' '
+if ($installed -match 'INSTALL_FAILED_UPDATE_INCOMPATIBLE') {
+    # A release build over a debug build or back: they are signed differently. Uninstalling
+    # deletes the app's sessions, which only the emulator can spare.
+    if ($Serial -notlike 'emulator-*') { throw "$apk is signed differently from the installed app: uninstall that by hand first" }
+    A uninstall com.wm.stelli | Out-Null
+    $installed = (A install -r $apk 2>&1) -join ' '
+}
+if ($installed -notmatch 'Success') { throw "install failed: $installed" }
 A shell pm grant com.wm.stelli android.permission.CAMERA 2>&1 | Out-Null
 A shell pm grant com.wm.stelli android.permission.POST_NOTIFICATIONS 2>&1 | Out-Null
 
@@ -140,7 +170,7 @@ if (Wanted 'self-test') {
 # ---- session through the hook
 if (Wanted 'session') {
     Launch | Out-Null
-    A shell am start -n com.wm.stelli/com.wm.starcam.MainActivity --ez session true 2>&1 | Out-Null
+    StartSession
     $capturing = WaitFor 'Finish & stack now' 180
     Back
     $asked = (AllText) -match 'Stop this capture'
@@ -156,7 +186,7 @@ if (Wanted 'session') {
 # ---- cut off mid-session
 if (Wanted 'cut-off') {
     Launch | Out-Null
-    A shell am start -n com.wm.stelli/com.wm.starcam.MainActivity --ez session true 2>&1 | Out-Null
+    StartSession
     $capturing = WaitFor 'Finish & stack now' 180
     Start-Sleep -Seconds 4
     A shell am force-stop com.wm.stelli
@@ -293,7 +323,8 @@ if (Wanted 'replay') {
                 $readBack++
             }
         }
-        Check 'replay' ($card -and $made -and $size -gt 20000 -and $gallery -and $readBack -eq 3) "card=$card made=$made bytes=$size gallery=$gallery read back=$readBack"
+        # Only debug builds keep the frames they read back (and only they allow run-as).
+        Check 'replay' ($card -and $made -and $size -gt 20000 -and $gallery -and ($Release -or $readBack -eq 3)) "card=$card made=$made bytes=$size gallery=$gallery read back=$readBack"
     }
 }
 
@@ -329,7 +360,7 @@ if (Wanted 'timelapse') {
                 $readBack++
             }
         }
-        Check 'timelapse' ($card -and $size -gt 20000 -and $gallery -and $readBack -eq 3) "card=$card bytes=$size gallery=$gallery read back=$readBack"
+        Check 'timelapse' ($card -and $size -gt 20000 -and $gallery -and ($Release -or $readBack -eq 3)) "card=$card bytes=$size gallery=$gallery read back=$readBack"
     }
 }
 
@@ -612,7 +643,9 @@ function NewestSession {
     $raw = (A shell cat "/sdcard/Android/media/com.wm.stelli/Stelli/sessions/$name/meta/session.json") -join ''
     try { $raw | ConvertFrom-Json } catch { $null }
 }
-if (Wanted 'autopilot') {
+if ($Release -and (Wanted 'autopilot')) {
+    Write-Host ("{0,-11} {1}" -f 'autopilot', 'left out: the simulated sky is for debug builds only')
+} elseif (Wanted 'autopilot') {
     Launch | Out-Null
     A shell am start -n com.wm.stelli/com.wm.starcam.MainActivity --ez session true --es sim "'frames=12;exp=300;clouds=5-8;drift=13:0.06;darks=auto'" 2>&1 | Out-Null
     $done = WaitFor 'Saved to Gallery|Couldn''t stack' 300
@@ -655,7 +688,7 @@ if (Wanted 'background') {
 # ---- swipe out of recents mid-session
 if (Wanted 'swipe') {
     Launch | Out-Null
-    A shell am start -n com.wm.stelli/com.wm.starcam.MainActivity --ez session true 2>&1 | Out-Null
+    StartSession
     $capturing = WaitFor 'Finish & stack now' 180
     $pid1 = (A shell pidof com.wm.stelli) -join ''
     A shell input keyevent KEYCODE_APP_SWITCH

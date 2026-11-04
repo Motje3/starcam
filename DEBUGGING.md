@@ -100,17 +100,18 @@ cannot update the installed app. The only way around that is uninstalling, and u
 deletes everything under `Android/media/com.wm.stelli` (every session, frame and dark).
 `build.ps1` checks the signature and refuses to install a mismatched APK.
 
-**Release builds.** `gradlew bundleRelease` (Play) or `assembleRelease` builds a minified (R8),
-resource-shrunk build of about 5 MB instead of the debug APK's 30+, with the native symbols
-attached for Play's crash reports. It is signed with the upload key named in `keystore.properties`
-(copy `keystore.properties.example`; never commit either); without it the output is unsigned.
-Create the upload key once and back it up with its passwords:
+**Release builds.** `gradlew bundleRelease` (Play: `app/build/outputs/bundle/release/app-release.aab`)
+or `assembleRelease` builds a minified (R8), resource-shrunk build of about 11 MB instead of the
+debug APK's 30+, with the native symbols attached for Play's crash reports. It is signed with the
+upload key named in `keystore.properties` (git-ignored, like the key; never commit either); without
+it the output is unsigned. The upload key was created on 4 November 2026: `D:\Code\keys\stelli-upload.jks`,
+outside the repository, with its password in `stelli-upload-README.txt` beside it. Keep that folder
+backed up off this computer; a lost upload key is reset through Play Console (App integrity). Its
+certificate's SHA-256 is `E3:27:6E:28:…:98:B4:28:6A`. On another computer, recreate
+`keystore.properties` from `keystore.properties.example` and the README.
 
-```powershell
-New-Item -ItemType Directory -Force ..\keys | Out-Null    # outside the repository
-& "$env:LOCALAPPDATA\Android\jdk17\bin\keytool.exe" -genkeypair -v -keystore ..\keys\stelli-upload.jks `
-    -alias upload -keyalg RSA -keysize 4096 -validity 10000
-```
+`tools\emulator-test.ps1 -Release` runs the emulator checks on the release build (below), which is
+how R8 trouble shows before Play's pre-launch report does.
 
 A Play-signed build cannot update the debug-signed app on the phone either: before installing one,
 copy `Android/media/com.wm.stelli/Stelli` to a computer, then uninstall the debug build.
@@ -126,7 +127,10 @@ its replay video made, the Tonight planner opened from the viewfinder (the emula
 Amsterdam with `geo fix`), the sky view (opened from the planner, closed, opened from its chip),
 the camera released on Home and reopened, and a session surviving a swipe out of recents.
 `-Clean` empties the emulator's sessions first, `-Only stack,studio` runs a subset (studio needs
-stack in the same run). JVM unit tests (sky maths, rotation, studio settings) run with
+stack in the same run). `-Release` tests the signed release build instead: its sessions start from
+the shutter (release builds ignore the adb hook) and the autopilot check, whose simulated sky is
+debug-only, is left out; switching between a debug and a release build uninstalls the app on the
+emulator first, as their signatures differ. JVM unit tests (sky maths, rotation, studio settings) run with
 `gradlew testDebugUnitTest`. The emulator's own camera shows a scene without stars, so
 its sessions end on "no reference frame"; that is expected.
 
