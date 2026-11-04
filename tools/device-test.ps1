@@ -58,7 +58,7 @@ $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
 $log = Join-Path $dir "devicetest_$stamp.txt"
 Write-Host "3/4 camera test: $Frames x $($ExposureMs / 1000)s ISO $Iso, recovery=$($Recovery.IsPresent), work=$(-not $NoWork) - full log -> $log"
 # The verdict is read from the app's own log on the phone: grep runs there, only matches travel.
-$appLogs = '/sdcard/Android/media/com.wm.starcam/StarCam/logs'
+$appLogs = '/sdcard/Android/media/com.wm.stelli/Stelli/logs'
 function Get-Verdicts { @(& $adb shell "grep -hE 'camera test (finished|aborted)' $appLogs/app_*.log 2>/dev/null") }
 $before = (Get-Verdicts).Count
 
@@ -70,7 +70,7 @@ if ($NoFresh) { $extra += '--ez', 'fresh', 'false' }
 if ($NoPreview) { $extra += '--ez', 'preview', 'false' }
 if ($FrameDuration) { $extra += '--ez', 'fd', 'true' }
 if ($MapEveryFrame) { $extra += '--ez', 'lsc', 'true' }
-& $adb shell am start -n com.wm.starcam/.MainActivity --ez camtest true `
+& $adb shell am start -n com.wm.stelli/com.wm.starcam.MainActivity --ez camtest true `
     --ei frames $Frames --ei exp_ms $ExposureMs --ei iso $Iso `
     --ez work $((-not $NoWork).ToString().ToLower()) --ez recovery $($Recovery.IsPresent.ToString().ToLower()) `
     @extra | Out-Null

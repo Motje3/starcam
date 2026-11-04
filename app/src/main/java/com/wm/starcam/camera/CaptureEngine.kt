@@ -1271,7 +1271,7 @@ class CaptureEngine(
 
             // ---- Save final image ----
             val totalExposure = result.framesUsed * (decision.exposureNs / 1e9)
-            val recipe = "StarCam ${s.mode.name}: ${result.framesUsed}x" +
+            val recipe = "Stelli ${s.mode.name}: ${result.framesUsed}x" +
                 com.wm.starcam.util.Fmt.exposure(decision.exposureNs) +
                 " ISO ${decision.iso}, winsorized sigma-clip stack" +
                 if (result.foreground.isNotEmpty()) ", foreground ${result.foreground}" else ""

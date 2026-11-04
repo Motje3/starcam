@@ -323,7 +323,7 @@ fun DarkSkyScreen(onBack: () -> Unit, onPlanThere: (GeoLocation, String) -> Unit
                     Text("Where are you?", style = ScType.headline, color = c.text)
                     Text(
                         "The map shows how much light pollution there is around you and where the nearest " +
-                            "darker skies are. Your location stays on this phone: StarCam has no internet access.",
+                            "darker skies are. Your location stays on this phone: Stelli has no internet access.",
                         style = ScType.bodySmall, color = c.text2, modifier = Modifier.padding(top = 4.dp),
                     )
                     ScButton(if (locating) "Finding you…" else "Use my location", {

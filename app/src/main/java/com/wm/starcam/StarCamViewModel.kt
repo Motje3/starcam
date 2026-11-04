@@ -174,7 +174,7 @@ class StarCamViewModel(app: Application) : AndroidViewModel(app) {
             if (cam == null) {
                 AppLog.e(TAG, "no RAW-capable back camera found")
                 _cameraError.value =
-                    "This device does not expose a RAW-capable back camera to apps — StarCam cannot run."
+                    "This device does not expose a RAW-capable back camera to apps — Stelli cannot run."
                 return@launch
             }
             _camInfo.value = cam
@@ -545,7 +545,7 @@ class StarCamViewModel(app: Application) : AndroidViewModel(app) {
                 val next = f(_testStatus.value)
                 _testStatus.value = next
                 SessionBeacon.update(SessionBeacon.Status(
-                    "StarCam — camera test", next.current.ifEmpty { next.summary ?: "" },
+                    "Stelli — camera test", next.current.ifEmpty { next.summary ?: "" },
                     next.results.count { it.ok }, p.frames + 1))
             }
         }
@@ -598,26 +598,26 @@ class StarCamViewModel(app: Application) : AndroidViewModel(app) {
         val detail = e.busy.value?.label ?: ""
         return when (val st = e.state.value) {
             is CaptureState.WaitingStill ->
-                SessionBeacon.Status("StarCam — holding still", detail.ifEmpty { "waiting" })
+                SessionBeacon.Status("Stelli — holding still", detail.ifEmpty { "waiting" })
             is CaptureState.Probing ->
-                SessionBeacon.Status("StarCam — reading the sky", detail)
+                SessionBeacon.Status("Stelli — reading the sky", detail)
             is CaptureState.Focusing -> SessionBeacon.Status(
-                "StarCam — star autofocus", detail, st.step, st.total)
+                "Stelli — star autofocus", detail, st.step, st.total)
             is CaptureState.CapturingLights -> SessionBeacon.Status(
-                "StarCam — frame ${st.current}/${st.total}",
+                "Stelli — frame ${st.current}/${st.total}",
                 if (detail.isEmpty()) Fmt.exposure(st.exposureNs) + " · ISO ${st.iso}"
                 else "$detail · ISO ${st.iso}",
                 st.current, st.total,
             )
             is CaptureState.AwaitingDarkCover ->
-                SessionBeacon.Status("StarCam — cover the lens", "dark frames in ${st.secondsLeft}s")
+                SessionBeacon.Status("Stelli — cover the lens", "dark frames in ${st.secondsLeft}s")
             is CaptureState.CapturingDarks -> SessionBeacon.Status(
-                "StarCam — dark ${st.current}/${st.total}", detail, st.current, st.total)
+                "Stelli — dark ${st.current}/${st.total}", detail, st.current, st.total)
             is CaptureState.Stacking -> SessionBeacon.Status(
-                "StarCam — stacking", detail.ifEmpty { st.stage }, st.percent, 100)
-            is CaptureState.Done -> SessionBeacon.Status("StarCam — done", "saving")
-            is CaptureState.Error -> SessionBeacon.Status("StarCam — failed", st.message)
-            CaptureState.Idle -> SessionBeacon.Status("StarCam", "starting")
+                "Stelli — stacking", detail.ifEmpty { st.stage }, st.percent, 100)
+            is CaptureState.Done -> SessionBeacon.Status("Stelli — done", "saving")
+            is CaptureState.Error -> SessionBeacon.Status("Stelli — failed", st.message)
+            CaptureState.Idle -> SessionBeacon.Status("Stelli", "starting")
         }
     }
 

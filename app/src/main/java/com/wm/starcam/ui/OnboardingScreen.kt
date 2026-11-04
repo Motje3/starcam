@@ -52,7 +52,7 @@ private val IntroPages = listOf(
     IntroPage(
         ScIcons.Tripod, "Use a tripod",
         "Long exposures need the phone perfectly still. Any tripod works — even a steady rock or a " +
-            "bag of rice. StarCam waits until the phone is still before it starts.",
+            "bag of rice. Stelli waits until the phone is still before it starts.",
         ScIcons.Tripod, "A phone clamp costs less than a pizza.",
     ),
     IntroPage(
@@ -63,7 +63,7 @@ private val IntroPages = listOf(
     ),
     IntroPage(
         ScIcons.DarkFrame, "Cover the lens when asked",
-        "At the end, StarCam asks for a few frames with the lens covered. They find and remove hot " +
+        "At the end, Stelli asks for a few frames with the lens covered. They find and remove hot " +
             "pixels. A lens cap or a dark cloth works best. If you miss it, it skips after 60 seconds.",
         ScIcons.Night, "Night vision turns the whole app red, to keep your eyes dark-adapted.",
     ),
@@ -138,14 +138,14 @@ fun PermissionScreen(deniedForever: Boolean, onAllow: () -> Unit, onOpenSettings
         Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Allow camera access", style = ScType.title.copy(fontSize = ScType.title.fontSize * 1.15f), color = c.text)
             Text(
-                "StarCam needs the camera to take long exposures of the sky. Your photos stay on " +
+                "Stelli needs the camera to take long exposures of the sky. Your photos stay on " +
                     "your phone — nothing is uploaded.",
                 style = ScType.body, color = c.text2,
             )
             if (deniedForever) {
                 ScNotice(
-                    "Camera access is turned off for StarCam. Turn it on in Settings › Apps › " +
-                        "StarCam › Permissions, then come back.",
+                    "Camera access is turned off for Stelli. Turn it on in Settings › Apps › " +
+                        "Stelli › Permissions, then come back.",
                     tone = Tone.Warning, icon = ScIcons.Warning,
                 )
             }
@@ -170,7 +170,7 @@ private fun BrandRow(onSkip: (() -> Unit)?) {
     ) {
         Icon(ScIcons.Astro, null, Modifier.size(20.dp), tint = c.accent)
         Spacer(Modifier.width(10.dp))
-        Text("StarCam", style = ScType.headline, color = c.text, modifier = Modifier.weight(1f))
+        Text("Stelli", style = ScType.headline, color = c.text, modifier = Modifier.weight(1f))
         if (onSkip != null) ScButton("Skip", onSkip, kind = ScButtonKind.Text, height = 44.dp)
     }
 }

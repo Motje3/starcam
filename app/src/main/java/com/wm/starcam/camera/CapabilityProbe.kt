@@ -9,14 +9,14 @@ import android.hardware.camera2.CameraMetadata
 import android.os.Build
 
 /**
- * Dumps every Camera2 capability StarCam cares about, for every camera, as a human-readable
+ * Dumps every Camera2 capability Stelli cares about, for every camera, as a human-readable
  * report (PLAN.md §3.1). This tells us exactly what OnePlus exposes to third-party apps.
  */
 object CapabilityProbe {
 
     fun buildReport(context: Context): String {
         val sb = StringBuilder()
-        sb.appendLine("StarCam capability probe")
+        sb.appendLine("Stelli capability probe")
         sb.appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL} (${Build.DEVICE})")
         sb.appendLine("Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
         sb.appendLine("=".repeat(46))
@@ -42,11 +42,11 @@ object CapabilityProbe {
         sb.appendLine("=".repeat(46))
         sb.appendLine(
             if (main != null)
-                "StarCam will use camera ${main.cameraId}: RAW ${main.rawSize(false)} " +
+                "Stelli will use camera ${main.cameraId}: RAW ${main.rawSize(false)} " +
                     "(full ${main.fullRawSize}), max exposure ${"%.2f".format(main.maxExposureSeconds)}s, " +
                     "ISO ${main.isoRange.lower}-${main.isoRange.upper}"
             else
-                "!! No back camera with RAW support found — StarCam cannot capture on this device."
+                "!! No back camera with RAW support found — Stelli cannot capture on this device."
         )
         return sb.toString()
     }

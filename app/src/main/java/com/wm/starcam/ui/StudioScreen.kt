@@ -256,11 +256,11 @@ fun StudioScreen(dir: File, vm: StarCamViewModel, onBack: () -> Unit) {
                     val header = json?.optJSONObject("header")
                     val used = json?.optJSONObject("result")?.optInt("framesUsed", 0) ?: 0
                     val expNs = header?.optLong("exposureNs") ?: 0L
-                    val jpg = File(dir, "out/starcam_${dir.name}_edit.jpg")
+                    val jpg = File(dir, "out/stelli_${dir.name}_edit.jpg")
                     val saved = MediaSaver.saveFinal(
                         context, rgb, res.optInt("width"), res.optInt("height"), jpg,
                         totalExposureSec = used * (expNs / 1e9), iso = header?.optInt("iso") ?: 0,
-                        recipe = "StarCam studio edit",
+                        recipe = "Stelli studio edit",
                     )
                     runCatching { editFile.writeText(p.toJson()) }
                     AppLog.i("studio", "saved ${jpg.name} (gallery: ${saved.galleryUri ?: "FAILED"}) ${p.toJson()}")

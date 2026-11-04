@@ -1,4 +1,7 @@
-# StarCam
+# Stelli
+
+On Google Play as **Stelli: Night Sky Camera** (app id `com.wm.stelli`). Called StarCam until
+0.5.1; the code still uses that name (package `com.wm.starcam`, the `StarCam*` classes and log tags).
 
 A OnePlus-15-specific astrophotography camera app. One button — **ASTRO** — does the whole job:
 waits for tripod stillness → probes the sky and picks exposure/ISO → autofocuses **on the stars
@@ -69,13 +72,13 @@ Malvar demosaic, post pipeline — no OpenCV, all ours) · zero third-party runt
 - `app/src/main/cpp/` — native engine
 - `app/src/main/java/com/wm/starcam/` — app
 
-Sessions land in `Android/media/com.wm.starcam/StarCam/sessions/<timestamp>_<mode>/` — visible
+Sessions land in `Android/media/com.wm.stelli/Stelli/sessions/<timestamp>_<mode>/` — visible
 over USB: `lights/*.dng`, `darks/*.dng`, `out/` (final JPG + `master_linear16.tiff` +
 `stack_report.json`), `meta/session.json` (every frame's stats & rejection reasons), `replay/`
 (the live stack after each frame, for the replay video), `cache/` (engine working files, kept
-only with "Keep raw cache" for in-app re-stacking). A `.nomedia` marker keeps the StarCam folder
-out of gallery apps; the finished photo goes to the gallery under `Pictures/StarCam`, a replay
-video under `Movies/StarCam`.
+only with "Keep raw cache" for in-app re-stacking). A `.nomedia` marker keeps the Stelli folder
+out of gallery apps; the finished photo goes to the gallery under `Pictures/Stelli`, a replay
+video under `Movies/Stelli`.
 
 Requires: a OnePlus 15 (any RAW-capable Android 12+ device works, adaptively). Builds from the
 command line (`tools\setup-toolchain.ps1`, then `tools\build.ps1`, see `DEBUGGING.md`) or Android

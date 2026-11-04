@@ -706,7 +706,7 @@ object SkyCalendar {
                     "From ${hm(local.startMs, zone)} to ${hm(local.endMs, zone)}" +
                         (if (local.sunAltAtMax < 5) "; the Sun is low, so find a clear horizon." else "."),
                     "Never look at the Sun without certified eclipse glasses, and never point the phone at it " +
-                        "without a solar filter: StarCam's long exposures are made for the night.",
+                        "without a solar filter: Stelli's long exposures are made for the night.",
                 ),
                 lookAtMs = local.maxMs,
             )

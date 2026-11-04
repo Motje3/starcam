@@ -62,7 +62,7 @@ fun ProbeScreen(onBack: () -> Unit) {
                 ScIconButton(ScIcons.Share, "Share report", {
                     val send = Intent(Intent.ACTION_SEND).apply {
                         type = "text/plain"
-                        putExtra(Intent.EXTRA_SUBJECT, "StarCam capability probe")
+                        putExtra(Intent.EXTRA_SUBJECT, "Stelli capability probe")
                         putExtra(Intent.EXTRA_TEXT, report)
                     }
                     runCatching {

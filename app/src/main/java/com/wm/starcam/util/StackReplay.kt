@@ -88,10 +88,10 @@ object StackReplay {
                 if (!ok) {
                     Making(null, "The video could not be made on this phone.")
                 } else {
-                    val uri = VideoEncoder.saveToGallery(app, video, "starcam_${session.name}_replay.mp4")
+                    val uri = VideoEncoder.saveToGallery(app, video, "stelli_${session.name}_replay.mp4")
                     AppLog.i("replay", "made ${video.name}: ${n.size} frames, ${video.length() / 1024} KB in " +
                         "${SystemClock.elapsedRealtime() - t0} ms, gallery: ${uri ?: "FAILED"}")
-                    if (uri != null) Making(null, "Saved to the gallery (Movies › StarCam).", good = true)
+                    if (uri != null) Making(null, "Saved to the gallery (Movies › Stelli).", good = true)
                     else Making(null, "Made, but the gallery copy failed: share it from here.")
                 }
             } catch (t: Throwable) {
@@ -221,7 +221,7 @@ object StackReplay {
                     label = if (d >= 1.0 || finalShot == null) caption else frameLabel(frames[n - 1])
                 }
                 val pad = h * 0.045f
-                canvas.drawText("STARCAM", pad, pad + brand.textSize, brand)
+                canvas.drawText("STELLI", pad, pad + brand.textSize, brand)
                 if (!label.isNullOrEmpty()) canvas.drawText(label, pad, h - pad, text)
             }
         } finally {

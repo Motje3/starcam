@@ -212,13 +212,13 @@ class MainActivity : ComponentActivity() {
     /**
      * Lets a PC run the camera test over USB without anyone touching the phone:
      *
-     *   adb shell am start -n com.wm.starcam/.MainActivity --ez camtest true
+     *   adb shell am start -n com.wm.stelli/com.wm.starcam.MainActivity --ez camtest true
      *       --ei frames 5 --ei exp_ms 20000 --ei iso 800 --ez work true --ez recovery false
      *       [--ez preview false] [--ez fresh true] [--ez fd true] [--ez lsc true]
      *
      * The bracketed extras override the Settings › Advanced switches for this one run.
      *
-     *   adb shell am start -n com.wm.starcam/.MainActivity --ez session true
+     *   adb shell am start -n com.wm.stelli/com.wm.starcam.MainActivity --ez session true
      *
      * starts a real session with the current settings, exactly as the shutter button does.
      * [--es sim "frames=12;exp=300;clouds=5-8;drift=12:0.06;dawn=20"] runs it under a simulated

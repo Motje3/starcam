@@ -167,7 +167,7 @@ fun CalendarScreen(onBack: () -> Unit, onShowSky: (Long) -> Unit, onPlanNight: (
                     Text("Where are you?", style = ScType.headline, color = c.text)
                     Text(
                         "Meteor showers, eclipses and the Milky Way's nights depend on where you stand. Your " +
-                            "location stays on this phone: StarCam has no internet access.",
+                            "location stays on this phone: Stelli has no internet access.",
                         style = ScType.bodySmall, color = c.text2, modifier = Modifier.padding(top = 4.dp),
                     )
                     ScButton(if (locating) "Finding you…" else "Use my location", {

@@ -1,5 +1,24 @@
 # StarCam build progress (PLAN.md §10)
 
+## The name: Stelli, 0.5.1 (2026-11-03)
+
+Renamed before the first Play upload, because other apps already use "StarCam" (a StarCam app on
+Apple's store, Starcam IP cameras). On Google Play it is **Stelli: Night Sky Camera**.
+- **The app id is `com.wm.stelli`.** The code keeps its package `com.wm.starcam` (the Gradle
+  namespace), so classes, JNI names and the log tags (`StarCam`, `StarCamEngine`) are unchanged.
+  Because the two differ, adb names the activity in full: `com.wm.stelli/com.wm.starcam.MainActivity`.
+- **Everything a user sees says Stelli:** the launcher, onboarding, notifications, Settings, the
+  name drawn on shared images and videos, EXIF Software, the gallery folders (`Pictures/Stelli`,
+  `Movies/Stelli`), the sessions folder (`Android/media/com.wm.stelli/Stelli/`) and the file names
+  (`stelli_<session>.jpg`). Settings › Look › Processing calls the current look "Stelli" (it was
+  "StarCam 2"); Classic is unchanged.
+- **A new app id is a new app.** On a phone with an earlier build, Stelli installs beside StarCam,
+  and StarCam's sessions stay in `Android/media/com.wm.starcam/StarCam/` until that app is
+  uninstalled. A session copied into Stelli's folder opens as before: its photo is found by
+  extension, not by name.
+- The tools (build, pull-logs, device-test, emulator-test, make-test-session) use the new id and
+  folders; `build.ps1` copies the APK to `..\Stelli.apk`.
+
 ## The second night, 0.5.0 (2026-10-24)
 
 ### Light pollution removed properly; looks, Milky Way detail and smaller stars in the studio

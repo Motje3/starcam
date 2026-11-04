@@ -11,7 +11,7 @@ import kotlin.math.pow
  * A synthetic night sky for the emulator, whose camera shows no stars - debug builds only, armed
  * from adb for the next session:
  *
- *   adb shell am start -n com.wm.starcam/.MainActivity --ez session true
+ *   adb shell am start -n com.wm.stelli/com.wm.starcam.MainActivity --ez session true
  *       --es sim "frames=12;exp=300;clouds=5-8;drift=12:0.06;dawn=20;darks=auto"
  *
  * Every frame that session takes - the probe, the star focus, the lights, the darks - is replaced

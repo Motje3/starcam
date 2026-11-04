@@ -4,5 +4,5 @@
      the exact files the app shares are ever granted. -->
 <paths>
     <cache-path name="share" path="share/" />
-    <external-media-path name="sessions" path="StarCam/sessions/" />
+    <external-media-path name="sessions" path="Stelli/sessions/" />
 </paths>

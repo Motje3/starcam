@@ -167,7 +167,7 @@ object VideoEncoder {
     }
 
     /**
-     * Copies the video into Movies/StarCam as [name], in place of the copy an earlier attempt for
+     * Copies the video into Movies/Stelli as [name], in place of the copy an earlier attempt for
      * the same session left there. Null when the gallery refused it.
      */
     fun saveToGallery(context: Context, video: File, name: String): Uri? {
@@ -176,12 +176,12 @@ object VideoEncoder {
             // Only the app's own entries can go without asking; anything else stays.
             resolver.delete(MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
                 "${MediaStore.Video.Media.DISPLAY_NAME}=? AND ${MediaStore.Video.Media.RELATIVE_PATH}=?",
-                arrayOf(name, "Movies/StarCam/"))
+                arrayOf(name, "Movies/Stelli/"))
         }
         val values = ContentValues().apply {
             put(MediaStore.Video.Media.DISPLAY_NAME, name)
             put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
-            put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/StarCam")
+            put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/Stelli")
             put(MediaStore.Video.Media.IS_PENDING, 1)
         }
         val uri = runCatching { resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values) }.getOrNull()

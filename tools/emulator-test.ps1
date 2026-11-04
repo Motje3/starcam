@@ -85,8 +85,8 @@ function Shot([string]$name) {
     A pull /data/local/tmp/shot.png (Join-Path $shots "$name.png") 2>&1 | Out-Null
 }
 function Launch {
-    A shell am force-stop com.wm.starcam
-    A shell am start -n com.wm.starcam/.MainActivity 2>&1 | Out-Null
+    A shell am force-stop com.wm.stelli
+    A shell am start -n com.wm.stelli/com.wm.starcam.MainActivity 2>&1 | Out-Null
     WaitFor 'Start astro capture|Skip|Allow camera' 20 | Out-Null
     if ((AllText) -match '\|Skip\|') { Tap 'Skip' | Out-Null }
     if ((AllText) -match 'Allow camera') { Tap 'Allow camera' | Out-Null; Start-Sleep 2; Tap 'While using the app' | Out-Null }
@@ -118,11 +118,11 @@ if ($Build) {
 }
 if ($Clean) {
     if ($Serial -notlike 'emulator-*') { throw '-Clean is for the emulator only: it deletes every session' }
-    A shell rm -rf /sdcard/Android/media/com.wm.starcam/StarCam/sessions 2>&1 | Out-Null
+    A shell rm -rf /sdcard/Android/media/com.wm.stelli/Stelli/sessions 2>&1 | Out-Null
 }
 A install -r (Join-Path $project 'app\build\outputs\apk\debug\app-debug.apk') | Out-Null
-A shell pm grant com.wm.starcam android.permission.CAMERA 2>&1 | Out-Null
-A shell pm grant com.wm.starcam android.permission.POST_NOTIFICATIONS 2>&1 | Out-Null
+A shell pm grant com.wm.stelli android.permission.CAMERA 2>&1 | Out-Null
+A shell pm grant com.wm.stelli android.permission.POST_NOTIFICATIONS 2>&1 | Out-Null
 
 # ---- self-test
 if (Wanted 'self-test') {
@@ -140,7 +140,7 @@ if (Wanted 'self-test') {
 # ---- session through the hook
 if (Wanted 'session') {
     Launch | Out-Null
-    A shell am start -n com.wm.starcam/.MainActivity --ez session true 2>&1 | Out-Null
+    A shell am start -n com.wm.stelli/com.wm.starcam.MainActivity --ez session true 2>&1 | Out-Null
     $capturing = WaitFor 'Finish & stack now' 180
     Back
     $asked = (AllText) -match 'Stop this capture'
@@ -156,10 +156,10 @@ if (Wanted 'session') {
 # ---- cut off mid-session
 if (Wanted 'cut-off') {
     Launch | Out-Null
-    A shell am start -n com.wm.starcam/.MainActivity --ez session true 2>&1 | Out-Null
+    A shell am start -n com.wm.stelli/com.wm.starcam.MainActivity --ez session true 2>&1 | Out-Null
     $capturing = WaitFor 'Finish & stack now' 180
     Start-Sleep -Seconds 4
-    A shell am force-stop com.wm.starcam
+    A shell am force-stop com.wm.stelli
     Launch | Out-Null
     $notice = WaitFor 'Last session was cut off' 10
     Shot 'cut-off-notice'
@@ -188,17 +188,17 @@ if (Wanted 'stack') {
         $done = WaitFor 'Done: the photo above is updated' 600
         Shot 'stack-done'
     }
-    $outFiles = A shell ls "/sdcard/Android/media/com.wm.starcam/StarCam/sessions/$name/out/"
-    $jpg = $outFiles -match "starcam_$name.jpg"
+    $outFiles = A shell ls "/sdcard/Android/media/com.wm.stelli/Stelli/sessions/$name/out/"
+    $jpg = $outFiles -match "stelli_$name.jpg"
     # "1 frame vs stacked": one frame developed like the stack, beside the photo.
     $single = $outFiles -match 'single_frame.jpg'
     $local = Join-Path $shots 'session.json'
-    A pull "/sdcard/Android/media/com.wm.starcam/StarCam/sessions/$name/meta/session.json" $local 2>&1 | Out-Null
+    A pull "/sdcard/Android/media/com.wm.stelli/Stelli/sessions/$name/meta/session.json" $local 2>&1 | Out-Null
     $used = try { (Get-Content $local -Raw | ConvertFrom-Json).result.framesUsed } catch { $null }
     # 8 frames, one recorded as bumped: 7 stacked. The sensor frames are landscape; recorded as
     # shot upright, the photo is turned to portrait.
     $jpgLocal = Join-Path $shots 'stack.jpg'
-    A pull "/sdcard/Android/media/com.wm.starcam/StarCam/sessions/$name/out/starcam_$name.jpg" $jpgLocal 2>&1 | Out-Null
+    A pull "/sdcard/Android/media/com.wm.stelli/Stelli/sessions/$name/out/stelli_$name.jpg" $jpgLocal 2>&1 | Out-Null
     $portrait = $false
     if (Test-Path $jpgLocal) {
         Add-Type -AssemblyName System.Drawing
@@ -235,8 +235,8 @@ if (Wanted 'studio') {
         Shot 'studio-nightfall'
         Tap 'Save as new photo' | Out-Null
         $saved = WaitFor 'Saved to the gallery as a new photo' 180
-        $out = "/sdcard/Android/media/com.wm.starcam/StarCam/sessions/$name/out"
-        $edit = (A shell ls "$out/") -match "starcam_${name}_edit.jpg"
+        $out = "/sdcard/Android/media/com.wm.stelli/Stelli/sessions/$name/out"
+        $edit = (A shell ls "$out/") -match "stelli_${name}_edit.jpg"
         # Kept with the session for the next time: the look's Milky Way detail in it.
         $kept = ((A shell cat "$out/edit.json") -join '') -match '"detail":0\.5'
         Back
@@ -247,7 +247,7 @@ if (Wanted 'studio') {
 
 # ---- the replay video of that session: made on the phone, in the session and the gallery
 if (Wanted 'replay') {
-    $sessions = '/sdcard/Android/media/com.wm.starcam/StarCam/sessions'
+    $sessions = '/sdcard/Android/media/com.wm.stelli/Stelli/sessions'
     $rname = $name
     if ($script:apiLevel -ge 36) {
         # Android 16 does not let an app open pictures adb put into its folder, so there the video
@@ -270,7 +270,7 @@ if (Wanted 'replay') {
     } else {
         $name = $rname
         # Only frames read back from this video count.
-        A shell run-as com.wm.starcam rm -rf cache/replay_check 2>&1 | Out-Null
+        A shell run-as com.wm.stelli rm -rf cache/replay_check 2>&1 | Out-Null
         for ($k = 0; $k -lt 6 -and -not ((AllText) -match '\|Make video\|'); $k++) { A shell input swipe 636 2000 636 1200 300; Start-Sleep -Milliseconds 700 }
         $card = Tap 'Make video'
         # Its message comes under the buttons: the card's lower part into view.
@@ -279,16 +279,16 @@ if (Wanted 'replay') {
         Shot 'replay'
         $mp4 = (A shell ls -l "$sessions/$name/out/stack_replay.mp4") -join ''
         $size = if ($mp4 -match '\s(\d+)\s+\d{4}-\d\d-\d\d') { [int64]$matches[1] } else { 0 }
-        $gallery = ((A shell content query --uri content://media/external/video/media --projection _display_name) -join '|') -match "starcam_${name}_replay"
+        $gallery = ((A shell content query --uri content://media/external/video/media --projection _display_name) -join '|') -match "stelli_${name}_replay"
         # The video and the frames the app read back from it (debug builds keep them in its cache).
         A pull "$sessions/$name/out/stack_replay.mp4" (Join-Path $shots 'stack_replay.mp4') 2>&1 | Out-Null
         $check = Join-Path $shots 'replay-check'
         New-Item -ItemType Directory -Force $check | Out-Null
         $readBack = 0
-        foreach ($f in (A shell run-as com.wm.starcam ls cache/replay_check)) {
+        foreach ($f in (A shell run-as com.wm.stelli ls cache/replay_check)) {
             if ($f -match '^at_\d+ms\.jpg$') {
                 # Copied by the device's shell: PowerShell would mangle binary output.
-                A shell "run-as com.wm.starcam cat cache/replay_check/$f > /data/local/tmp/$f" 2>&1 | Out-Null
+                A shell "run-as com.wm.stelli cat cache/replay_check/$f > /data/local/tmp/$f" 2>&1 | Out-Null
                 A pull "/data/local/tmp/$f" (Join-Path $check $f) 2>&1 | Out-Null
                 $readBack++
             }
@@ -299,12 +299,12 @@ if (Wanted 'replay') {
 
 # ---- the timelapse of that session: its kept RAW frames developed one by one into a video
 if (Wanted 'timelapse') {
-    $sessions = '/sdcard/Android/media/com.wm.starcam/StarCam/sessions'
+    $sessions = '/sdcard/Android/media/com.wm.stelli/Stelli/sessions'
     if (-not $name) {
         Check 'timelapse' $false 'needs the stack check in the same run'
     } else {
         # Only frames read back from this video count.
-        A shell run-as com.wm.starcam rm -rf cache/timelapse_check 2>&1 | Out-Null
+        A shell run-as com.wm.stelli rm -rf cache/timelapse_check 2>&1 | Out-Null
         for ($k = 0; $k -lt 8 -and -not ((AllText) -match '\|Make timelapse\|'); $k++) { A shell input swipe 636 2000 636 1200 300; Start-Sleep -Milliseconds 700 }
         $card = Tap 'Make timelapse'
         $size = 0
@@ -316,15 +316,15 @@ if (Wanted 'timelapse') {
         }
         Start-Sleep -Seconds 3
         Shot 'timelapse'
-        $gallery = ((A shell content query --uri content://media/external/video/media --projection _display_name) -join '|') -match "starcam_${name}_timelapse"
+        $gallery = ((A shell content query --uri content://media/external/video/media --projection _display_name) -join '|') -match "stelli_${name}_timelapse"
         A pull "$sessions/$name/out/timelapse.mp4" (Join-Path $shots 'timelapse.mp4') 2>&1 | Out-Null
         $check = Join-Path $shots 'timelapse-check'
         New-Item -ItemType Directory -Force $check | Out-Null
         $readBack = 0
-        foreach ($f in (A shell run-as com.wm.starcam ls cache/timelapse_check)) {
+        foreach ($f in (A shell run-as com.wm.stelli ls cache/timelapse_check)) {
             if ($f -match '^at_\d+ms\.jpg$') {
                 # Copied by the device's shell: PowerShell would mangle binary output.
-                A shell "run-as com.wm.starcam cat cache/timelapse_check/$f > /data/local/tmp/$f" 2>&1 | Out-Null
+                A shell "run-as com.wm.stelli cat cache/timelapse_check/$f > /data/local/tmp/$f" 2>&1 | Out-Null
                 A pull "/data/local/tmp/$f" (Join-Path $check $f) 2>&1 | Out-Null
                 $readBack++
             }
@@ -336,7 +336,7 @@ if (Wanted 'timelapse') {
 # ---- meteor highlights: a meteor watch with one meteor (make-test-session.ps1 -Mode METEOR) stacked,
 # the meteor shown cut out of its frame
 if (Wanted 'meteors') {
-    $sessions = '/sdcard/Android/media/com.wm.starcam/StarCam/sessions'
+    $sessions = '/sdcard/Android/media/com.wm.stelli/Stelli/sessions'
     $mnow = Get-Date
     $mname = $mnow.ToString('yyyyMMdd_HHmmss') + '_meteor'
     powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'make-test-session.ps1') -Name $mname -Rotation 90 -Mode METEOR -Push -Serial $Serial | Out-Null
@@ -399,22 +399,22 @@ if (Wanted 'whatsin') {
         Shot 'whatsin-labels'
         for ($k = 0; $k -lt 5 -and -not ((AllText) -match '\|Save labelled\|'); $k++) { A shell input swipe 636 2000 636 1300 300; Start-Sleep -Milliseconds 700 }
         Tap 'Save labelled' | Out-Null
-        $saved = WaitFor 'Saved to the gallery, in Pictures/StarCam' 90
+        $saved = WaitFor 'Saved to the gallery, in Pictures/Stelli' 90
     }
     # Solved the right way round (a mirrored solution would mean the pipeline flips photos).
     $wlocal = Join-Path $shots 'whats_in.json'
-    A pull "/sdcard/Android/media/com.wm.starcam/StarCam/sessions/$wname/meta/whats_in.json" $wlocal 2>&1 | Out-Null
+    A pull "/sdcard/Android/media/com.wm.stelli/Stelli/sessions/$wname/meta/whats_in.json" $wlocal 2>&1 | Out-Null
     $solution = try { (Get-Content $wlocal -Raw | ConvertFrom-Json).solution } catch { $null }
     $upright = $solution -and -not $solution.flipped
     $matched = if ($solution) { [int]$solution.matched } else { 0 }
-    $copy = (A shell ls /sdcard/Pictures/StarCam/ 2>$null) -match "starcam_${wname}_labelled"
+    $copy = (A shell ls /sdcard/Pictures/Stelli/ 2>$null) -match "stelli_${wname}_labelled"
     Check 'whatsin' ($stacked -and $found -and $orion -and $upright -and $matched -ge 30 -and $saved -and [bool]$copy) `
         "stacked=$stacked found=$found orion=$orion upright=$upright matched=$matched saved=$saved gallery=$([bool]$copy)"
 }
 
 # ---- the Tonight planner from the viewfinder chip, with the emulator placed in Amsterdam
 if (Wanted 'tonight') {
-    A shell pm grant com.wm.starcam android.permission.ACCESS_COARSE_LOCATION 2>&1 | Out-Null
+    A shell pm grant com.wm.stelli android.permission.ACCESS_COARSE_LOCATION 2>&1 | Out-Null
     & $adbExe -s $Serial emu geo fix 4.90 52.37 2>&1 | Out-Null
     Launch | Out-Null
     $chip = Nodes | Where-Object { $_.'content-desc' -like 'Tonight planner*' } | Select-Object -First 1
@@ -462,7 +462,7 @@ if (Wanted 'tonight') {
 
 # ---- the sky view: from the planner's button onto the viewfinder, closed, and from its own chip
 if (Wanted 'sky') {
-    A shell pm grant com.wm.starcam android.permission.ACCESS_COARSE_LOCATION 2>&1 | Out-Null
+    A shell pm grant com.wm.stelli android.permission.ACCESS_COARSE_LOCATION 2>&1 | Out-Null
     Launch | Out-Null
     # The top bar's Find: the sky view opens with its list of things to find.
     $fromBar = $false
@@ -532,7 +532,7 @@ if (Wanted 'sky') {
 # ---- the dark-sky map from the planner (the emulator in Amsterdam): your sky, the suggestions, one
 # picked and planned for
 if (Wanted 'darksky') {
-    A shell pm grant com.wm.starcam android.permission.ACCESS_COARSE_LOCATION 2>&1 | Out-Null
+    A shell pm grant com.wm.stelli android.permission.ACCESS_COARSE_LOCATION 2>&1 | Out-Null
     & $adbExe -s $Serial emu geo fix 4.90 52.37 2>&1 | Out-Null
     Launch | Out-Null
     # The capture screen's top bar: your sky's Bortle class, one tap to the map.
@@ -608,13 +608,13 @@ if (Wanted 'calendar') {
 # ---- the autopilot under a simulated sky (camera/SkySim.kt): cloud over light attempts 5-8, the
 # lens's focus drifting at attempt 13; then a second session into dawn
 function NewestSession {
-    $name = ((A shell ls -t /sdcard/Android/media/com.wm.starcam/StarCam/sessions) | Select-Object -First 1).Trim()
-    $raw = (A shell cat "/sdcard/Android/media/com.wm.starcam/StarCam/sessions/$name/meta/session.json") -join ''
+    $name = ((A shell ls -t /sdcard/Android/media/com.wm.stelli/Stelli/sessions) | Select-Object -First 1).Trim()
+    $raw = (A shell cat "/sdcard/Android/media/com.wm.stelli/Stelli/sessions/$name/meta/session.json") -join ''
     try { $raw | ConvertFrom-Json } catch { $null }
 }
 if (Wanted 'autopilot') {
     Launch | Out-Null
-    A shell am start -n com.wm.starcam/.MainActivity --ez session true --es sim "'frames=12;exp=300;clouds=5-8;drift=13:0.06;darks=auto'" 2>&1 | Out-Null
+    A shell am start -n com.wm.stelli/com.wm.starcam.MainActivity --ez session true --es sim "'frames=12;exp=300;clouds=5-8;drift=13:0.06;darks=auto'" 2>&1 | Out-Null
     $done = WaitFor 'Saved to Gallery|Couldn''t stack' 300
     $said = (AllText) -match 'What the autopilot did'
     Shot 'autopilot'
@@ -628,7 +628,7 @@ if (Wanted 'autopilot') {
     Back
     # Dawn: the sky brightening 60% a frame from attempt 8 ends a 16-frame plan early.
     Launch | Out-Null
-    A shell am start -n com.wm.starcam/.MainActivity --ez session true --es sim "'frames=16;exp=300;dawn=8;darks=auto'" 2>&1 | Out-Null
+    A shell am start -n com.wm.stelli/com.wm.starcam.MainActivity --ez session true --es sim "'frames=16;exp=300;dawn=8;darks=auto'" 2>&1 | Out-Null
     WaitFor 'Saved to Gallery|Couldn''t stack' 300 | Out-Null
     $d = NewestSession
     $dawn = [string]$d.autopilot.finished -match 'brighter'
@@ -645,7 +645,7 @@ if (Wanted 'background') {
     A shell input keyevent KEYCODE_HOME
     Start-Sleep -Seconds 3
     $released = (A shell logcat -d -s StarCam:* 2>$null) -match 'releasing the camera'
-    A shell am start -n com.wm.starcam/.MainActivity 2>&1 | Out-Null
+    A shell am start -n com.wm.stelli/com.wm.starcam.MainActivity 2>&1 | Out-Null
     Start-Sleep -Seconds 5
     $reopened = (A shell logcat -d -s StarCam:* 2>$null) -match 'Resume: opening camera'
     $ready = WaitFor 'Start astro capture' 10
@@ -655,9 +655,9 @@ if (Wanted 'background') {
 # ---- swipe out of recents mid-session
 if (Wanted 'swipe') {
     Launch | Out-Null
-    A shell am start -n com.wm.starcam/.MainActivity --ez session true 2>&1 | Out-Null
+    A shell am start -n com.wm.stelli/com.wm.starcam.MainActivity --ez session true 2>&1 | Out-Null
     $capturing = WaitFor 'Finish & stack now' 180
-    $pid1 = (A shell pidof com.wm.starcam) -join ''
+    $pid1 = (A shell pidof com.wm.stelli) -join ''
     A shell input keyevent KEYCODE_APP_SWITCH
     Start-Sleep -Seconds 2
     A shell input swipe 636 1400 636 150 250
@@ -666,8 +666,8 @@ if (Wanted 'swipe') {
     A shell logcat -c
     Start-Sleep -Seconds 6
     $frames = (A shell logcat -d -s StarCam:* 2>$null) -match 'light [0-9]+/[0-9]+ ok'
-    $pid2 = (A shell pidof com.wm.starcam) -join ''
-    A shell am start -n com.wm.starcam/.MainActivity 2>&1 | Out-Null
+    $pid2 = (A shell pidof com.wm.stelli) -join ''
+    A shell am start -n com.wm.stelli/com.wm.starcam.MainActivity 2>&1 | Out-Null
     $back = WaitFor 'Finish & stack now' 10
     Tap 'Finish & stack now' | Out-Null
     WaitFor "Couldn't stack|Saved to Gallery|RAWs saved" 240 | Out-Null

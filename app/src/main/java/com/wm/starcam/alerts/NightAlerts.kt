@@ -219,7 +219,7 @@ class NightAlertReceiver : BroadcastReceiver() {
             }
             NightAlerts.ACTION_REMINDER -> {
                 val id = intent.getStringExtra("id") ?: return
-                NightAlerts.post(app, 200 + (id.hashCode() and 0xffff), intent.getStringExtra("title") ?: "StarCam",
+                NightAlerts.post(app, 200 + (id.hashCode() and 0xffff), intent.getStringExtra("title") ?: "Stelli",
                     intent.getStringExtra("text") ?: "")
                 NightAlerts.removeReminder(app, id)
             }

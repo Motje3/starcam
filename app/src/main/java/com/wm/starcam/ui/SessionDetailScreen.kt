@@ -307,7 +307,7 @@ fun SessionDetailScreen(
     DisposableEffect(dir) { onDispose { vm.clearRestack(dir) } }
 
     fun runRestack() {
-        val recipe = "StarCam re-stack: stretch ${StretchLabels[stretchIndex]}, " +
+        val recipe = "Stelli re-stack: stretch ${StretchLabels[stretchIndex]}, " +
             String.format(Locale.US, "sigma %.1f", RejectionValues[rejectionIndex]) +
             if (styleIndex == 1) ", nightfall" else ""
         val stretch = stretchIndex
@@ -414,7 +414,7 @@ fun SessionDetailScreen(
                         onSave = {
                             labelled(gallery = true) { file, uri ->
                                 whatsInNote = when {
-                                    uri != null -> "Saved to the gallery, in Pictures/StarCam."
+                                    uri != null -> "Saved to the gallery, in Pictures/Stelli."
                                     file != null -> "Made, but the gallery would not take it; Share still works."
                                     else -> "The labelled copy could not be made."
                                 }

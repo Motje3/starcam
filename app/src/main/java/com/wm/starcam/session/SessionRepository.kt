@@ -28,7 +28,7 @@ fun sessionPhoto(dir: File): File? = photoJpegs(dir).maxByOrNull { it.lastModifi
 
 /** The stack's own JPEG, which a re-stack replaces (an edit is a separate file it leaves alone). */
 fun stackPhoto(dir: File): File =
-    photoJpegs(dir).firstOrNull { !it.name.endsWith("_edit.jpg") } ?: File(dir, "out/starcam_${dir.name}.jpg")
+    photoJpegs(dir).firstOrNull { !it.name.endsWith("_edit.jpg") } ?: File(dir, "out/stelli_${dir.name}.jpg")
 
 /** Folder handles for one capture session (PLAN.md §9). */
 data class SessionPaths(
@@ -41,7 +41,7 @@ data class SessionPaths(
 ) {
     val name: String get() = dir.name
     val jsonFile: File get() = File(meta, "session.json")
-    val finalJpg: File get() = File(out, "starcam_${dir.name}.jpg")
+    val finalJpg: File get() = File(out, "stelli_${dir.name}.jpg")
 }
 
 data class SessionSummary(
@@ -58,33 +58,33 @@ data class SessionSummary(
 )
 
 /**
- * Sessions live under Android/media/<pkg>/StarCam/sessions/ so they're visible over USB for PC
+ * Sessions live under Android/media/<pkg>/Stelli/sessions/ so they're visible over USB for PC
  * post-processing. session.json is written incrementally: a crash loses nothing already recorded.
  */
 class SessionRepository(private val context: Context) {
 
     fun sessionsRoot(): File {
         val base = context.externalMediaDirs.firstOrNull() ?: context.filesDir
-        return File(base, "StarCam/sessions").apply { mkdirs() }
+        return File(base, "Stelli/sessions").apply { mkdirs() }
     }
 
     /**
-     * Keeps the StarCam folder out of gallery apps. MediaStore indexes Android/media, so every DNG
+     * Keeps the Stelli folder out of gallery apps. MediaStore indexes Android/media, so every DNG
      * frame and dark showed up in Google Photos and the like - dozens of near-black frames per
-     * session burying the finished photos, which go to Pictures/StarCam and stay visible. Over
+     * session burying the finished photos, which go to Pictures/Stelli and stay visible. Over
      * USB and in file managers the folder lists as before.
      */
     fun hideFromGallery() {
         val base = context.externalMediaDirs.firstOrNull() ?: return
-        val root = File(base, "StarCam").apply { mkdirs() }
+        val root = File(base, "Stelli").apply { mkdirs() }
         val marker = File(root, ".nomedia")
         if (marker.exists()) return
         runCatching {
             marker.createNewFile()
             // Files indexed before the marker existed stay in galleries until a scan sees it.
             MediaScannerConnection.scanFile(context, arrayOf(root.path), null, null)
-            AppLog.i("StarCam folder hidden from gallery apps (.nomedia)")
-        }.onFailure { AppLog.w("could not hide the StarCam folder from gallery apps", it) }
+            AppLog.i("Stelli folder hidden from gallery apps (.nomedia)")
+        }.onFailure { AppLog.w("could not hide the Stelli folder from gallery apps", it) }
     }
 
     fun newSession(mode: Mode): SessionPaths {
@@ -179,7 +179,7 @@ class SessionRepository(private val context: Context) {
      */
     fun darkLibraryDir(): File {
         val base = context.externalMediaDirs.firstOrNull() ?: context.filesDir
-        return File(base, "StarCam/darks").apply { mkdirs() }
+        return File(base, "Stelli/darks").apply { mkdirs() }
     }
 
     private fun darkName(cameraId: String, size: Size, exposureNs: Long, iso: Int): String =

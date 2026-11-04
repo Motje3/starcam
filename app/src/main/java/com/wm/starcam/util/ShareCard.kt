@@ -81,12 +81,12 @@ object ShareCard {
                 this.textSize = footer * 0.26f
             }
             val baseline = h + footer * 0.62f
-            canvas.drawText("StarCam", margin, baseline, brand)
-            val capX = margin + brand.measureText("StarCam") + footer * 0.3f
+            canvas.drawText("Stelli", margin, baseline, brand)
+            val capX = margin + brand.measureText("Stelli") + footer * 0.3f
             canvas.drawText(caption, capX, baseline, small)
 
             val dir = File(context.cacheDir, "share").apply { mkdirs() }
-            val out = File(dir, "starcam_compare.jpg")
+            val out = File(dir, "stelli_compare.jpg")
             out.outputStream().use { card.compress(Bitmap.CompressFormat.JPEG, 92, it) }
             return out
         } catch (t: Throwable) {

@@ -164,9 +164,9 @@ object WhatsInPhoto {
                 textSize = 13f * unit
                 setShadowLayer(2f * unit, 0f, 0f, Color.BLACK)
             }
-            canvas.drawText("StarCam", 14f * unit, bmp.height - 14f * unit, brand)
+            canvas.drawText("Stelli", 14f * unit, bmp.height - 14f * unit, brand)
             val dir = File(context.cacheDir, "share").apply { mkdirs() }
-            val out = File(dir, "starcam_${sessionName}_labelled.jpg")
+            val out = File(dir, "stelli_${sessionName}_labelled.jpg")
             out.outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 92, it) }
             return out to (if (gallery) toGallery(context, out) else null)
         } catch (t: Throwable) {
@@ -182,7 +182,7 @@ object WhatsInPhoto {
         val values = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, file.name)
             put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
-            put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/StarCam")
+            put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Stelli")
             put(MediaStore.Images.Media.IS_PENDING, 1)
         }
         val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return null

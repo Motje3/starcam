@@ -28,7 +28,7 @@ if ($state -ne 'device') {
 $project = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $out = Join-Path $project ("field-logs\" + (Get-Date -Format 'yyyyMMdd_HHmmss'))
 New-Item -ItemType Directory -Force $out | Out-Null
-$remote = '/sdcard/Android/media/com.wm.starcam/StarCam'
+$remote = '/sdcard/Android/media/com.wm.stelli/Stelli'
 
 Write-Host "pulling into $out"
 & $adb pull "$remote/logs" (Join-Path $out 'logs') | Out-Null
@@ -47,8 +47,8 @@ foreach ($s in $sessions) {
 
 & $adb shell dumpsys media.camera | Set-Content -Encoding utf8 (Join-Path $out 'camera-service.txt')
 & $adb logcat -d -b all -v threadtime | Set-Content -Encoding utf8 (Join-Path $out 'device-logcat.txt')
-& $adb shell dumpsys activity exit-info com.wm.starcam | Set-Content -Encoding utf8 (Join-Path $out 'exit-info.txt')
-& $adb shell dumpsys package com.wm.starcam | Select-String 'versionName|versionCode|lastUpdateTime' |
+& $adb shell dumpsys activity exit-info com.wm.stelli | Set-Content -Encoding utf8 (Join-Path $out 'exit-info.txt')
+& $adb shell dumpsys package com.wm.stelli | Select-String 'versionName|versionCode|lastUpdateTime' |
     Set-Content -Encoding utf8 (Join-Path $out 'app-version.txt')
 
 Write-Host ''

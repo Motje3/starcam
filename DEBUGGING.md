@@ -1,4 +1,4 @@
-# Debugging StarCam
+# Debugging Stelli
 
 From version 0.2.0 the app logs everything it does, on the phone, all the time. There is nothing
 to switch on. The aim is that any failure in the field can be fully explained at home afterwards.
@@ -10,7 +10,7 @@ to switch on. The aim is that any failure in the field can be fully explained at
   over WhatsApp or Drive. Or just bring the phone home; everything stays on it.
 - The same is under **Settings → Advanced → Diagnostics → Share debug report**, and that screen
   also shows the live log.
-- The files live at `Android/media/com.wm.starcam/StarCam/` and are visible in the phone's Files
+- The files live at `Android/media/com.wm.stelli/Stelli/` and are visible in the phone's Files
   app and over USB:
   - `logs/app_<start time>.log`: the app's log, one file per app start.
   - `logs/logcat_<start time>.txt`: everything the app process wrote to logcat (camera
@@ -18,6 +18,8 @@ to switch on. The aim is that any failure in the field can be fully explained at
   - `logs/crash_*.txt`: Java crashes. `logs/exit_*`: native crashes and ANRs from earlier runs.
   - `sessions/<session>/meta/session.log`: that session's complete log, from the button press on.
   - `sessions/<session>/meta/session.json`: every frame's stats, plus an `issues` list.
+- Builds before 0.5.1 were the app `com.wm.starcam` (StarCam). A phone that had one keeps it beside
+  Stelli, with its files in `Android/media/com.wm.starcam/StarCam/` until it is uninstalled.
 
 ## At home over USB
 
@@ -70,11 +72,12 @@ powershell -ExecutionPolicy Bypass -File tools\device-test.ps1 -NoFresh -SkipIns
 The phone keeps only 256 KB of log per buffer by default, which the camera driver overflows in
 seconds. Run `adb logcat -G 16M` once per boot before a test you want the driver's messages from.
 
-Or start a test by hand (debug builds only):
+Or start a test by hand (debug builds only). The app id (`com.wm.stelli`) and the code's package
+(`com.wm.starcam`) differ, so adb needs the activity's full name:
 
 ```powershell
 $adb = "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe"
-& $adb shell am start -n com.wm.starcam/.MainActivity --ez camtest true --ei frames 5 --ei exp_ms 20000 --ei iso 800 --ez work true --ez recovery false
+& $adb shell am start -n com.wm.stelli/com.wm.starcam.MainActivity --ez camtest true --ei frames 5 --ei exp_ms 20000 --ei iso 800 --ez work true --ez recovery false
 powershell -ExecutionPolicy Bypass -File tools\logcat.ps1   # watch it live, full log saved to field-logs\
 ```
 
@@ -82,7 +85,7 @@ powershell -ExecutionPolicy Bypass -File tools\logcat.ps1   # watch it live, ful
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\setup-toolchain.ps1   # once per PC: JDK 17 + Android SDK
-powershell -ExecutionPolicy Bypass -File tools\build.ps1             # build, copy to ..\StarCam.apk, install over USB
+powershell -ExecutionPolicy Bypass -File tools\build.ps1             # build, copy to ..\Stelli.apk, install over USB
 ```
 
 The toolchain goes in `%LOCALAPPDATA%\Android` (JDK in `jdk17`, SDK in `Sdk`), which is also where
@@ -94,7 +97,7 @@ wrote it.
 `%USERPROFILE%\.android\debug.keystore` (SHA-256 `E1:F4:BB:65…`, backed up in
 `D:\Personal\configs\.android\` with the trusted `adbkey`). An APK signed with any other key
 cannot update the installed app. The only way around that is uninstalling, and uninstalling
-deletes everything under `Android/media/com.wm.starcam` (every session, frame and dark).
+deletes everything under `Android/media/com.wm.stelli` (every session, frame and dark).
 `build.ps1` checks the signature and refuses to install a mismatched APK.
 
 **Release builds.** `gradlew bundleRelease` (Play) or `assembleRelease` builds a minified (R8),
@@ -105,12 +108,12 @@ Create the upload key once and back it up with its passwords:
 
 ```powershell
 New-Item -ItemType Directory -Force ..\keys | Out-Null    # outside the repository
-& "$env:LOCALAPPDATA\Android\jdk17\bin\keytool.exe" -genkeypair -v -keystore ..\keys\starcam-upload.jks `
+& "$env:LOCALAPPDATA\Android\jdk17\bin\keytool.exe" -genkeypair -v -keystore ..\keys\stelli-upload.jks `
     -alias upload -keyalg RSA -keysize 4096 -validity 10000
 ```
 
 A Play-signed build cannot update the debug-signed app on the phone either: before installing one,
-copy `Android/media/com.wm.starcam/StarCam` to a computer, then uninstall the debug build.
+copy `Android/media/com.wm.stelli/Stelli` to a computer, then uninstall the debug build.
 
 ## Testing on the emulator
 
@@ -135,7 +138,7 @@ A **simulated sky** runs a whole session where there are no stars (debug builds 
 camera/SkySim.kt):
 
 ```
-adb shell am start -n com.wm.starcam/.MainActivity --ez session true --es sim "'frames=12;exp=300;clouds=5-8;drift=13:0.06;dawn=20;darks=auto'"
+adb shell am start -n com.wm.stelli/com.wm.starcam.MainActivity --ez session true --es sim "'frames=12;exp=300;clouds=5-8;drift=13:0.06;dawn=20;darks=auto'"
 ```
 
 Every frame of that session (probe, star focus, lights, darks) is replaced by a rendered star
@@ -232,7 +235,7 @@ native memory, free storage, screen on/off, and whether the app was in the foreg
 - Dark frames are checked before use. A lit one logs `dark 2/4 is lit: background 3.10% of white,
   limit 0.70% (sky 2.00%) ... not used` and adds an issue. Fewer than two usable darks: `only 1
   usable dark frame(s) - stacking without darks`.
-- Library darks (`StarCam/darks/*.sraw`) have a `.json` beside them with the battery temperature
+- Library darks (`Stelli/darks/*.sraw`) have a `.json` beside them with the battery temperature
   they were shot at; `dark library: ... shooting fresh darks` says why one was not reused. A
   session that used one has `cache/master_dark.library`, and the engine logs `finalize: library
   dark, pedestal ...`.

@@ -17,7 +17,7 @@ object MediaSaver {
 
     /**
      * [rgbFile]: width*height*3 bytes, interleaved RGB (engine output). Writes [jpegOut], sets
-     * EXIF, inserts a copy into Pictures/StarCam. A JPEG that cannot be written completely leaves
+     * EXIF, inserts a copy into Pictures/Stelli. A JPEG that cannot be written completely leaves
      * any earlier [jpegOut] as it was.
      */
     fun saveFinal(
@@ -54,7 +54,7 @@ object MediaSaver {
             jpegWritten = true
             runCatching {
                 val exif = ExifInterface(jpegOut.absolutePath)
-                exif.setAttribute(ExifInterface.TAG_SOFTWARE, "StarCam")
+                exif.setAttribute(ExifInterface.TAG_SOFTWARE, "Stelli")
                 exif.setAttribute(ExifInterface.TAG_EXPOSURE_TIME, totalExposureSec.toString())
                 exif.setAttribute(ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY, iso.toString())
                 exif.setAttribute(ExifInterface.TAG_MAKE, android.os.Build.MANUFACTURER)
@@ -84,7 +84,7 @@ object MediaSaver {
             val values = ContentValues().apply {
                 put(MediaStore.Images.Media.DISPLAY_NAME, jpegOut.name)
                 put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
-                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/StarCam")
+                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Stelli")
                 put(MediaStore.Images.Media.IS_PENDING, 1)
             }
             val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)

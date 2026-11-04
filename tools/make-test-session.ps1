@@ -267,7 +267,7 @@ if ($Push) {
     # Continue, not Stop: adb reports success on stderr, which PowerShell 5.1 turns into an error.
     $ErrorActionPreference = 'Continue'
     $adb = Join-Path $env:LOCALAPPDATA 'Android\Sdk\platform-tools\adb.exe'
-    $target = '/sdcard/Android/media/com.wm.starcam/StarCam/sessions/'
+    $target = '/sdcard/Android/media/com.wm.stelli/Stelli/sessions/'
     $sel = if ($Serial) { @('-s', $Serial) } else { @() }
     & $adb @sel push $out $target 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "adb push failed" }

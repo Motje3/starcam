@@ -1019,7 +1019,7 @@ private fun CoverLensStep(
         StepTitle(
             "Cover the lens",
             "Put the lens cap on, or hold a dark cloth or your palm firmly over the camera. " +
-                "StarCam then takes ${s.darkCount} dark frames to find and remove hot pixels.",
+                "Stelli then takes ${s.darkCount} dark frames to find and remove hot pixels.",
             centered = true,
         )
         ScRing(st.secondsLeft / 60f, Modifier.size(150.dp), strokeWidth = 6.dp) {
@@ -1245,7 +1245,7 @@ private fun DoneStep(
                         tone = Tone.Warning, icon = ScIcons.Warning, title = "Photo not saved",
                     )
                 } else if (st.galleryUri != null) {
-                    ScNotice("Pictures / StarCam", tone = Tone.Accent, icon = ScIcons.CheckCircle,
+                    ScNotice("Pictures / Stelli", tone = Tone.Accent, icon = ScIcons.CheckCircle,
                         title = "Saved to Gallery")
                 } else if (jpegSaved == true) {
                     ScNotice("Saved in the session folder; the gallery copy failed.", tone = Tone.Warning,
@@ -1288,7 +1288,7 @@ private fun DoneStep(
                         onSave = {
                             labelled(gallery = true) { file, uri ->
                                 whatsInNote = when {
-                                    uri != null -> "Saved to the gallery, in Pictures/StarCam."
+                                    uri != null -> "Saved to the gallery, in Pictures/Stelli."
                                     file != null -> "Made, but the gallery would not take it; Share still works."
                                     else -> "The labelled copy could not be made."
                                 }

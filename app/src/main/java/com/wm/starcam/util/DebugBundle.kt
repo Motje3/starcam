@@ -34,7 +34,7 @@ object DebugBundle {
             mkdirs()
             listFiles()?.forEach { it.delete() }  // only ever keep the latest bundle
         }
-        val zip = File(outDir, "starcam_debug_$stamp.zip")
+        val zip = File(outDir, "stelli_debug_$stamp.zip")
         AppLog.i(TAG, "building debug bundle ${zip.name}")
         AppLog.flushBlocking()
         val contents = ArrayList<String>()
@@ -81,7 +81,7 @@ object DebugBundle {
                 .getOrElse { "probe failed: ${it.stackTraceToString()}" })
             addText("settings.txt", settingsText)
             addText("README.txt", buildString {
-                appendLine("StarCam debug bundle, $stamp")
+                appendLine("Stelli debug bundle, $stamp")
                 appendLine("${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
                 appendLine(runCatching {
                     val p = context.packageManager.getPackageInfo(context.packageName, 0)
@@ -107,11 +107,11 @@ object DebugBundle {
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "application/zip"
             putExtra(Intent.EXTRA_STREAM, uri)
-            putExtra(Intent.EXTRA_SUBJECT, "StarCam debug bundle ${zip.nameWithoutExtension.removePrefix("starcam_debug_")}")
+            putExtra(Intent.EXTRA_SUBJECT, "Stelli debug bundle ${zip.nameWithoutExtension.removePrefix("stelli_debug_")}")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         context.startActivity(
-            Intent.createChooser(send, "Send StarCam debug bundle")
+            Intent.createChooser(send, "Send Stelli debug bundle")
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         )
     }

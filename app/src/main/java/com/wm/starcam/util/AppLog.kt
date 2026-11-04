@@ -23,7 +23,7 @@ import java.util.concurrent.atomic.AtomicInteger
  *
  *  - logcat (tag "StarCam"), for when a USB cable *is* attached;
  *  - an in-memory ring, which the Diagnostics screen and the self-test show live;
- *  - a file under `Android/media/com.wm.starcam/StarCam/logs/`, one per process start. It
+ *  - a file under `Android/media/com.wm.stelli/Stelli/logs/`, one per process start. It
  *    survives the app being killed and the session failing, and is visible over USB and in the
  *    phone's own Files app — "what happened on Saturday night" is one file.
  *
@@ -109,7 +109,7 @@ object AppLog {
         if (writerStarted) return
         val base = runCatching { context.externalMediaDirs.firstOrNull() }.getOrNull()
             ?: context.filesDir
-        val dir = File(base, "StarCam/logs").apply { mkdirs() }
+        val dir = File(base, "Stelli/logs").apply { mkdirs() }
         logDir = dir
         pruneOldLogs(dir)
         val stamp = LocalDateTime.now().format(fileStampFmt)

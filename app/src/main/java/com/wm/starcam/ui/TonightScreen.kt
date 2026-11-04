@@ -269,7 +269,7 @@ fun TonightScreen(
                     Text(
                         "The planner works out when it gets properly dark, when the Moon is out of the " +
                             "way and where the Milky Way stands, for where you are. Your location stays on " +
-                            "this phone: StarCam has no internet access at all.",
+                            "this phone: Stelli has no internet access at all.",
                         style = ScType.bodySmall, color = c.text2, modifier = Modifier.padding(top = 4.dp),
                     )
                     ScButton(
@@ -280,7 +280,7 @@ fun TonightScreen(
                     ScButton("Enter coordinates", { showManual = true }, Modifier.fillMaxWidth().padding(top = 8.dp))
                     if (locateFailed) {
                         Text(
-                            "No location: location is off, or StarCam may not use it. Enter coordinates instead.",
+                            "No location: location is off, or Stelli may not use it. Enter coordinates instead.",
                             style = ScType.bodySmall, color = c.warning, modifier = Modifier.padding(top = 8.dp),
                         )
                     }

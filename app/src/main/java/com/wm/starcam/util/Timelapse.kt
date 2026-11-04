@@ -102,10 +102,10 @@ object Timelapse {
                 if (!ok) {
                     StackReplay.Making(null, "The timelapse could not be made on this phone.")
                 } else {
-                    val uri = VideoEncoder.saveToGallery(app, video, "starcam_${session.name}_timelapse.mp4")
+                    val uri = VideoEncoder.saveToGallery(app, video, "stelli_${session.name}_timelapse.mp4")
                     AppLog.i("timelapse", "made ${video.name}: ${frames.size} frames${if (dark != null) ", dark taken off" else ""}, " +
                         "${video.length() / 1024} KB in ${SystemClock.elapsedRealtime() - t0} ms, gallery: ${uri ?: "FAILED"}")
-                    if (uri != null) StackReplay.Making(null, "Saved to the gallery (Movies › StarCam).", good = true)
+                    if (uri != null) StackReplay.Making(null, "Saved to the gallery (Movies › Stelli).", good = true)
                     else StackReplay.Making(null, "Made, but the gallery copy failed: share it from here.")
                 }
             } catch (t: Throwable) {
@@ -211,7 +211,7 @@ object Timelapse {
                     canvas.drawBitmap(it, crop, whole, fade)
                 }
                 val pad = h * 0.045f
-                canvas.drawText("STARCAM", pad, pad + brand.textSize, brand)
+                canvas.drawText("STELLI", pad, pad + brand.textSize, brand)
                 val label = if (t >= play) caption else clock((pos + 0.5).toInt().coerceIn(0, n - 1))
                 if (label != null) canvas.drawText(label, pad, h - pad, text)
             }

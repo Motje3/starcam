@@ -143,7 +143,7 @@ class CaptureService : Service() {
         if (wakeLock?.isHeld == true) return
         runCatching {
             val pm = getSystemService(POWER_SERVICE) as PowerManager
-            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "StarCam:capture").apply {
+            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Stelli:capture").apply {
                 setReferenceCounted(false)
                 // A hard ceiling well past the longest session (60-minute trails): a bug that
                 // fails to release must not be able to flatten the battery overnight.
@@ -175,7 +175,7 @@ class CaptureService : Service() {
         // asks first. Stopping without a photo is done in the app (tapping this opens it).
         val b = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_star_vector)
-            .setContentTitle(status?.title ?: "StarCam")
+            .setContentTitle(status?.title ?: "Stelli")
             .setContentText(status?.text ?: "capturing")
             .setContentIntent(open)
             .addAction(0, "Finish & stack", finish)
@@ -199,7 +199,7 @@ class CaptureService : Service() {
             NotificationChannel(
                 CHANNEL_ID, "Capture session", NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Progress of a running StarCam capture."
+                description = "Progress of a running Stelli capture."
                 setShowBadge(false)
                 enableVibration(false)
                 setSound(null, null)

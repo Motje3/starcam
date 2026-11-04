@@ -75,7 +75,7 @@ object Diagnostics {
         val pkg = runCatching {
             context.packageManager.getPackageInfo(context.packageName, 0)
         }.getOrNull()
-        AppLog.i(TAG, "==== StarCam ${pkg?.versionName ?: "?"} (${pkg?.longVersionCode ?: "?"}) " +
+        AppLog.i(TAG, "==== Stelli ${pkg?.versionName ?: "?"} (${pkg?.longVersionCode ?: "?"}) " +
             "started, pid ${android.os.Process.myPid()} ====")
         AppLog.i(TAG, "installed ${pkg?.lastUpdateTime?.let { humanStamp(it) } ?: "?"} · " +
             "device ${Build.MANUFACTURER} ${Build.MODEL} (${Build.DEVICE}) · Android ${Build.VERSION.RELEASE} " +
@@ -97,7 +97,7 @@ object Diagnostics {
                 // Its own file too: a crash should be findable without reading a whole log.
                 AppLog.logDir?.let { dir ->
                     File(dir, "crash_${fileStamp()}.txt").writeText(
-                        "StarCam crash on thread '${thread.name}' at ${humanStamp()}\n" +
+                        "Stelli crash on thread '${thread.name}' at ${humanStamp()}\n" +
                             "${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE}\n\n" +
                             throwable.stackTraceToString()
                     )
