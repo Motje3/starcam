@@ -17,14 +17,12 @@ Easy: every answer is written down. In this order, as each Play Console step nee
 
 - [ ] **Back up the upload key.** Copy `D:\Code\keys` (the key and the README with its password)
       off this computer: a password manager, USB stick or cloud drive.
-- [ ] **Publish the privacy policy and terms.** On GitHub: the repository's Settings › Pages ›
-      Deploy from a branch, `main`, `/docs`. They are then at
-      https://motje3.github.io/starcam/legal/privacy.html and `.../legal/terms.html` (or put
-      `docs/legal` on another site; the app shows its own copy either way).
-- [ ] **Trader status.** Play Console › Manage account (Account details) › About you: trader.
-- [ ] **Create the app.** Name "Stelli: Night Sky Camera", English (United Kingdom), App, Free (a
-      free app can never become paid, but a Pro unlock can be added later). The package,
-      `com.wm.stelli`, is fixed for good by the first upload.
+- [x] **Publish the privacy policy and terms.** GitHub Pages (Settings › Pages, `main`, `/docs`),
+      on since 4 Nov 2026: https://motje3.github.io/starcam/legal/privacy.html and
+      `.../legal/terms.html`. The app shows its own copy either way.
+- [x] **Trader status.** Declared 4 Nov 2026 (Manage account › Account details › About you).
+- [x] **Create the app.** "Stelli: Night Sky Camera", `com.wm.stelli`, Free (a free app can never
+      become paid, but it can sell in-app products).
 - [ ] **Store listing**: the texts in `store/listing.md`, `icon-512.png`, `feature-graphic.png` and
       `screenshots/`; category Photography, email info@siteaanpakkers.com.
 - [ ] **App content** (the answers in PLAY_STORE.md): privacy policy (the URL above), ads no, app
@@ -36,7 +34,11 @@ Easy: every answer is written down. In this order, as each Play Console step nee
       bundle explorer › Downloads › signed universal APK) and check it has no INTERNET permission
       (automatic protection, PLAY_STORE.md).
 
-## Later, with the phone
+## Later: test with friends, then launch with Pro
+
+The plan since 4 Nov 2026, after an outside review: friends test the Play build on their own
+phones first, and the public launch comes with **Stelli Pro**, a one-time €9.99 upgrade. Which
+features are Pro is decided after the testing.
 
 - [ ] **Foreground service declaration** (App content; it appears once the bundle is uploaded):
       the texts in PLAY_STORE.md, and a video of a session carrying on with the screen off,
@@ -45,8 +47,21 @@ Easy: every answer is written down. In this order, as each Play Console step nee
       a Play build can't update the debug build, and uninstalling deletes every session. The old
       StarCam build stays on the phone beside Stelli until it is uninstalled: copy its
       `Android/media/com.wm.starcam/StarCam` first. Then uninstall the debug build, roll out the
-      internal release with yourself as tester and install Stelli from Play.
-- [ ] **Send it for review.** Promote the internal release to Production and send it for review.
+      internal release and install Stelli from Play.
+- [ ] **Five friends test it.** Internal testing › Testers: an email list with their Google
+      accounts, then send them the join link. Before the public launch: finished sessions on 5+
+      phones from 3+ brands (a Pixel and a Samsung among them), the screen-off capture and the
+      phone's heat checked, no lost photos. Ask each how the photo turned out.
+- [ ] **Side by side.** The same sky with Stelli and the OnePlus 15's own night mode: if Stelli is
+      not clearly better, better to know now; if it is, the pair belongs in the listing.
+- [ ] **Merchant account**, to sell Pro (Play Console asks for it with the first in-app product).
+- [ ] **Stelli Pro** (code): the one-time purchase through Play Billing, restored on a new phone;
+      promo codes give the testers Pro. The billing library brings the internet permission, so
+      the privacy policy, Data safety and the app's "no internet access" lines change with it
+      (PLAY_STORE.md). With it: "How did your photo turn out?" after a session, with a report to
+      send, and "estimated" before the Bortle class in the app.
+- [ ] **Public launch**: Production with Pro, aimed at mid-December (the Geminids peak on 13–14
+      December) if the testing passes, and sent for review.
 
 ## Done
 
