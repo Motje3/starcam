@@ -1,8 +1,9 @@
 # Stelli on Google Play: the policies and the form answers
 
 Checked on 4 November 2026 against Google Play's policy pages (last policy update: 29 October
-2026) and the built 0.5.1 APK. A reading of the policies, not legal advice: when Play Console asks
-something this file does not cover, read the page it links to.
+2026) and the built 0.5.1 APK; the 0.6.0 build (5 Nov, the new look) has the same permissions. A
+reading of the policies, not legal advice: when Play Console asks something this file does not
+cover, read the page it links to.
 
 ## Advance notice to App Review: not needed
 
@@ -19,7 +20,7 @@ name or logo.
   wake lock, notifications, boot, vibrate. No internet, no advertising ID, no permission to read
   photos or videos, no exact alarms, no background location, no accessibility service.
 - **Asked in context.** The camera is asked for after the intro says why. Location only when
-  "Use my location" is tapped (in the planner, the sky calendar, the dark-sky map or the sky
+  "Use my location" is tapped (in the planner, the sky calendar, the light map or the sky
   view), under a line saying what it is for and that it stays on the phone; "Enter coordinates"
   works if it is refused.
 - **No location in photos** (no GPS in EXIF). The planner's place is kept on the phone, for the
@@ -51,8 +52,8 @@ name or logo.
 ## Review risks, and what to do about them
 
 - **A reviewer's phone without RAW** shows the "No RAW camera" card: that Stelli makes its
-  photos from RAW frames and this phone gives apps none, and that the planner, Find and the
-  dark-sky map at the top still work (they do). The description says in its second paragraph
+  photos from RAW frames and this phone gives apps none, and that Tonight, Find and the
+  light map at the top still work (they do). The description says in its second paragraph
   that the app needs such a phone.
 - **Screenshots**: the long side may be at most twice the short one. The phone's 1272 × 2800
   screenshots are 2.2 : 1 and are refused as they are: `tools\store-screens.ps1` places them on
@@ -76,7 +77,7 @@ name or logo.
   ACCESS_NETWORK_STATE (read from the libraries on Google's Maven, 4 Nov 2026). So the listing
   says "works fully offline", which stays true, rather than "no internet permission". When an
   in-app purchase comes, the privacy policy, the Data safety answers and the app's own "Stelli has
-  no internet access" lines (Tonight, the sky calendar, the dark-sky map) change with it.
+  no internet access" lines (Tonight, the sky calendar, the light map) change with it.
 
 ## Form answers
 

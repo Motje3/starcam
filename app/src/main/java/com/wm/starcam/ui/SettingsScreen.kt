@@ -57,6 +57,7 @@ import com.wm.starcam.ui.components.ScDialog
 import com.wm.starcam.ui.components.ScLabel
 import com.wm.starcam.ui.components.ScScreen
 import com.wm.starcam.ui.components.ScSegmented
+import com.wm.starcam.ui.components.ScIconBadge
 import com.wm.starcam.ui.components.ScSettingRow
 import com.wm.starcam.ui.components.ScSlider
 import com.wm.starcam.ui.components.ScSwitch
@@ -77,12 +78,25 @@ enum class SettingsTab(val label: String, val blurb: String) {
     Exposure("Exposure", "How long each frame is, at what ISO, and how many."),
     Focus("Focus", "How the lens is focused before shooting."),
     Capture("Capture", "What gets recorded, and the cover-the-lens step."),
-    Autopilot("Autopilot", "What ASTRO fixes by itself while it shoots: cloud, focus, dawn, time."),
+    Autopilot("Autopilot", "What Stars fixes by itself while it shoots: cloud, focus, dawn, time."),
     Stacking("Stacking", "How the frames are combined on the phone."),
     Look("Look", "How finished photos are toned. Applies to new and re-stacked photos."),
     Motion("Motion", "Tripod stillness, knock detection and how long the long modes run."),
     Interface("Interface", "Night vision, feedback and on-screen aids."),
     Advanced("Advanced", "Camera troubleshooting, diagnostics and app info."),
+}
+
+/** Each tab's icon, on its chip and over its page. */
+private fun tabIcon(t: SettingsTab) = when (t) {
+    SettingsTab.Exposure -> ScIcons.Timer
+    SettingsTab.Focus -> ScIcons.Focus
+    SettingsTab.Capture -> ScIcons.Camera
+    SettingsTab.Autopilot -> ScIcons.Autopilot
+    SettingsTab.Stacking -> ScIcons.Stack
+    SettingsTab.Look -> ScIcons.Photo
+    SettingsTab.Motion -> ScIcons.Tripod
+    SettingsTab.Interface -> ScIcons.Night
+    SettingsTab.Advanced -> ScIcons.Settings
 }
 
 private enum class SettingsAction { Diagnostics, Probe, SelfTest, Intro, Reset, Licences, Privacy, Terms }
@@ -174,7 +188,7 @@ private val Defs: List<Def> = listOf(
         "Before shooting, the app takes one quick throwaway frame and measures how bright your sky " +
             "actually is and how many stars it can see. It then picks settings to suit that sky. " +
             "In an unfamiliar location this is almost always a better starting point than a guess. " +
-            "Turn it off when you know exactly what you want. PRO mode is always manual.",
+            "Turn it off when you know exactly what you want. The Manual mode is always manual.",
         value = { s, _ ->
             if (s.manualExposure) "Off · you set shutter and ISO yourself"
             else "On · a test frame picks the ISO"
@@ -377,7 +391,7 @@ private val Defs: List<Def> = listOf(
     // ---------------------------------------------------------------- Autopilot
     Toggle(
         SettingsTab.Autopilot, "Autopilot",
-        "While ASTRO shoots, the autopilot looks at every frame the way you would if you stood " +
+        "While Stars shoots, the autopilot looks at every frame the way you would if you stood " +
             "next to the tripod. A frame spoiled by cloud or soft stars is left out and an extra " +
             "one is shot at the end, so you still get the frames you asked for. When cloud comes " +
             "over, it waits for the stars to come back and then carries on. When the stars soften " +
@@ -442,8 +456,8 @@ private val Defs: List<Def> = listOf(
     ),
     Note(
         SettingsTab.Autopilot,
-        "The autopilot runs in ASTRO. TRAILS keeps every frame on purpose (a gap would break the " +
-            "trails), METEOR shoots until you stop it, and PRO does exactly what you set.",
+        "The autopilot runs in Stars. Star trails keeps every frame on purpose (a gap would break " +
+            "the trails), Meteor shoots until you stop it, and Manual does exactly what you set.",
     ),
 
     // ---------------------------------------------------------------- Stacking
@@ -619,7 +633,7 @@ private val Defs: List<Def> = listOf(
     ),
     Slide(
         SettingsTab.Motion, "Star trails length",
-        "How long TRAILS mode keeps shooting. The arcs get longer the more time you give it — " +
+        "How long Star trails keeps shooting. The arcs get longer the more time you give it — " +
             "15 minutes gives short arcs, an hour gives dramatic sweeping circles. Bring a battery.",
         value = { "${it.trailsMinutes} min" },
         range = 5f..60f,
@@ -628,7 +642,7 @@ private val Defs: List<Def> = listOf(
     ),
     Slide(
         SettingsTab.Motion, "Meteor watch length",
-        "How long METEOR mode keeps watching. Meteors are rare and random, so this is a numbers " +
+        "How long Meteor keeps watching. Meteors are rare and random, so this is a numbers " +
             "game — the longer it runs, the more chances of catching one.",
         value = { "${it.meteorMinutes} min" },
         range = 10f..120f,
@@ -749,7 +763,7 @@ private val Defs: List<Def> = listOf(
     Link(SettingsTab.Advanced, "Capability probe", null, "What this phone's camera exposes to apps", SettingsAction.Probe),
     Link(SettingsTab.Advanced, "Engine self-test", null, "Checks the stacking engine on a synthetic starfield", SettingsAction.SelfTest),
     Link(SettingsTab.Advanced, "Reset all settings", null, "Back to the defaults. Sessions are not touched.", SettingsAction.Reset, danger = true),
-    Link(SettingsTab.Advanced, "Licences and data", null, "Map and star data sources · Geist fonts (SIL OFL)", SettingsAction.Licences),
+    Link(SettingsTab.Advanced, "Licences and data", null, "Map and star data sources · Noto Sans font (SIL OFL)", SettingsAction.Licences),
     Link(SettingsTab.Advanced, "Privacy policy", null, "Nothing leaves the phone unless you share it", SettingsAction.Privacy),
     Link(SettingsTab.Advanced, "Terms of use", null, "Free, as it is · your photos are yours", SettingsAction.Terms),
 )
@@ -815,7 +829,7 @@ fun SettingsScreen(
                         tab = t
                         onTabChange(t)
                         openHelp = null
-                    }, height = 40.dp)
+                    }, height = 42.dp, icon = tabIcon(t))
                 }
             }
         } else {
@@ -845,9 +859,13 @@ fun SettingsScreen(
                     DefCard(defs, s, cam, openHelp, { openHelp = if (openHelp == it) null else it }, ::up, run)
                 }
             } else {
-                Column {
-                    Text(tab.label, style = ScType.titleSmall, color = c.text)
-                    Text(tab.blurb, style = ScType.bodySmall, color = c.text2, modifier = Modifier.padding(top = 2.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    ScIconBadge(tabIcon(tab), size = 44.dp)
+                    Spacer(Modifier.width(14.dp))
+                    Column {
+                        Text(tab.label, style = ScType.titleSmall, color = c.text)
+                        Text(tab.blurb, style = ScType.bodySmall, color = c.text2, modifier = Modifier.padding(top = 2.dp))
+                    }
                 }
                 val defs = Defs.filter { it.tab == tab && it.visible(s) }
                 val notes = defs.filterIsInstance<Note>()
@@ -992,7 +1010,7 @@ private fun LicencesDialog(onDismiss: () -> Unit) {
     LaunchedEffect(Unit) {
         text = withContext(Dispatchers.IO) {
             runCatching {
-                context.assets.open("licenses/geist-OFL.txt").bufferedReader().use { it.readText() }
+                context.assets.open("licenses/notosans-OFL.txt").bufferedReader().use { it.readText() }
             }.getOrDefault("Licence text unavailable.")
         }
     }
@@ -1014,8 +1032,8 @@ private fun LicencesDialog(onDismiss: () -> Unit) {
                         "Stars: Yale Bright Star Catalogue, 5th ed. (Hoffleit & Warren, public domain).",
                     style = ScType.caption, color = c.text2, modifier = Modifier.padding(top = 4.dp, bottom = 14.dp),
                 )
-                Text("Geist and Geist Mono", style = ScType.headline, color = c.text)
-                Text("Copyright 2024 The Geist Project Authors (github.com/vercel/geist-font)",
+                Text("Noto Sans", style = ScType.headline, color = c.text)
+                Text("Copyright 2022 The Noto Project Authors (github.com/notofonts/latin-greek-cyrillic)",
                     style = ScType.caption, color = c.text3, modifier = Modifier.padding(bottom = 10.dp))
                 Text(text, style = ScType.data, color = c.text2)
             }

@@ -17,12 +17,13 @@ $starBlue = [System.Drawing.ColorTranslator]::FromHtml('#7FB4FF')
 $starWhite = [System.Drawing.ColorTranslator]::FromHtml('#E8F0FF')
 $textDim = [System.Drawing.ColorTranslator]::FromHtml('#AAB6CC')
 
-function Font([string]$file, [float]$px) {
-    # One collection per weight: in one collection the weights would share a family name.
+function Font([string]$file, [float]$px, [System.Drawing.FontStyle]$style = [System.Drawing.FontStyle]::Regular) {
+    # The app's Noto Sans is one variable file; GDI+ draws its regular weight, so a heavier one
+    # is asked for as Bold.
     $pfc = New-Object System.Drawing.Text.PrivateFontCollection
     $pfc.AddFontFile((Join-Path $project "app\src\main\res\font\$file"))
     $script:keep += , $pfc
-    New-Object System.Drawing.Font($pfc.Families[0], $px, [System.Drawing.FontStyle]::Regular, [System.Drawing.GraphicsUnit]::Pixel)
+    New-Object System.Drawing.Font($pfc.Families[0], $px, $style, [System.Drawing.GraphicsUnit]::Pixel)
 }
 $script:keep = @()
 
@@ -82,8 +83,8 @@ $bmp, $g = Canvas 1024 500 ([System.Drawing.Imaging.PixelFormat]::Format24bppRgb
 NightSky $g 1024 500 7 420
 $s = 4.0
 DrawStar $g (250 - 54 * $s) (250 - 54 * $s) $s
-$title = Font 'geist_semibold.ttf' 128
-$tag = Font 'geist_regular.ttf' 32
+$title = Font 'noto_sans.ttf' 128 ([System.Drawing.FontStyle]::Bold)
+$tag = Font 'noto_sans.ttf' 32
 $g.DrawString('Stelli', $title, (New-Object System.Drawing.SolidBrush($starWhite)), 452, 138)
 $g.DrawString('Night sky photos from your phone', $tag, (New-Object System.Drawing.SolidBrush($textDim)), 462, 304)
 $bmp.Save((Join-Path $out 'feature-graphic.png'), [System.Drawing.Imaging.ImageFormat]::Png)

@@ -1,5 +1,53 @@
 # StarCam build progress (PLAN.md §10)
 
+## The new look: the owner's design, 0.6.0 (2026-11-05)
+
+The owner had an image AI redesign the capture screen and asked for the whole app to match it.
+Built in Compose on every screen; `design/STYLE.md` is the style for whoever designs the next one.
+- **Design system** (`ui/theme`, `ui/components`): a deep purple night sky (a gradient from
+  #0F0822 to a violet floor), lavender light (accent #B88AFF, pink #E7A0FF at the bright end of
+  gradients) and a soft glow behind what is chosen or primary (`Modifier.scGlow`, a blurred shape
+  drawn behind a control). Buttons and chips are pills, tool buttons rounded squares, cards
+  violet glass. Night vision keeps a red variant of every token, the new ones included.
+- **Font: Noto Sans** in place of Geist and Geist Mono: one variable file (weights 100-900) cut
+  to the Latin and Greek the app uses, 359 KB against the nine Geist files' 649 KB. It is close
+  to the design's lettering. Every number keeps tabular figures. The licence is under Settings ›
+  Advanced; the store tools set their text in it too.
+- **Icons**: the owner's set (the sparkle, the star-trail orbits, the meteor, the sliders, the map
+  with its pin, the crosshair, the constellation, the gear), redrawn as vectors so they stay sharp
+  and turn red in night vision, two-tone where the design has a bright detail (`ScDuo`).
+- **The capture screen** as designed: the light map, Find, night vision, the sky view and Settings
+  along the top; a **Tonight card** with the Moon as it is tonight, the best target in the dark
+  (the planner's own `SkyTargets.bestOf`), the Bortle class and when it gets dark; the viewfinder
+  across the whole width with its edges fading into the screen, corner brackets and a **compass**
+  (north and the Moon, from the rotation sensor at UI rate, only while the app is in front); how
+  long a session takes at each preset (**Quick, Balanced, Deep**, worked out from the plan: the
+  mockup's "8, 20, 40 min" were the frame counts); the modes as tabs; the gallery's newest photo,
+  the shutter and **Adjust**.
+- **Decided with the owner (5 Nov)**: night vision is the eye in the top row; the Tonight card
+  shows the best target, not the weather, which an offline app cannot know; the PRO mode is now
+  **Manual**, leaving "Pro" for the paid upgrade. Pro controls are now **Adjust**, with the plan
+  line ("Auto · 8 s × 20 · ISO auto · +4 darks") that the capture screen no longer spells out; the
+  dark-sky map is the **Light map**, as the design calls it.
+- **The sky view** labels what is being found as the design does: a ring round a dot, a leader
+  line, the name in capitals in a pill. The labels and the map use the new colours and font.
+- **The capturing and stacking screens**: the live stack is at most 38 % (34 % while stacking) of
+  the screen high, so the frame count, the time left and the exposure ring, or the stages, fit
+  above the buttons; on a tall phone "time left" used to be cut off under them. A stage says what
+  it does only while it runs.
+- **The photo page**: Edit, Share and Open as three tiles under the photo, the session's numbers as
+  an icon grid, shorter texts. **The gallery**: portrait tiles with the date on the picture, the
+  mode as its icon, a badge only when a session did not finish.
+- Restyled with fewer words: Tonight (the Moon by the verdict, icon badges on "Worth a shot"),
+  Find, the calendar, Settings (an icon per tab), the intro (the app's own icon), the editing
+  studio and the video's titles. In night vision the light map drew two things in white, the "you
+  are here" dot's ring and the numbers on the Bortle badges; both are red there now.
+- Checked: the unit tests; `tools\emulator-test.ps1` on the emulator, 16 of 16 (its darksky check
+  finds the Bortle class on the Tonight card now); every screen in both colour schemes through
+  `tools\ui-shots.ps1`, whose taps follow the new names; the release build (0.6.0, versionCode 11,
+  11.1 MB APK, 11.8 MB AAB) still has no INTERNET permission, is 16 KB-aligned and signed with the
+  upload key.
+
 ## The store look: the owner's icon, new screenshots (2026-11-04)
 
 - **The icon is the owner's artwork** (a Milky Way over a snowy peak): `store/icon-512.png` for

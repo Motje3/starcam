@@ -3,6 +3,7 @@ package com.wm.starcam.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,9 +30,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.wm.starcam.R
 import com.wm.starcam.ui.components.ScButton
 import com.wm.starcam.ui.components.ScButtonKind
 import com.wm.starcam.ui.components.ScNotice
@@ -39,6 +46,8 @@ import com.wm.starcam.ui.components.Tone
 import com.wm.starcam.ui.theme.Sc
 import com.wm.starcam.ui.theme.ScIcons
 import com.wm.starcam.ui.theme.ScType
+import com.wm.starcam.ui.theme.scGlow
+import com.wm.starcam.ui.theme.scImageFilter
 
 private class IntroPage(
     val icon: ImageVector,
@@ -69,9 +78,9 @@ private val IntroPages = listOf(
     ),
     IntroPage(
         ScIcons.Moon, "Plan the night, finish the photo",
-        "The Tonight chip on the viewfinder tells you when it gets properly dark, when the Moon is out " +
-            "of the way and where the Milky Way stands. Afterwards, Edit brightens the sky, the " +
-            "landscape or the colours of any photo - the original stays.",
+        "The Tonight card over the viewfinder tells you what is worth a shot and when it gets " +
+            "properly dark; the planner behind it, where the Moon and the Milky Way are. Afterwards, " +
+            "Edit brightens the sky, the landscape or the colours of any photo - the original stays.",
         ScIcons.Compare, "\"1 frame vs stacked\" shows what the stacking did, and \"Make video\" " +
             "lets you watch the photo build up. Share those.",
     ),
@@ -168,9 +177,14 @@ private fun BrandRow(onSkip: (() -> Unit)?) {
         Modifier.fillMaxWidth().height(56.dp).padding(start = 20.dp, end = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(ScIcons.Astro, null, Modifier.size(20.dp), tint = c.accent)
-        Spacer(Modifier.width(10.dp))
-        Text("Stelli", style = ScType.headline, color = c.text, modifier = Modifier.weight(1f))
+        // The app's own icon: the owner's artwork.
+        Image(
+            painterResource(R.drawable.ic_launcher_art), null,
+            Modifier.size(30.dp).clip(RoundedCornerShape(9.dp)),
+            colorFilter = scImageFilter,
+        )
+        Spacer(Modifier.width(12.dp))
+        Text("Stelli", style = ScType.headline.copy(fontSize = 18.sp), color = c.text, modifier = Modifier.weight(1f))
         if (onSkip != null) ScButton("Skip", onSkip, kind = ScButtonKind.Text, height = 44.dp)
     }
 }
@@ -181,11 +195,14 @@ private fun IntroArt(icon: ImageVector) {
     val c = Sc.colors
     val ring = c.hairline
     val faint = c.hairline.copy(alpha = c.hairline.alpha * 0.6f)
+    val glow = c.accent.copy(alpha = if (c.night) 0.08f else 0.16f)
     Box(Modifier.size(280.dp), contentAlignment = Alignment.Center) {
         Canvas(Modifier.fillMaxSize()) {
             val center = Offset(size.width / 2f, size.height / 2f)
             val r = size.minDimension / 2f
             drawCircle(c.surface, r, center)
+            // A violet glow from the middle, like the icon's sky.
+            drawCircle(Brush.radialGradient(listOf(glow, Color.Transparent), center, r), r, center)
             listOf(1f, 0.74f, 0.48f).forEach { f -> drawCircle(ring, r * f, center, style = Stroke(1.dp.toPx())) }
             drawLine(faint, Offset(center.x - r, center.y), Offset(center.x + r, center.y), 1.dp.toPx())
             drawLine(faint, Offset(center.x, center.y - r), Offset(center.x, center.y + r), 1.dp.toPx())
@@ -195,8 +212,10 @@ private fun IntroArt(icon: ImageVector) {
             }
         }
         Box(
-            Modifier.size(120.dp).clip(CircleShape).background(c.raised).background(c.selectedFill)
-                .border(1.dp, c.selectedBorder, CircleShape),
+            Modifier.size(120.dp).scGlow(c.accentGlow.copy(alpha = c.accentGlow.alpha * 0.6f), radius = 26.dp)
+                .clip(CircleShape).background(c.raised)
+                .background(Brush.verticalGradient(listOf(c.selectedFill, c.selectedFill.copy(alpha = c.selectedFill.alpha * 0.5f))))
+                .border(1.5.dp, c.selectedBorder, CircleShape),
             contentAlignment = Alignment.Center,
         ) {
             Icon(icon, null, Modifier.size(64.dp), tint = c.accent)

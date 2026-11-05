@@ -5,9 +5,7 @@
 <!-- One Play Store screenshot, 1080 x 1920. tools\store-screens.ps1 fills in the {{...}} and has
      Edge draw it. -->
 <style>
-  @font-face { font-family: "Geist"; font-weight: 400; src: url("data:font/ttf;base64,{{GEIST_400}}"); }
-  @font-face { font-family: "Geist"; font-weight: 600; src: url("data:font/ttf;base64,{{GEIST_600}}"); }
-  @font-face { font-family: "Geist"; font-weight: 700; src: url("data:font/ttf;base64,{{GEIST_700}}"); }
+  @font-face { font-family: "Noto Sans"; font-weight: 100 900; src: url("data:font/ttf;base64,{{NOTO_SANS}}"); }
 
   /* The screen's accent: a bright and a deep colour, as r, g, b. */
   :root { --a1: {{A1}}; --a2: {{A2}}; }
@@ -18,7 +16,7 @@
     position: relative;
     display: flex; flex-direction: column; align-items: center;
     padding-top: 118px;
-    font-family: "Geist", sans-serif;
+    font-family: "Noto Sans", sans-serif;
     background:
       radial-gradient(ellipse 900px 640px at 50% 14%, rgba(var(--a1), .30), transparent 70%),
       radial-gradient(ellipse 1200px 900px at 50% 96%, rgba(var(--a2), .32), transparent 70%),

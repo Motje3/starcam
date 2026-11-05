@@ -7,10 +7,9 @@ import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
-import androidx.core.content.res.ResourcesCompat
-import com.wm.starcam.R
 import com.wm.starcam.sky.PhotoLabel
 import com.wm.starcam.sky.SkyLabels
+import com.wm.starcam.ui.theme.notoTypeface
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
@@ -23,10 +22,8 @@ import kotlin.math.min
  */
 class SkyLabelPainter(context: Context, private val night: Boolean) {
 
-    private val medium: Typeface = runCatching { ResourcesCompat.getFont(context, R.font.geist_medium) }.getOrNull()
-        ?: Typeface.DEFAULT
-    private val semibold: Typeface = runCatching { ResourcesCompat.getFont(context, R.font.geist_semibold) }.getOrNull()
-        ?: Typeface.DEFAULT_BOLD
+    private val medium: Typeface = notoTypeface(context, 500)
+    private val semibold: Typeface = notoTypeface(context, 600)
 
     /** Night vision keeps everything red: the colour's brightness in the red channel alone. */
     private fun tone(color: Int): Int {
@@ -48,7 +45,7 @@ class SkyLabelPainter(context: Context, private val night: Boolean) {
             style = Paint.Style.STROKE
             strokeWidth = 1.1f * unit
             strokeCap = Paint.Cap.ROUND
-            color = tone(Color.argb(120, 190, 210, 255))
+            color = tone(Color.argb(120, 205, 190, 255))
         }
         val gap = 6f * unit
         val s = labels.segments
@@ -112,7 +109,7 @@ class SkyLabelPainter(context: Context, private val night: Boolean) {
                     text.typeface = semibold
                     text.textSize = 11.5f * unit
                     text.letterSpacing = 0.16f
-                    text.color = tone(Color.argb(235, 157, 184, 255))
+                    text.color = tone(Color.argb(235, 196, 170, 255))
                     val name = l.text.uppercase()
                     val w = text.measureText(name) + 6 * unit
                     val h = text.textSize + 4 * unit

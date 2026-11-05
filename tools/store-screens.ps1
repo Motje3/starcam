@@ -91,10 +91,9 @@ function Prepare($sc) {
 }
 
 $template = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'store-screens.html'))
+# The app's own face: Noto Sans, one variable file for every weight.
 $fontDir = Join-Path $project 'app\src\main\res\font'
-foreach ($f in @(@('{{GEIST_400}}', 'geist_regular.ttf'), @('{{GEIST_600}}', 'geist_semibold.ttf'), @('{{GEIST_700}}', 'geist_bold.ttf'))) {
-    $template = $template.Replace($f[0], [Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $fontDir $f[1]))))
-}
+$template = $template.Replace('{{NOTO_SANS}}', [Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $fontDir 'noto_sans.ttf'))))
 
 Remove-Item (Join-Path $out '*.png') -ErrorAction SilentlyContinue  # numbered afresh
 $n = 0

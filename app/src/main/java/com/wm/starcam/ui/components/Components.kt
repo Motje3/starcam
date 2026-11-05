@@ -1,5 +1,6 @@
 package com.wm.starcam.ui.components
 
+import android.graphics.BlurMaskFilter
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
@@ -14,6 +15,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -21,6 +23,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -47,14 +50,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -65,6 +70,7 @@ import androidx.core.view.WindowCompat
 import android.view.WindowManager
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -72,26 +78,27 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.wm.starcam.ui.theme.GeistMono
 import com.wm.starcam.ui.theme.LocalNightDim
 import com.wm.starcam.ui.theme.Sc
 import com.wm.starcam.ui.theme.ScIcons
 import com.wm.starcam.ui.theme.ScShapes
 import com.wm.starcam.ui.theme.ScType
 import com.wm.starcam.ui.theme.ScreenMargin
+import com.wm.starcam.ui.theme.scBackground
+import com.wm.starcam.ui.theme.scGlow
 
 /*
- * StarCam components (design/handoff/screens/Components.html), sized a step tighter than the
- * mockups so controls leave the viewfinder room: 48 dp buttons instead of 56, a 76 dp shutter
- * instead of 84, 34-40 dp chips and segments. Nothing here may light up a dark-adapted eye:
- * no white fills, primary is deep blue with light text, night vision swaps every colour to red.
+ * Stelli's components: pills with lavender edges, softly rounded square icon buttons, cards of
+ * deep violet glass, and a glow on whatever is chosen or primary. Touch targets stay at 44 dp or
+ * more for gloves. Nothing here may light up a dark-adapted eye: the brightest fill is the
+ * shutter's lavender disk, and night vision swaps every colour to red.
  */
 
 enum class Tone { Normal, Accent, Warning, Error }
 
 // ------------------------------------------------------------------------- screen + surfaces
 
-/** A full screen on the app background, inset from the status and navigation bars. */
+/** A full screen on the app's night-sky gradient, inset from the status and navigation bars. */
 @Composable
 fun ScScreen(
     modifier: Modifier = Modifier,
@@ -100,13 +107,13 @@ fun ScScreen(
     Column(
         modifier
             .fillMaxSize()
-            .background(Sc.colors.background)
+            .scBackground()
             .windowInsetsPadding(WindowInsets.safeDrawing),
         content = content,
     )
 }
 
-/** Back chevron, title, optional subtitle and trailing actions. */
+/** Back button, title, optional subtitle and trailing actions. */
 @Composable
 fun ScTopBar(
     title: String,
@@ -115,42 +122,49 @@ fun ScTopBar(
     subtitle: String? = null,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
+    val c = Sc.colors
     Row(
-        modifier.fillMaxWidth().padding(start = 4.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+        modifier.fillMaxWidth().padding(start = 12.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (onBack != null) {
             Box(
-                Modifier.size(44.dp).clip(CircleShape)
+                Modifier.size(44.dp).clip(ScShapes.iconButton).background(c.buttonSecondary)
+                    .border(1.dp, c.hairlineStrong, ScShapes.iconButton)
                     .clickable(onClick = onBack, role = Role.Button)
                     .semantics { contentDescription = "Back" },
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(ScIcons.ChevronLeft, null, Modifier.size(22.dp), tint = Sc.colors.text)
+                Icon(ScIcons.ChevronLeft, null, Modifier.size(22.dp), tint = c.text)
             }
+            Spacer(Modifier.width(12.dp))
         } else {
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(4.dp))
         }
-        Column(Modifier.weight(1f).padding(start = 4.dp)) {
-            Text(title, style = ScType.screenTitle, color = Sc.colors.text, maxLines = 1,
+        Column(Modifier.weight(1f)) {
+            Text(title, style = ScType.screenTitle, color = c.text, maxLines = 1,
                 overflow = TextOverflow.Ellipsis)
             if (subtitle != null) {
-                Text(subtitle, style = ScType.caption, color = Sc.colors.text3, maxLines = 1,
+                Text(subtitle, style = ScType.caption, color = c.text3, maxLines = 1,
                     overflow = TextOverflow.Ellipsis)
             }
         }
-        Row(verticalAlignment = Alignment.CenterVertically, content = actions)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            content = actions,
+        )
     }
 }
 
-/** The basic card: surface fill, hairline border, 20 dp corners. */
+/** The basic card: violet glass, a hairline edge, 22 dp corners. */
 @Composable
 fun ScCard(
     modifier: Modifier = Modifier,
     color: Color = Sc.colors.surface,
     borderColor: Color = Sc.colors.hairline,
     shape: Shape = ScShapes.card,
-    padding: PaddingValues = PaddingValues(14.dp),
+    padding: PaddingValues = PaddingValues(16.dp),
     onClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
@@ -182,7 +196,7 @@ fun ScGlass(
     )
 }
 
-/** Uppercase section label: FRAME, TIME LEFT, STILLNESS. */
+/** Uppercase section label, letter-spaced: TONIGHT, TIME LEFT, STILLNESS. */
 @Composable
 fun ScLabel(text: String, modifier: Modifier = Modifier, color: Color = Sc.colors.text3) {
     Text(text.uppercase(), style = ScType.label, color = color, modifier = modifier)
@@ -203,37 +217,40 @@ fun ScButton(
     height: Dp = 48.dp,
 ) {
     val c = Sc.colors
-    val bg: Color
+    val fill: Brush
     val border: Color
     val fg: Color
     when (kind) {
-        ScButtonKind.Primary -> { bg = c.primaryFill; border = c.primaryBorder; fg = c.primaryText }
-        ScButtonKind.Secondary -> { bg = c.buttonSecondary; border = c.hairlineStrong; fg = c.text }
-        ScButtonKind.Accent -> { bg = c.selectedFill; border = c.selectedBorder; fg = c.onSelected }
-        ScButtonKind.Danger -> { bg = c.errorFill; border = c.errorBorder; fg = c.error }
-        ScButtonKind.Text -> { bg = Color.Transparent; border = Color.Transparent; fg = c.accentText }
+        ScButtonKind.Primary -> { fill = Brush.verticalGradient(c.primaryGradient); border = c.primaryBorder; fg = c.primaryText }
+        ScButtonKind.Secondary -> { fill = Brush.verticalGradient(listOf(c.raised, c.buttonSecondary)); border = c.hairlineStrong; fg = c.text }
+        ScButtonKind.Accent -> { fill = Brush.verticalGradient(listOf(c.selectedFill, c.selectedFill)); border = c.selectedBorder; fg = c.onSelected }
+        ScButtonKind.Danger -> { fill = Brush.verticalGradient(listOf(c.errorFill, c.errorFill)); border = c.errorBorder; fg = c.error }
+        ScButtonKind.Text -> { fill = Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent)); border = Color.Transparent; fg = c.accentText }
     }
+    val glow = enabled && (kind == ScButtonKind.Primary || kind == ScButtonKind.Accent)
     Row(
         modifier
             .height(height)
             .alpha(if (enabled) 1f else 0.4f)
+            .scGlow(c.accentGlow.copy(alpha = c.accentGlow.alpha * (if (kind == ScButtonKind.Primary) 0.8f else 0.45f)),
+                radius = 14.dp, enabled = glow)
             .clip(ScShapes.button)
-            .background(bg)
+            .background(fill)
             .border(1.dp, border, ScShapes.button)
             .clickable(enabled = enabled, onClick = onClick, role = Role.Button)
-            .padding(horizontal = 12.dp),
+            .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,
     ) {
         if (icon != null) {
-            Icon(icon, null, Modifier.size(18.dp), tint = fg)
-            Spacer(Modifier.width(7.dp))
+            Icon(icon, null, Modifier.size(19.dp), tint = if (kind == ScButtonKind.Secondary) c.accent else fg)
+            Spacer(Modifier.width(8.dp))
         }
         Text(text, style = ScType.button, color = fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
-/** Round icon button; always 44 dp or larger to stay a real touch target with gloves. */
+/** Icon button, a softly rounded square; always 44 dp or larger to stay a real touch target with gloves. */
 @Composable
 fun ScIconButton(
     icon: ImageVector,
@@ -246,17 +263,20 @@ fun ScIconButton(
     tint: Color? = null,
     enabled: Boolean = true,
     filled: Boolean = true,
+    shape: Shape = ScShapes.iconButton,
 ) {
     val c = Sc.colors
     Box(
         modifier
             .size(size)
             .alpha(if (enabled) 1f else 0.4f)
-            .clip(CircleShape)
+            .scGlow(c.accentGlow.copy(alpha = c.accentGlow.alpha * 0.5f), radius = 12.dp,
+                cornerRadius = 16.dp, enabled = selected && filled)
+            .clip(shape)
             .then(
                 if (filled) Modifier
                     .background(if (selected) c.selectedFill else c.buttonSecondary)
-                    .border(1.dp, if (selected) c.selectedBorder else c.hairline, CircleShape)
+                    .border(1.dp, if (selected) c.selectedBorder else c.hairlineStrong, shape)
                 else Modifier
             )
             .clickable(enabled = enabled, onClick = onClick, role = Role.Button)
@@ -270,7 +290,7 @@ fun ScIconButton(
 
 // ------------------------------------------------------------------------ chips and segments
 
-/** Pill-shaped choice chip, optionally with an icon and a small badge (e.g. BETA). */
+/** Pill-shaped choice chip, optionally with an icon. */
 @Composable
 fun ScChip(
     text: String,
@@ -279,7 +299,7 @@ fun ScChip(
     modifier: Modifier = Modifier,
     icon: ImageVector? = null,
     mono: Boolean = false,
-    height: Dp = 34.dp,
+    height: Dp = 36.dp,
     enabled: Boolean = true,
 ) {
     val c = Sc.colors
@@ -287,17 +307,18 @@ fun ScChip(
         modifier
             .height(height)
             .alpha(if (enabled) 1f else 0.4f)
+            .scGlow(c.accentGlow.copy(alpha = c.accentGlow.alpha * 0.4f), radius = 10.dp, enabled = selected)
             .clip(CircleShape)
             .background(if (selected) c.selectedFill else c.buttonSecondary)
             .border(1.dp, if (selected) c.selectedBorder else c.hairline, CircleShape)
             .clickable(enabled = enabled, onClick = onClick, role = Role.Tab)
-            .padding(horizontal = 12.dp),
+            .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,
     ) {
         if (icon != null) {
-            Icon(icon, null, Modifier.size(16.dp), tint = if (selected) c.onSelected else c.text2)
-            Spacer(Modifier.width(6.dp))
+            Icon(icon, null, Modifier.size(16.dp), tint = if (selected) c.onSelected else c.accent)
+            Spacer(Modifier.width(7.dp))
         }
         Text(
             text,
@@ -309,8 +330,8 @@ fun ScChip(
 }
 
 /**
- * Segmented control: one of [options], the selected one lifted onto a tinted fill. Compact by
- * default (40 dp); used for focus method, start delay, style, etc.
+ * Segmented control: one of [options], the chosen one lit on a violet fill. Compact by default
+ * (40 dp); used for focus method, start delay, style, etc.
  */
 @Composable
 fun ScSegmented(
@@ -318,7 +339,7 @@ fun ScSegmented(
     selectedIndex: Int,
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
-    height: Dp = 40.dp,
+    height: Dp = 42.dp,
     mono: Boolean = false,
     enabled: Boolean = true,
 ) {
@@ -360,9 +381,74 @@ fun ScSegmented(
     }
 }
 
+/** One tab of [ScTabs]: an icon, a label, an optional small badge after the label (β). */
+class ScTab(val icon: ImageVector?, val label: String, val badge: String? = null, val description: String? = null)
+
+/**
+ * Tabs in a row: icon and label, the chosen one lit in the accent colour with a glowing bar
+ * underneath, the rest quiet. A hairline under the whole row.
+ */
+@Composable
+fun ScTabs(
+    tabs: List<ScTab>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+    weights: List<Float>? = null,
+    height: Dp = 52.dp,
+) {
+    val c = Sc.colors
+    // With a large system font the labels alone fill the tabs; the icons go first.
+    val showIcons = LocalDensity.current.fontScale <= 1.2f
+    BoxWithConstraints(modifier.fillMaxWidth().height(height)) {
+        // A phone under 400 dp across gets a step smaller type and icons, so four tabs fit.
+        val compact = maxWidth < 400.dp
+        Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(1.dp).background(c.hairline))
+        Row(Modifier.fillMaxSize()) {
+            tabs.forEachIndexed { i, tab ->
+                val sel = i == selectedIndex
+                val tint = if (sel) c.accentText else c.text
+                Box(
+                    Modifier.weight(weights?.getOrNull(i) ?: 1f).fillMaxHeight()
+                        .clickable(role = Role.Tab) { onSelect(i) }
+                        .semantics {
+                            tab.description?.let { contentDescription = it }
+                            selected = sel
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (showIcons && tab.icon != null) {
+                            Icon(tab.icon, null, Modifier.size(if (compact) 18.dp else 20.dp),
+                                tint = if (sel) c.accent else c.text2)
+                            Spacer(Modifier.width(if (compact) 5.dp else 7.dp))
+                        }
+                        Text(tab.label, style = ScType.button.copy(
+                            fontSize = if (compact) 14.sp else 15.sp,
+                            fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal),
+                            color = tint, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+                        if (tab.badge != null) {
+                            Text(tab.badge, style = ScType.caption.copy(fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
+                                color = c.accent2, modifier = Modifier.padding(start = 2.dp).offset(y = (-6).dp))
+                        }
+                    }
+                    if (sel) {
+                        Box(
+                            Modifier.align(Alignment.BottomCenter).padding(horizontal = 10.dp)
+                                .fillMaxWidth(0.62f).height(3.dp)
+                                .scGlow(c.accentGlow, radius = 6.dp)
+                                .clip(CircleShape).background(c.accent),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 // -------------------------------------------------------------------- switch, slider, help
 
-/** The design's toggle: 44 × 26 track, light knob when on. Draws no white in night vision. */
+/** The toggle: 46 × 28 track, a light knob when on, a soft glow. Draws no white in night vision. */
 @Composable
 fun ScSwitch(
     checked: Boolean,
@@ -371,10 +457,10 @@ fun ScSwitch(
     enabled: Boolean = true,
 ) {
     val c = Sc.colors
-    val knobX by animateDpAsState(if (checked) 20.dp else 2.dp, tween(140), label = "knob")
+    val knobX by animateDpAsState(if (checked) 21.dp else 3.dp, tween(140), label = "knob")
     Box(
         modifier
-            .size(width = 48.dp, height = 44.dp)
+            .size(width = 50.dp, height = 44.dp)
             .alpha(if (enabled) 1f else 0.4f)
             .then(
                 if (onCheckedChange != null) Modifier.clickable(
@@ -384,18 +470,24 @@ fun ScSwitch(
         contentAlignment = Alignment.Center,
     ) {
         Box(
-            Modifier.size(width = 44.dp, height = 26.dp).clip(CircleShape)
-                .background(if (checked) c.switchTrackOn else c.switchTrackOff),
+            Modifier.size(width = 46.dp, height = 28.dp)
+                .scGlow(c.accentGlow.copy(alpha = c.accentGlow.alpha * 0.5f), radius = 8.dp, enabled = checked)
+                .clip(CircleShape)
+                .background(
+                    if (checked) Brush.horizontalGradient(listOf(c.switchTrackOn, c.accent))
+                    else Brush.horizontalGradient(listOf(c.switchTrackOff, c.switchTrackOff))
+                )
+                .border(1.dp, if (checked) c.selectedBorder else c.hairlineStrong, CircleShape),
         ) {
             Box(
-                Modifier.offset(x = knobX, y = 3.dp).size(20.dp).clip(CircleShape)
+                Modifier.offset(x = knobX, y = 3.dp).size(22.dp).clip(CircleShape)
                     .background(if (checked) c.switchKnobOn else c.switchKnobOff),
             )
         }
     }
 }
 
-/** The design's slider: a thin rounded track and a round knob (Material's default is a bar). */
+/** The slider: a thin rounded track lit from the left, and a round glowing knob. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ScSlider(
@@ -420,9 +512,11 @@ fun ScSlider(
         valueRange = valueRange,
         thumb = {
             Box(
-                Modifier.size(22.dp).clip(CircleShape)
+                Modifier.size(22.dp)
+                    .scGlow(c.accentGlow, radius = 8.dp, enabled = enabled)
+                    .clip(CircleShape)
                     .background(if (enabled) c.switchKnobOn else c.text3)
-                    .border(2.dp, c.background.copy(alpha = 0.5f), CircleShape),
+                    .border(2.dp, if (enabled) c.accent else c.background.copy(alpha = 0.5f), CircleShape),
             )
         },
         track = { state ->
@@ -431,7 +525,10 @@ fun ScSlider(
             Box(Modifier.fillMaxWidth().height(6.dp).clip(CircleShape).background(c.sliderTrack)) {
                 Box(
                     Modifier.fillMaxWidth(frac).height(6.dp).clip(CircleShape)
-                        .background(if (enabled) c.accent else c.text3),
+                        .background(
+                            if (enabled) Brush.horizontalGradient(listOf(c.switchTrackOn, c.accent))
+                            else Brush.horizontalGradient(listOf(c.text3, c.text3))
+                        ),
                 )
             }
         },
@@ -461,9 +558,9 @@ fun ScHelpText(text: String, modifier: Modifier = Modifier) {
         color = Sc.colors.text2,
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(16.dp))
             .background(Sc.colors.sunken)
-            .border(1.dp, Sc.colors.hairline, RoundedCornerShape(14.dp))
+            .border(1.dp, Sc.colors.hairline, RoundedCornerShape(16.dp))
             .padding(12.dp),
     )
 }
@@ -471,8 +568,8 @@ fun ScHelpText(text: String, modifier: Modifier = Modifier) {
 // ------------------------------------------------------------------------------- rings
 
 /**
- * Progress ring filling clockwise from 12 o'clock, with a soft glow on the arc. [content] sits in
- * the middle (a countdown, a readout).
+ * Progress ring filling clockwise from 12 o'clock in the accent colour, with a soft glow on the
+ * arc. [content] sits in the middle (a countdown, a readout).
  */
 @Composable
 fun ScRing(
@@ -481,15 +578,16 @@ fun ScRing(
     strokeWidth: Dp = 6.dp,
     color: Color = Sc.colors.accent,
     trackColor: Color = Sc.colors.raised,
-    // A hard-edged translucent band reads as a second ring rather than a glow; off by default.
-    glow: Boolean = false,
+    glow: Boolean = true,
     // Off for rings a clock drives several times a second: a new 400 ms tween every 200 ms never
     // settles, which kept the display redrawing at full rate for a whole session.
     animate: Boolean = true,
     content: @Composable BoxScope.() -> Unit = {},
 ) {
+    val c = Sc.colors
     val target = progress.coerceIn(0f, 1f)
     val p = if (animate) animateFloatAsState(target, tween(400), label = "ring").value else target
+    val glowColor = if (c.night) color.copy(alpha = 0.25f) else color.copy(alpha = 0.55f)
     Box(modifier, contentAlignment = Alignment.Center) {
         Canvas(Modifier.fillMaxSize()) {
             val sw = strokeWidth.toPx()
@@ -499,11 +597,24 @@ fun ScRing(
             drawArc(trackColor, 0f, 360f, false, topLeft, arcSize, style = Stroke(sw))
             if (p > 0f) {
                 if (glow) {
-                    drawArc(color.copy(alpha = 0.18f), -90f, 360f * p, false, topLeft, arcSize,
-                        style = Stroke(sw * 3f, cap = StrokeCap.Round))
+                    val paint = Paint().also { gp ->
+                        val fp = gp.asFrameworkPaint()
+                        fp.isAntiAlias = true
+                        fp.style = android.graphics.Paint.Style.STROKE
+                        fp.strokeWidth = sw * 1.6f
+                        fp.strokeCap = android.graphics.Paint.Cap.ROUND
+                        fp.color = glowColor.toArgb()
+                        fp.maskFilter = BlurMaskFilter(sw * 1.4f, BlurMaskFilter.Blur.NORMAL)
+                    }
+                    drawIntoCanvas {
+                        it.drawArc(topLeft.x, topLeft.y, topLeft.x + arcSize.width, topLeft.y + arcSize.height,
+                            -90f, 360f * p, false, paint)
+                    }
                 }
-                drawArc(color, -90f, 360f * p, false, topLeft, arcSize,
-                    style = Stroke(sw, cap = StrokeCap.Round))
+                drawArc(
+                    Brush.linearGradient(listOf(c.accent2, color), Offset(0f, 0f), Offset(size.width, size.height)),
+                    -90f, 360f * p, false, topLeft, arcSize, style = Stroke(sw, cap = StrokeCap.Round),
+                )
             }
         }
         content()
@@ -536,7 +647,7 @@ enum class SessionStep(val label: String) {
 
 /**
  * The seven-step progress strip at the top of every session screen. Finished steps are solid,
- * the current one fills by [progressInStep], later ones are dim.
+ * the current one fills by [progressInStep] and glows, later ones are dim.
  */
 @Composable
 fun ScPipeline(
@@ -550,7 +661,7 @@ fun ScPipeline(
     val fontScale = LocalDensity.current.fontScale
     val labelSize = (11f * minOf(fontScale, 1.15f) / fontScale).sp
     Row(modifier.fillMaxWidth().padding(horizontal = ScreenMargin),
-        horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        horizontalArrangement = Arrangement.spacedBy(5.dp)) {
         SessionStep.entries.forEach { step ->
             val done = step.ordinal < current.ordinal
             val isCurrent = step == current
@@ -563,7 +674,10 @@ fun ScPipeline(
                     }
                     if (frac > 0f) {
                         Box(Modifier.fillMaxWidth(frac).height(4.dp).clip(CircleShape)
-                            .background(if (done) c.accent.copy(alpha = 0.6f) else c.accent))
+                            .background(
+                                if (done) Brush.horizontalGradient(listOf(c.accent.copy(alpha = 0.55f), c.accent.copy(alpha = 0.55f)))
+                                else Brush.horizontalGradient(listOf(c.switchTrackOn, c.accent2))
+                            ))
                     }
                 }
                 Text(
@@ -572,10 +686,10 @@ fun ScPipeline(
                         fontSize = labelSize,
                         fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
                     ),
-                    color = if (isCurrent) c.text else c.text3,
+                    color = if (isCurrent) c.accentText else if (done) c.text2 else c.text3,
                     maxLines = 1,
                     softWrap = false,
-                    modifier = Modifier.padding(top = 5.dp),
+                    modifier = Modifier.padding(top = 6.dp),
                 )
             }
         }
@@ -603,7 +717,7 @@ fun ScFrameTape(
         val done = (kept + rejected).toFloat() / total
         Box(modifier.fillMaxWidth().height(8.dp).clip(CircleShape).background(c.raised)) {
             Box(Modifier.fillMaxWidth(done.coerceIn(0f, 1f)).height(8.dp).clip(CircleShape)
-                .background(c.accent))
+                .background(Brush.horizontalGradient(listOf(c.switchTrackOn, c.accent))))
         }
         return
     }
@@ -618,7 +732,7 @@ fun ScFrameTape(
             Box(
                 Modifier.weight(1f).fillMaxSize().clip(shape).then(
                     when (cell) {
-                        TapeCell.Kept -> Modifier.background(c.accent.copy(alpha = 0.75f))
+                        TapeCell.Kept -> Modifier.background(c.accent.copy(alpha = 0.8f))
                         TapeCell.Rejected -> Modifier.background(c.warning.copy(alpha = 0.7f))
                         TapeCell.Exposing -> Modifier.background(c.selectedFill).border(1.5.dp, c.accent, shape)
                         TapeCell.Pending -> Modifier.background(c.raised)
@@ -631,33 +745,41 @@ fun ScFrameTape(
 
 // ------------------------------------------------------------------------------ shutter
 
-/** The big round button: accent ring, soft blue (or red) disk, gentle glow when it can fire. */
+/**
+ * The big round button: a glowing lavender ring around a soft lavender disk (red in night
+ * vision), dimmed and without glow when it cannot fire.
+ */
 @Composable
 fun ScShutter(
     enabled: Boolean,
     onClick: () -> Unit,
     contentDescription: String,
     modifier: Modifier = Modifier,
-    size: Dp = 76.dp,
+    size: Dp = 84.dp,
 ) {
     val c = Sc.colors
     Box(
         modifier
             .size(size)
-            .then(if (enabled) Modifier.shadow(18.dp, CircleShape, ambientColor = c.accentGlow, spotColor = c.accentGlow) else Modifier)
+            .scGlow(c.accentGlow, radius = 20.dp, enabled = enabled)
             .clip(CircleShape)
-            .background(c.background)
-            .border(3.dp, if (enabled) c.accent else c.text3.copy(alpha = 0.5f), CircleShape)
+            .background(c.backgroundBottom)
+            .border(
+                (size.value / 24f).coerceAtLeast(3f).dp,
+                if (enabled) Brush.verticalGradient(listOf(c.accent2, c.accent, c.switchTrackOn))
+                else Brush.verticalGradient(listOf(c.text3.copy(alpha = 0.5f), c.text3.copy(alpha = 0.5f))),
+                CircleShape,
+            )
             .clickable(enabled = enabled, onClick = onClick, role = Role.Button)
             .semantics { this.contentDescription = contentDescription },
         contentAlignment = Alignment.Center,
     ) {
         Box(
             Modifier
-                .size(size - 18.dp)
+                .size(size * 0.78f)
                 .clip(CircleShape)
                 .background(
-                    if (enabled) Brush.radialGradient(c.shutterDisk)
+                    if (enabled) Brush.verticalGradient(c.shutterDisk)
                     else Brush.radialGradient(listOf(c.raised, c.surface))
                 ),
         )
@@ -692,7 +814,7 @@ fun ScStatusPill(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(7.dp),
     ) {
-        if (icon != null) Icon(icon, null, Modifier.size(15.dp), tint = fg)
+        if (icon != null) Icon(icon, null, Modifier.size(15.dp), tint = if (tone == Tone.Normal) c.accent else fg)
         else Box(Modifier.size(7.dp).clip(CircleShape).background(if (tone == Tone.Normal) c.accent else fg))
         Text(text, style = ScType.bodySmall.copy(fontWeight = FontWeight.Medium), color = fg, maxLines = 1)
     }
@@ -712,18 +834,18 @@ fun ScNotice(
     val (fg, bg, border) = when (tone) {
         Tone.Warning -> Triple(c.warning, c.warningFill, c.warningBorder)
         Tone.Error -> Triple(c.error, c.errorFill, c.errorBorder)
-        Tone.Accent -> Triple(c.accentText, c.glass, c.selectedBorder)
+        Tone.Accent -> Triple(c.accentText, c.glass, c.selectedBorder.copy(alpha = 0.6f))
         Tone.Normal -> Triple(c.text, c.surface, c.hairlineStrong)
     }
     Row(
-        modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(bg)
-            .border(1.dp, border, RoundedCornerShape(16.dp))
-            .padding(start = 12.dp, top = 10.dp, bottom = 10.dp, end = if (onDismiss != null) 4.dp else 12.dp),
+        modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(bg)
+            .border(1.dp, border, RoundedCornerShape(18.dp))
+            .padding(start = 14.dp, top = 11.dp, bottom = 11.dp, end = if (onDismiss != null) 4.dp else 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) {
-            Icon(icon, null, Modifier.size(18.dp), tint = fg)
-            Spacer(Modifier.width(10.dp))
+            Icon(icon, null, Modifier.size(19.dp), tint = if (tone == Tone.Accent || tone == Tone.Normal) c.accent else fg)
+            Spacer(Modifier.width(11.dp))
         }
         Column(Modifier.weight(1f)) {
             if (title != null) Text(title, style = ScType.headline, color = if (tone == Tone.Accent) c.text else fg)
@@ -749,7 +871,7 @@ fun ScStatTile(value: String, label: String, modifier: Modifier = Modifier) {
     }
 }
 
-/** A settings tile with an icon, two lines of text and a switch (the Pro sheet's 2 × 2 grid). */
+/** A settings tile with an icon, two lines of text and a switch (the Adjust sheet's 2 × 2 grid). */
 @Composable
 fun ScToggleTile(
     icon: ImageVector,
@@ -762,12 +884,13 @@ fun ScToggleTile(
     val c = Sc.colors
     ScCard(
         modifier,
-        color = c.tile,
-        padding = PaddingValues(start = 12.dp, top = 8.dp, bottom = 10.dp, end = 4.dp),
+        color = if (checked) c.raised else c.tile,
+        borderColor = if (checked) c.selectedBorder.copy(alpha = 0.55f) else c.hairline,
+        padding = PaddingValues(start = 14.dp, top = 8.dp, bottom = 12.dp, end = 4.dp),
         onClick = onToggle,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, null, Modifier.size(20.dp), tint = if (checked) c.accent else c.text2)
+            Icon(icon, null, Modifier.size(21.dp), tint = if (checked) c.accent else c.text2)
             Spacer(Modifier.weight(1f))
             ScSwitch(checked, null)
         }
@@ -859,7 +982,7 @@ fun ScDialog(onDismissRequest: () -> Unit, content: @Composable () -> Unit) {
                 ?.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
         }
         Box(
-            Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f))
+            Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f))
                 .clickable(remember { MutableInteractionSource() }, indication = null, onClick = onDismissRequest)
                 .windowInsetsPadding(WindowInsets.safeDrawing)
                 .padding(horizontal = 24.dp, vertical = 16.dp),
@@ -888,24 +1011,24 @@ fun ScConfirmDialog(
     val c = Sc.colors
     ScDialog(onDismissRequest = onDismiss) {
         Column(
-            Modifier.fillMaxWidth().background(c.surface)
-                .border(1.dp, c.hairline, ScShapes.card).padding(20.dp),
+            Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(c.raised, c.surface)))
+                .border(1.dp, c.hairlineStrong, ScShapes.card).padding(22.dp),
         ) {
             Text(title, style = ScType.titleSmall, color = c.text)
             Text(text, style = ScType.body, color = c.text2, modifier = Modifier.padding(top = 10.dp))
             Row(
-                Modifier.fillMaxWidth().padding(top = 20.dp),
+                Modifier.fillMaxWidth().padding(top = 22.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End),
             ) {
-                ScButton(dismissText, onDismiss, height = 44.dp)
+                ScButton(dismissText, onDismiss, height = 46.dp)
                 ScButton(confirmText, onConfirm,
-                    kind = if (danger) ScButtonKind.Danger else ScButtonKind.Primary, height = 44.dp)
+                    kind = if (danger) ScButtonKind.Danger else ScButtonKind.Primary, height = 46.dp)
             }
         }
     }
 }
 
-/** Mono readout with a smaller unit: 22.5 s, 1600, 14.0 / 22.5 s. */
+/** A readout with a smaller unit: 22.5 s, 1600, 14.0 / 22.5 s. */
 @Composable
 fun ScValueWithUnit(
     value: String,
@@ -918,8 +1041,42 @@ fun ScValueWithUnit(
     Row(modifier, verticalAlignment = Alignment.Bottom) {
         Text(value, style = valueStyle, color = color, maxLines = 1)
         if (unit.isNotEmpty()) {
-            Text(" $unit", style = ScType.dataLarge.copy(fontFamily = GeistMono), color = unitColor,
+            Text(" $unit", style = ScType.dataLarge, color = unitColor,
                 modifier = Modifier.padding(bottom = 3.dp), textAlign = TextAlign.Start)
+        }
+    }
+}
+
+/** A round icon badge: an icon on a softly lit disc, for the head of a card or an empty state. */
+@Composable
+fun ScIconBadge(
+    icon: ImageVector,
+    modifier: Modifier = Modifier,
+    size: Dp = 44.dp,
+    tint: Color = Sc.colors.accent,
+    fill: Color = Sc.colors.selectedFill,
+    border: Color = Sc.colors.selectedBorder.copy(alpha = 0.5f),
+) {
+    Box(
+        modifier.size(size).clip(CircleShape).background(fill).border(1.dp, border, CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, null, Modifier.size(size * 0.48f), tint = tint)
+    }
+}
+
+/** A big empty-state: a glowing icon badge, a title and a line of text. */
+@Composable
+fun ScEmptyState(icon: ImageVector, title: String, text: String?, modifier: Modifier = Modifier) {
+    val c = Sc.colors
+    Column(modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        ScIconBadge(icon, Modifier.scGlow(c.accentGlow.copy(alpha = c.accentGlow.alpha * 0.5f), radius = 18.dp),
+            size = 72.dp)
+        Text(title, style = ScType.titleSmall, color = c.text, textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = 18.dp))
+        if (text != null) {
+            Text(text, style = ScType.body, color = c.text2, textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 8.dp))
         }
     }
 }

@@ -17,13 +17,16 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.FileProvider
 import com.wm.starcam.camera.CamInfo
 import com.wm.starcam.session.AppSettings
 import com.wm.starcam.session.Mode
+import com.wm.starcam.session.Quality
 import com.wm.starcam.session.sessionPhoto
+import com.wm.starcam.ui.theme.ScIcons
 import com.wm.starcam.util.AppLog
 import com.wm.starcam.util.Fmt
 import kotlinx.coroutines.delay
@@ -148,11 +151,27 @@ fun sessionTitle(startedAtMs: Long): String {
     return "$day · $time"
 }
 
+/** The astro presets by the design's names. */
+fun qualityName(q: Quality): String = when (q) {
+    Quality.FAST -> "Quick"
+    Quality.BEST -> "Balanced"
+    Quality.INSANE -> "Deep"
+}
+
+/** Each mode's icon, as on the capture screen's tabs. */
+fun modeIcon(mode: Mode): ImageVector = when (mode) {
+    Mode.ASTRO -> ScIcons.Astro
+    Mode.TRAILS -> ScIcons.Trails
+    Mode.METEOR -> ScIcons.Meteor
+    Mode.PRO -> ScIcons.ProMode
+}
+
+/** The modes by the names the capture screen's tabs give them (Mode.PRO is "Manual"). */
 fun modeLabel(mode: Mode): String = when (mode) {
-    Mode.ASTRO -> "Astro"
-    Mode.TRAILS -> "Trails"
+    Mode.ASTRO -> "Stars"
+    Mode.TRAILS -> "Star trails"
     Mode.METEOR -> "Meteor"
-    Mode.PRO -> "Pro"
+    Mode.PRO -> "Manual"
 }
 
 /** "12.6 GB free". */

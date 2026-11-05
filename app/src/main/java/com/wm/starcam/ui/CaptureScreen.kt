@@ -1,5 +1,7 @@
 package com.wm.starcam.ui
 
+import android.hardware.GeomagneticField
+import android.hardware.SensorManager
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -8,15 +10,16 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -29,6 +32,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
@@ -41,73 +45,95 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.BaselineShift
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.wm.starcam.StarCamViewModel
 import com.wm.starcam.camera.CamInfo
 import com.wm.starcam.camera.CaptureState
-import com.wm.starcam.darksky.DarkSkyData
-import com.wm.starcam.darksky.SkyQuality
 import com.wm.starcam.session.AppSettings
 import com.wm.starcam.session.Mode
 import com.wm.starcam.session.Quality
+import com.wm.starcam.sensors.SkyOrientation
 import com.wm.starcam.sensors.SkyPlaceStore
+import com.wm.starcam.sky.MoonPhase
+import com.wm.starcam.sky.SkyMath
 import com.wm.starcam.ui.components.ScButton
 import com.wm.starcam.ui.components.ScButtonKind
 import com.wm.starcam.ui.components.ScCard
 import com.wm.starcam.ui.components.ScGlass
-import com.wm.starcam.ui.components.ScIconButton
 import com.wm.starcam.ui.components.ScShutter
 import com.wm.starcam.ui.components.ScSlider
 import com.wm.starcam.ui.components.ScSpinner
+import com.wm.starcam.ui.components.ScTab
+import com.wm.starcam.ui.components.ScTabs
+import com.wm.starcam.ui.theme.DuoIcon
 import com.wm.starcam.ui.theme.NightPreviewTint
+import com.wm.starcam.ui.theme.NotoSans
 import com.wm.starcam.ui.theme.Sc
+import com.wm.starcam.ui.theme.ScDuo
+import com.wm.starcam.ui.theme.ScDuoIcon
 import com.wm.starcam.ui.theme.ScIcons
 import com.wm.starcam.ui.theme.ScShapes
 import com.wm.starcam.ui.theme.ScType
+import com.wm.starcam.ui.theme.scBackground
+import com.wm.starcam.ui.theme.scGlow
 import com.wm.starcam.ui.theme.scImageFilter
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.ceil
+import kotlin.math.cos
 import kotlin.math.roundToInt
+import kotlin.math.sin
+import kotlin.math.sqrt
 
 /**
- * The capture screen. Idle, it is a viewfinder with the few controls a night needs, kept slim so
- * the preview gets the room: status and lens on one line, mode and preset as two short rows, one
- * bar with the shutter. Everything else is one tap away in the Pro sheet or Settings.
+ * The capture screen, as the owner's design (Nov 2026) has it: the night's tools along the top
+ * (the light map, Find, night vision, the sky view, Settings), tonight in one card, the
+ * viewfinder across the whole width with a small compass, the session length over its foot, the
+ * modes as tabs, and the gallery, the shutter and Adjust at the bottom.
  *
  * While a session runs, [SessionFlow] draws its full-screen steps on top. The idle layout - and
  * with it the CameraPreview - stays composed underneath, so the viewfinder surface that is part of
@@ -165,7 +191,6 @@ fun CaptureScreen(
             onOpenSession = onOpenSession,
             onOpenSettings = onOpenSettings,
             onOpenTonight = onOpenTonight,
-            onOpenStudio = onOpenStudio,
             onOpenDarkSky = onOpenDarkSky,
         )
 
@@ -252,34 +277,44 @@ private fun IdleLayout(
     onOpenSession: (File) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenTonight: () -> Unit,
-    onOpenStudio: (File) -> Unit,
     onOpenDarkSky: () -> Unit,
 ) {
     val camInfo by vm.camInfo.collectAsState()
     val ready by vm.ready.collectAsState()
     val cameraError by vm.cameraError.collectAsState()
     val restack by vm.restack.collectAsState()
+    val sky by vm.skyView.collectAsState()
     val restacking = restack?.running == true
     val plan = remember(settings, camInfo) { planFor(settings, camInfo) }
+    // Worked out again when the sky view closes too: a place may have been set from it.
+    val tonight = rememberTonightSummary(idle, refresh = sky == null)
 
-    Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-        QuickBar(vm, idle, onOpenTonight, onOpenDarkSky)
+    Column(Modifier.fillMaxSize().scBackground().windowInsetsPadding(WindowInsets.safeDrawing)) {
+        TopRow(
+            nightMode = settings.nightMode,
+            skyOn = sky != null,
+            onLightMap = onOpenDarkSky,
+            onFind = { vm.skyView.value = SkyViewRequest(pick = true) },
+            onNight = { vm.settingsStore.update { it.copy(nightMode = !it.nightMode) } },
+            onSky = { vm.skyView.value = if (vm.skyView.value == null) SkyViewRequest() else null },
+            onSettings = onOpenSettings,
+        )
         Viewfinder(
             vm = vm,
             settings = settings,
             camInfo = camInfo,
             plan = plan,
+            idle = idle,
+            tonight = tonight,
             framingBoost = framingBoost,
             restacking = restacking,
             onBoostOff = { onBoostChange(false) },
             onOpenPro = onOpenPro,
             onOpenSession = onOpenSession,
+            onOpenTonight = onOpenTonight,
             modifier = Modifier.weight(1f),
         )
-        Spacer(Modifier.height(10.dp))
         ModeTabs(settings.mode) { m -> vm.settingsStore.update { it.copy(mode = m) } }
-        Spacer(Modifier.height(8.dp))
-        SecondaryRow(vm, settings, plan, onOpenPro)
         BottomBar(
             vm = vm,
             settings = settings,
@@ -287,86 +322,205 @@ private fun IdleLayout(
             canShoot = ready && cameraError == null && !restacking,
             onOpenPro = onOpenPro,
             onOpenSessions = onOpenSessions,
-            onOpenSettings = onOpenSettings,
         )
     }
 }
 
+// ------------------------------------------------------------------------------- top row
+
 /**
- * The top of the capture screen, the night's tools one tap each: the Tonight planner, Find (the
- * sky view with its list of galaxies, planets and stars to be led to), and the dark-sky map with
- * how dark your own sky is. Editing and a session's videos are with the photo itself (its page,
- * and the result screen after a shot). Battery and temperature show on the viewfinder only when
- * they matter ([PowerWarning]).
+ * The night's tools, one tap each: the light map (how dark the sky is here, and where it is
+ * darker), Find (the sky view's list of galaxies, planets and stars to be led to), night vision,
+ * the sky view itself, and Settings. On a narrow phone the two pills lose their words.
  */
 @Composable
-private fun QuickBar(
-    vm: StarCamViewModel,
-    idle: Boolean,
-    onOpenTonight: () -> Unit,
-    onOpenDarkSky: () -> Unit,
+private fun TopRow(
+    nightMode: Boolean,
+    skyOn: Boolean,
+    onLightMap: () -> Unit,
+    onFind: () -> Unit,
+    onNight: () -> Unit,
+    onSky: () -> Unit,
+    onSettings: () -> Unit,
 ) {
-    val context = LocalContext.current
-    var bortle by remember { mutableStateOf<Int?>(null) }
-    // Looked up again whenever the screen returns to idle: a place may just have changed in the
-    // planner.
-    LaunchedEffect(idle) {
-        if (!idle) return@LaunchedEffect
-        bortle = withContext(Dispatchers.Default) {
-            runCatching {
-                val loc = SkyPlaceStore(context).load()?.loc ?: return@runCatching null
-                SkyQuality.bortle(SkyQuality.sqm(DarkSkyData.glow(context).alr(loc.latDeg, loc.lonDeg)))
-            }.getOrNull()
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+        // The words go in only where they fit, whatever the phone's width and font size: first
+        // the light map's (its icon says less), then Find's.
+        fun wordWidth(s: String) = with(density) { measurer.measure(s, PillText).size.width.toDp() } + 10.dp
+        val bare = 44.dp * 2 + 44.dp * 3 + 6.dp * 4
+        val lightWords = bare + wordWidth("Light map") <= maxWidth
+        val findWords = lightWords && bare + wordWidth("Light map") + wordWidth("Find") <= maxWidth
+        Row(
+            Modifier.fillMaxWidth().height(44.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            TopPill(ScDuo.LightMap, if (lightWords) "Light map" else null,
+                "Light map: how dark the sky is around you", onLightMap)
+            TopPill(ScDuo.Find, if (findWords) "Find" else null,
+                "Find in the sky: a galaxy, a planet, a star", onFind)
+            Spacer(Modifier.weight(1f))
+            TopSquare(ScDuo.Eye, if (nightMode) "Night vision on" else "Night vision off", nightMode, onNight)
+            TopSquare(ScDuo.SkyView, if (skyOn) "Sky view on" else "Sky view", skyOn, onSky)
+            TopSquare(ScDuo.Gear, "Settings", false, onSettings)
         }
-    }
-    val tonight = rememberTonightText()
-
-    Row(
-        Modifier.fillMaxWidth().height(58.dp).padding(horizontal = 12.dp, vertical = 7.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        QuickAction(ScIcons.Moon, tonight, "Tonight planner: $tonight", Modifier.weight(1.25f),
-            onClick = onOpenTonight)
-        QuickAction(ScIcons.Search, "Find", "Find in the sky: a galaxy, a planet, a star", Modifier.weight(1f)) {
-            vm.skyView.value = SkyViewRequest(pick = true)
-        }
-        QuickAction(ScIcons.Map, bortle?.let { "Bortle $it" } ?: "Dark sky",
-            "Dark-sky map" + (bortle?.let { ": your sky is Bortle $it" } ?: ""), Modifier.weight(1f),
-            onClick = onOpenDarkSky)
     }
 }
 
+/** The top pills' words: a step smaller than a button's, as the design sets them. */
+private val PillText = ScType.button.copy(fontSize = 14.sp)
+
+/** The design keeps the card and the session-length strip slim, so the sky gets the room. */
+private val TonightCardHeight = 50.dp
+private val StripHeight = 48.dp
+private val StripHeightOneLine = 42.dp
+
+/** A glowing pill: a two-tone icon and, room permitting, its name. */
 @Composable
-private fun QuickAction(
-    icon: ImageVector,
-    text: String,
-    description: String,
-    modifier: Modifier,
-    enabled: Boolean = true,
-    onClick: () -> Unit,
-) {
+private fun TopPill(icon: DuoIcon, text: String?, description: String, onClick: () -> Unit) {
     val c = Sc.colors
     Row(
-        modifier.fillMaxHeight().alpha(if (enabled) 1f else 0.4f).clip(CircleShape)
-            .background(c.buttonSecondary).border(1.dp, c.hairline, CircleShape)
-            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+        Modifier.fillMaxHeight()
+            .scGlow(c.accentGlow.copy(alpha = c.accentGlow.alpha * 0.35f), radius = 10.dp)
+            .clip(CircleShape)
+            .background(Brush.verticalGradient(listOf(c.raised, c.buttonSecondary)))
+            .border(1.dp, c.selectedBorder.copy(alpha = 0.75f), CircleShape)
+            .clickable(role = Role.Button, onClick = onClick)
             .semantics { contentDescription = description }
-            .padding(horizontal = 10.dp),
+            .padding(start = 10.dp, end = if (text != null) 14.dp else 10.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center,
     ) {
-        Icon(icon, null, Modifier.size(16.dp), tint = c.accent)
-        Spacer(Modifier.width(6.dp))
-        Text(text, style = ScType.bodySmall.copy(fontWeight = FontWeight.Medium), color = c.text,
-            maxLines = 1, overflow = TextOverflow.Ellipsis)
+        ScDuoIcon(icon, Modifier.size(24.dp))
+        if (text != null) {
+            Spacer(Modifier.width(7.dp))
+            Text(text, style = PillText, color = c.text, maxLines = 1, softWrap = false)
+        }
     }
 }
 
+/** A softly rounded square tool button, lit while its tool is on. */
+@Composable
+private fun TopSquare(icon: DuoIcon, description: String, selected: Boolean, onClick: () -> Unit) {
+    val c = Sc.colors
+    Box(
+        Modifier.size(44.dp)
+            .scGlow(c.accentGlow.copy(alpha = c.accentGlow.alpha * 0.6f), radius = 12.dp, cornerRadius = 16.dp,
+                enabled = selected)
+            .clip(ScShapes.iconButton)
+            .background(if (selected) c.selectedFill else c.buttonSecondary)
+            .border(1.dp, if (selected) c.selectedBorder else c.hairlineStrong, ScShapes.iconButton)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = description },
+        contentAlignment = Alignment.Center,
+    ) {
+        ScDuoIcon(icon, Modifier.size(22.dp))
+    }
+}
+
+// ------------------------------------------------------------------------------ tonight card
 
 /**
- * Battery and temperature, on the viewfinder only when they matter: a low battery ends a long
- * session early, and a hot phone slows the frames down.
+ * Tonight in one line: the Moon as it is tonight, the best thing to shoot in the dark, the sky's
+ * Bortle class and when it gets dark. Opens the planner. Without a place it asks for one.
  */
+@Composable
+private fun TonightCard(t: TonightSummary?, onOpen: () -> Unit) {
+    val c = Sc.colors
+    val title = when {
+        t == null -> "Tonight"
+        !t.hasPlace -> "Plan your night"
+        t.bestName != null -> t.bestName
+        else -> "Moon ${(t.moon.illuminated * 100).roundToInt()}% lit"
+    }
+    val sub = when {
+        t == null -> null
+        !t.hasPlace -> "Tap to set your place"
+        else -> listOfNotNull(t.bortle?.let { "Bortle $it" }, t.darkText).joinToString(" · ").ifEmpty { null }
+    }
+    val shape = RoundedCornerShape(18.dp)
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val roomy = maxWidth >= 400.dp
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = TonightCardHeight).clip(shape)
+                .background(Brush.verticalGradient(listOf(c.raised.copy(alpha = 0.94f), c.surface.copy(alpha = 0.94f))))
+                .border(1.dp, c.hairlineStrong, shape)
+                .clickable(role = Role.Button, onClick = onOpen)
+                .semantics { contentDescription = "Tonight planner: $title" + (sub?.let { ". $it" } ?: "") }
+                .padding(start = 14.dp, end = 6.dp, top = 5.dp, bottom = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            MoonGlyph(t?.moon, t?.southern == true, Modifier.size(26.dp))
+            if (roomy) {
+                Box(Modifier.padding(horizontal = 12.dp).width(1.dp).height(28.dp).background(c.hairlineStrong))
+                Text("TONIGHT", style = ScType.label.copy(letterSpacing = 0.14.em, fontSize = 12.sp), color = c.accentText)
+                Spacer(Modifier.width(14.dp))
+            } else {
+                Spacer(Modifier.width(12.dp))
+            }
+            Column(Modifier.weight(1f)) {
+                Text(title, style = ScType.headline.copy(fontSize = 16.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium),
+                    color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (sub != null) {
+                    Text(sub, style = ScType.caption.copy(fontSize = 12.5.sp), color = c.text2, maxLines = 1,
+                        overflow = TextOverflow.Ellipsis)
+                }
+            }
+            Spacer(Modifier.width(8.dp))
+            Row(
+                Modifier.height(38.dp)
+                    .scGlow(c.accentGlow.copy(alpha = c.accentGlow.alpha * 0.35f), radius = 10.dp)
+                    .clip(CircleShape)
+                    .background(Brush.verticalGradient(listOf(c.raised, c.buttonSecondary)))
+                    .border(1.dp, c.selectedBorder.copy(alpha = 0.8f), CircleShape)
+                    .padding(horizontal = 13.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ScDuoIcon(ScDuo.Sparkles, Modifier.size(18.dp))
+                Spacer(Modifier.width(7.dp))
+                Text("Tonight", style = PillText, color = c.text)
+            }
+        }
+    }
+}
+
+/**
+ * The Moon as it is: the lit part drawn with its terminator, waxing lit on the right (on the left
+ * south of the equator). A dim disc when the phase is not known yet.
+ */
+@Composable
+fun MoonGlyph(phase: MoonPhase?, southern: Boolean, modifier: Modifier = Modifier) {
+    val c = Sc.colors
+    val lit = c.accentText
+    val dark = c.accent.copy(alpha = 0.12f)
+    val rim = c.accent.copy(alpha = 0.3f)
+    Canvas(modifier) {
+        val r = size.minDimension / 2f * 0.9f
+        val o = center
+        // The unlit Moon only just there, as on a real night.
+        drawCircle(dark, r, o)
+        drawCircle(rim, r, o, style = Stroke(1.dp.toPx()))
+        if (phase == null) return@Canvas
+        val k = phase.illuminated.toFloat().coerceIn(0f, 1f)
+        if (k < 0.01f) return@Canvas
+        val path = Path().apply {
+            arcTo(Rect(o.x - r, o.y - r, o.x + r, o.y + r), -90f, 180f, true)
+            // The terminator: half an ellipse, or a straight line at a half Moon.
+            val rx = r * abs(1f - 2f * k)
+            if (rx < 0.5f) lineTo(o.x, o.y - r)
+            else arcTo(Rect(o.x - rx, o.y - r, o.x + rx, o.y + r), 90f, if (k >= 0.5f) 180f else -180f, false)
+            close()
+        }
+        // Waxing in the north: lit on the right. Waning, or the south, mirrored.
+        val mirror = phase.waxing == southern
+        scale(if (mirror) -1f else 1f, 1f, pivot = o) { drawPath(path, lit) }
+    }
+}
+
+// ------------------------------------------------------------------------------- viewfinder
+
+/** Battery and temperature, on the viewfinder only when they matter. */
 @Composable
 private fun PowerWarning(vm: StarCamViewModel, modifier: Modifier) {
     val c = Sc.colors
@@ -392,8 +546,8 @@ private fun PowerWarning(vm: StarCamViewModel, modifier: Modifier) {
 private fun LensSwitch(lenses: List<CamInfo>, current: CamInfo?, onSwitch: (String) -> Unit) {
     val c = Sc.colors
     Row(
-        Modifier.height(38.dp).clip(CircleShape).background(c.glass)
-            .border(1.dp, c.hairline, CircleShape).padding(3.dp),
+        Modifier.height(40.dp).clip(CircleShape).background(c.glass)
+            .border(1.dp, c.hairlineStrong, CircleShape).padding(3.dp),
         horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         // Widest first, like the system camera.
@@ -418,20 +572,25 @@ private fun LensSwitch(lenses: List<CamInfo>, current: CamInfo?, onSwitch: (Stri
     }
 }
 
-// ------------------------------------------------------------------------------- viewfinder
-
-
+/**
+ * The viewfinder across the whole width (or height, on a short phone), its edges fading into the
+ * screen; tonight's card over its top, the compass at its side, the session length over its foot.
+ * The corner brackets mark the part of the frame those leave in view.
+ */
 @Composable
 private fun Viewfinder(
     vm: StarCamViewModel,
     settings: AppSettings,
     camInfo: CamInfo?,
     plan: Plan,
+    idle: Boolean,
+    tonight: TonightSummary?,
     framingBoost: Boolean,
     restacking: Boolean,
     onBoostOff: () -> Unit,
     onOpenPro: () -> Unit,
     onOpenSession: (File) -> Unit,
+    onOpenTonight: () -> Unit,
     modifier: Modifier,
 ) {
     val c = Sc.colors
@@ -442,12 +601,31 @@ private fun Viewfinder(
     val uiPrefs = remember { UiPrefs(context) }
     var tipDismissed by remember { mutableStateOf(uiPrefs.lensTipDismissed) }
 
-    Box(modifier.fillMaxWidth().padding(horizontal = 10.dp), contentAlignment = Alignment.Center) {
-        Box(Modifier.aspectRatio(previewAspect(camInfo))) {
+    BoxWithConstraints(modifier.fillMaxWidth()) {
+        val aspect = previewAspect(camInfo)
+        val fullWidth = maxWidth / aspect <= maxHeight
+        val pw = if (fullWidth) maxWidth else maxHeight * aspect
+        val ph = if (fullWidth) maxWidth / aspect else maxHeight
+        val previewTop = (maxHeight - ph) / 2
+        // How far the card reaches into the preview from its top, and the session-length strip
+        // from its foot (the preview is centred, so the gap is the same at both ends).
+        val cardFoot = 4.dp + TonightCardHeight + 10.dp - previewTop
+        val strip = if (settings.mode == Mode.TRAILS || settings.mode == Mode.METEOR) StripHeightOneLine else StripHeight
+        val lensRow = if (lenses.size >= 2) 40.dp + 10.dp else 0.dp
+        val selectorHead = 10.dp + strip + lensRow + 6.dp - previewTop
+
+        Box(Modifier.align(Alignment.Center).size(pw, ph)) {
             CameraPreview(vm, Modifier.fillMaxSize())
             if (c.night) Box(Modifier.fillMaxSize().background(NightPreviewTint))
-            if (sky == null) ViewfinderGuides()
-            RoundedMask(radius = 22.dp, color = c.background, border = c.hairline)
+            // The edges fade into the screen, as the design has it; the controls float there.
+            Box(
+                Modifier.align(Alignment.TopCenter).fillMaxWidth().height(56.dp)
+                    .background(Brush.verticalGradient(listOf(c.backgroundTop.copy(alpha = 0.92f), Color.Transparent))),
+            )
+            Box(
+                Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(72.dp)
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, c.backgroundBottom.copy(alpha = 0.95f)))),
+            )
             sky?.let { request ->
                 SkyOverlay(
                     request = request,
@@ -455,121 +633,122 @@ private fun Viewfinder(
                     // A new time keeps what is being found.
                     onTime = { vm.skyView.value = vm.skyView.value?.copy(atMs = it) ?: SkyViewRequest(it) },
                     onClose = { vm.skyView.value = null },
-                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(22.dp)),
+                    topInset = cardFoot.coerceAtLeast(0.dp),
+                    // A Canvas does not clip: the constellations ran over the top row and tabs.
+                    modifier = Modifier.fillMaxSize().clipToBounds(),
                 )
             }
-
-            Column(
-                Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(10.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-                    // The sky view: where the Milky Way, the stars and the Moon are, over the preview.
-                    if (sky == null) {
-                        ScGlass(
-                            Modifier.clip(ScShapes.pill).clickable(role = Role.Button) { vm.skyView.value = SkyViewRequest() }
-                                .semantics { contentDescription = "Sky view" },
-                        ) {
-                            Icon(ScIcons.Astro, null, Modifier.size(14.dp), tint = c.accent)
-                            Text("Sky view", style = ScType.caption, color = c.text)
-                        }
-                    }
-                    Spacer(Modifier.weight(1f))
-                    PowerWarning(vm, Modifier)
-                }
-                // After a crash or a kill the app used to come back to a plain viewfinder, with
-                // the cut-off session's frames sitting unannounced in Sessions.
-                interrupted?.let { s ->
-                    ViewfinderTip(
-                        icon = ScIcons.Warning,
-                        tint = c.warning,
-                        text = buildAnnotatedString {
-                            withStyle(SpanStyle(color = c.text, fontWeight = FontWeight.SemiBold)) {
-                                append("Last session was cut off. ")
-                            }
-                            append(
-                                when {
-                                    s.frameCount >= 2 -> "${s.frameCount} frames saved - tap to stack them."
-                                    s.frameCount == 1 -> "1 frame saved - tap to see it."
-                                    else -> "No frames were saved."
-                                }
-                            )
-                        },
-                        onClick = if (s.frameCount > 0) ({
-                            vm.dismissInterrupted()
-                            onOpenSession(s.dir)
-                        }) else null,
-                        onDismiss = { vm.dismissInterrupted() },
-                    )
-                }
-                if (restacking) {
-                    ScGlass(Modifier.align(Alignment.CenterHorizontally)) {
-                        ScSpinner(size = 14.dp, strokeWidth = 2.dp)
-                        Text("Re-stacking a session · the shutter is back when it's done",
-                            style = ScType.caption, color = c.text)
-                    }
-                }
-                if (!tipDismissed) {
-                    WiderLensTip(
-                        lenses = lenses,
-                        current = camInfo,
-                        onSwitch = { vm.switchLens(it) },
-                        onDismiss = {
-                            tipDismissed = true
-                            uiPrefs.lensTipDismissed = true
-                        },
-                    )
-                }
-                if (settings.nightMode) {
-                    NightDimmer(settings.nightDim) { v -> vm.settingsStore.update { it.copy(nightDim = v) } }
-                }
-                if (framingBoost) {
-                    ScGlass(Modifier.align(Alignment.CenterHorizontally).clickable(onClick = onBoostOff)) {
-                        Icon(ScIcons.SunSmall, null, Modifier.size(15.dp), tint = c.warning)
-                        Text("Brighter preview · slower, ~8 fps", style = ScType.caption, color = c.text)
-                        Icon(ScIcons.Close, "Turn off brighter preview", Modifier.size(14.dp), tint = c.text3)
-                    }
-                }
+            if (sky == null) {
+                ViewfinderGuides(
+                    Modifier.fillMaxSize().padding(
+                        top = cardFoot.coerceAtLeast(0.dp),
+                        bottom = selectorHead.coerceAtLeast(0.dp),
+                    ),
+                )
             }
-
             if (settings.showLevel) {
                 val roll by vm.motion.rollDeg.collectAsState()
                 LevelOverlay(roll)
             }
+        }
 
-            // The lenses sit where the system camera keeps its zoom, above the plan. The sky view
-            // puts its clock there instead.
-            if (sky == null) {
-                Column(
-                    Modifier.align(Alignment.BottomCenter).padding(10.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    // Lens chips only with 2+ RAW-capable back cameras.
-                    if (lenses.size >= 2) LensSwitch(lenses, camInfo) { vm.switchLens(it) }
-                    PlanChip(plan = plan, mode = settings.mode, onClick = onOpenPro, modifier = Modifier)
+        // ---- over the top: tonight, then whatever needs saying
+        Column(
+            Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            TonightCard(tonight, onOpenTonight)
+            PowerWarning(vm, Modifier.align(Alignment.End))
+            // After a crash or a kill the app used to come back to a plain viewfinder, with
+            // the cut-off session's frames sitting unannounced in Sessions.
+            interrupted?.let { s ->
+                ViewfinderTip(
+                    icon = ScIcons.Warning,
+                    tint = c.warning,
+                    text = buildAnnotatedString {
+                        withStyle(SpanStyle(color = c.text, fontWeight = FontWeight.SemiBold)) {
+                            append("Last session was cut off. ")
+                        }
+                        append(
+                            when {
+                                s.frameCount >= 2 -> "${s.frameCount} frames saved - tap to stack them."
+                                s.frameCount == 1 -> "1 frame saved - tap to see it."
+                                else -> "No frames were saved."
+                            }
+                        )
+                    },
+                    onClick = if (s.frameCount > 0) ({
+                        vm.dismissInterrupted()
+                        onOpenSession(s.dir)
+                    }) else null,
+                    onDismiss = { vm.dismissInterrupted() },
+                )
+            }
+            if (restacking) {
+                ScGlass(Modifier.align(Alignment.CenterHorizontally)) {
+                    ScSpinner(size = 14.dp, strokeWidth = 2.dp)
+                    Text("Re-stacking a session · the shutter is back when it's done",
+                        style = ScType.caption, color = c.text)
                 }
+            }
+            if (!tipDismissed) {
+                WiderLensTip(
+                    lenses = lenses,
+                    current = camInfo,
+                    onSwitch = { vm.switchLens(it) },
+                    onDismiss = {
+                        tipDismissed = true
+                        uiPrefs.lensTipDismissed = true
+                    },
+                )
+            }
+            if (settings.nightMode) {
+                NightDimmer(settings.nightDim) { v -> vm.settingsStore.update { it.copy(nightDim = v) } }
+            }
+            if (framingBoost) {
+                ScGlass(Modifier.align(Alignment.CenterHorizontally).clickable(onClick = onBoostOff)) {
+                    Icon(ScIcons.SunSmall, null, Modifier.size(15.dp), tint = c.warning)
+                    Text("Brighter preview · slower, ~8 fps", style = ScType.caption, color = c.text)
+                    Icon(ScIcons.Close, "Turn off brighter preview", Modifier.size(14.dp), tint = c.text3)
+                }
+            }
+            // ---- the compass, at the side under all of that
+            if (sky == null && idle) {
+                Compass(
+                    moon = tonight?.moon,
+                    southern = tonight?.southern == true,
+                    onClick = { vm.skyView.value = SkyViewRequest() },
+                    modifier = Modifier.align(Alignment.End).padding(top = 4.dp, end = 6.dp),
+                )
+            }
+        }
+
+        // ---- over the foot: the lenses, then how long the session takes. The sky view puts its
+        // clock there instead.
+        if (sky == null) {
+            Column(
+                Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(bottom = 10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                // Lens chips only with 2+ RAW-capable back cameras.
+                if (lenses.size >= 2) LensSwitch(lenses, camInfo) { vm.switchLens(it) }
+                SecondaryRow(vm, settings, plan, camInfo, onOpenPro)
             }
         }
     }
 }
 
-/** Thirds grid and corner brackets: framing help that stays out of the way of the stars. */
+/** Corner brackets: the framing guide, out of the way of the stars. */
 @Composable
-private fun ViewfinderGuides() {
-    val line = Sc.colors.text.copy(alpha = 0.10f)
-    val corner = Sc.colors.text.copy(alpha = 0.45f)
-    Canvas(Modifier.fillMaxSize()) {
+private fun ViewfinderGuides(modifier: Modifier) {
+    val corner = Sc.colors.text.copy(alpha = 0.7f)
+    Canvas(modifier) {
         val w = size.width
         val h = size.height
-        val hair = 1.dp.toPx()
-        for (i in 1..2) {
-            drawLine(line, Offset(w * i / 3f, 0f), Offset(w * i / 3f, h), hair)
-            drawLine(line, Offset(0f, h * i / 3f), Offset(w, h * i / 3f), hair)
-        }
-        val inset = 14.dp.toPx()
-        val len = 18.dp.toPx()
-        val sw = 1.5.dp.toPx()
+        val inset = 16.dp.toPx()
+        val len = 22.dp.toPx()
+        val sw = 1.6.dp.toPx()
         val corners = listOf(
             Offset(inset, inset) to Offset(1f, 1f),
             Offset(w - inset, inset) to Offset(-1f, 1f),
@@ -584,19 +763,101 @@ private fun ViewfinderGuides() {
 }
 
 /**
- * Rounds the viewfinder. The camera draws into its own surface, which a Compose clip cannot
- * shape, so the corners outside the rounded rectangle are painted over in the background colour.
+ * A small compass: the ring turns so its N points north from where the camera looks, a dot on it
+ * marks the Moon when it is up, and the Moon's phase sits in the middle. Follows the phone only
+ * while the app is in front; tapping it opens the sky view.
  */
 @Composable
-private fun RoundedMask(radius: Dp, color: Color, border: Color) {
-    Canvas(Modifier.fillMaxSize()) {
-        val r = radius.toPx()
-        val bounds = Rect(Offset.Zero, size)
-        val outer = Path().apply { addRect(bounds) }
-        val inner = Path().apply { addRoundRect(RoundRect(bounds, CornerRadius(r))) }
-        val corners = Path().apply { op(outer, inner, PathOperation.Difference) }
-        drawPath(corners, color)
-        drawRoundRect(border, cornerRadius = CornerRadius(r), style = Stroke(1.dp.toPx()))
+private fun Compass(moon: MoonPhase?, southern: Boolean, onClick: () -> Unit, modifier: Modifier) {
+    val c = Sc.colors
+    val context = LocalContext.current
+    val orientation = remember { SkyOrientation(context, SensorManager.SENSOR_DELAY_UI) }
+    if (!orientation.available) return
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, e ->
+            when (e) {
+                Lifecycle.Event.ON_RESUME -> orientation.start()
+                Lifecycle.Event.ON_PAUSE -> orientation.stop()
+                else -> Unit
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose {
+            lifecycle.removeObserver(observer)
+            orientation.stop()
+        }
+    }
+    val place = remember { SkyPlaceStore(context).load() }
+    // True north: the sensor gives magnetic north, corrected where the place is known.
+    val declination = remember(place) {
+        place?.let { GeomagneticField(it.loc.latDeg.toFloat(), it.loc.lonDeg.toFloat(), 0f, System.currentTimeMillis()).declination } ?: 0f
+    }
+    var moonAz by remember { mutableStateOf<Double?>(null) }
+    LaunchedEffect(place) {
+        val p = place ?: return@LaunchedEffect
+        while (true) {
+            moonAz = SkyMath.moon(System.currentTimeMillis(), p.loc).takeIf { it.altDeg > 0.0 }?.azDeg
+            delay(60_000L)
+        }
+    }
+    val measurer = rememberTextMeasurer()
+    val nStyle = TextStyle(fontFamily = NotoSans, fontWeight = FontWeight.Bold, fontSize = 12.sp,
+        shadow = androidx.compose.ui.graphics.Shadow(Color(0xCC000000), Offset.Zero, 5f))
+    val ring = c.text2.copy(alpha = 0.75f)
+    val accent = c.accent
+    val moonColor = c.accentText
+    Box(
+        modifier.size(66.dp).clip(CircleShape).clickable(role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = "Compass: north and the Moon. Opens the sky view." },
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.fillMaxSize()) {
+            val m = orientation.matrix.value ?: return@Canvas
+            val heading = cameraHeadingDeg(m) + declination
+            val o = center
+            val r = 20.dp.toPx()
+            val sw = 1.3.dp.toPx()
+            drawCircle(ring, r, o, style = Stroke(sw))
+            fun at(deg: Double, radius: Float): Offset {
+                val a = Math.toRadians(deg - heading)
+                return Offset(o.x + radius * sin(a).toFloat(), o.y - radius * cos(a).toFloat())
+            }
+            // Ticks for E, S and W across the ring; north gets the arrow and its letter.
+            for (d in listOf(90.0, 180.0, 270.0)) drawLine(ring, at(d, r - 5.dp.toPx()), at(d, r + 5.dp.toPx()), sw)
+            val tip = at(0.0, r + 2.dp.toPx())
+            val base = at(0.0, r - 6.dp.toPx())
+            val side = Offset(-(tip.y - base.y), tip.x - base.x).let { v ->
+                val len = sqrt(v.x * v.x + v.y * v.y).coerceAtLeast(1e-3f)
+                Offset(v.x / len * 4.dp.toPx(), v.y / len * 4.dp.toPx())
+            }
+            drawPath(Path().apply {
+                moveTo(tip.x, tip.y)
+                lineTo(base.x + side.x, base.y + side.y)
+                lineTo(base.x - side.x, base.y - side.y)
+                close()
+            }, accent)
+            val n = measurer.measure("N", nStyle)
+            val np = at(0.0, r + 11.dp.toPx())
+            drawText(n, color = c.accentText, topLeft = Offset(np.x - n.size.width / 2f, np.y - n.size.height / 2f))
+            moonAz?.let { az -> drawCircle(moonColor, 3.dp.toPx(), at(az, r)) }
+        }
+        MoonGlyph(moon, southern, Modifier.size(20.dp))
+    }
+}
+
+/**
+ * Where the camera looks, in degrees east of (magnetic) north, from the rotation matrix (device to
+ * world: x east, y north, z up). Looking nearly straight up or down, the top of the phone stands in.
+ */
+private fun cameraHeadingDeg(m: FloatArray): Double {
+    // The back camera looks along the device's -z.
+    val east = -m[2]
+    val north = -m[5]
+    return if (sqrt(east * east + north * north) > 0.35f) {
+        Math.toDegrees(atan2(east.toDouble(), north.toDouble()))
+    } else {
+        Math.toDegrees(atan2(m[1].toDouble(), m[4].toDouble()))
     }
 }
 
@@ -671,15 +932,16 @@ private fun ViewfinderTip(
     onDismiss: () -> Unit,
 ) {
     val c = Sc.colors
+    val shape = RoundedCornerShape(18.dp)
     Row(
-        Modifier.fillMaxWidth().clip(ScShapes.button).background(c.glass)
-            .border(1.dp, if (tint == c.warning) c.warningBorder else c.selectedBorder, ScShapes.button)
+        Modifier.fillMaxWidth().clip(shape).background(c.glass)
+            .border(1.dp, if (tint == c.warning) c.warningBorder else c.selectedBorder.copy(alpha = 0.7f), shape)
             .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
-            .padding(start = 12.dp, top = 8.dp, bottom = 8.dp, end = 2.dp),
+            .padding(start = 14.dp, top = 8.dp, bottom = 8.dp, end = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, null, Modifier.size(16.dp), tint = tint)
-        Spacer(Modifier.width(8.dp))
+        Icon(icon, null, Modifier.size(17.dp), tint = tint)
+        Spacer(Modifier.width(9.dp))
         Text(text, style = ScType.bodySmall, color = c.text, modifier = Modifier.weight(1f))
         Box(
             Modifier.size(44.dp).clip(CircleShape).clickable(onClick = onDismiss, role = Role.Button)
@@ -694,8 +956,8 @@ private fun ViewfinderTip(
 private fun NightDimmer(value: Float, onChange: (Float) -> Unit) {
     val c = Sc.colors
     Row(
-        Modifier.fillMaxWidth().height(40.dp).clip(CircleShape).background(c.glass)
-            .border(1.dp, c.hairline, CircleShape).padding(horizontal = 12.dp),
+        Modifier.fillMaxWidth().height(42.dp).clip(CircleShape).background(c.glass)
+            .border(1.dp, c.hairline, CircleShape).padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(ScIcons.Sun, "Screen dimming", Modifier.size(16.dp), tint = c.text2)
@@ -704,204 +966,130 @@ private fun NightDimmer(value: Float, onChange: (Float) -> Unit) {
     }
 }
 
-/** "Auto · 8.5 s × 20 · ISO auto · +4 darks ›" - what the shutter will do. Opens Pro. */
+// ------------------------------------------------------------------------------- session length
+
+/**
+ * About how long a session with [p] takes, in whole minutes: the frames with their gaps, the dark
+ * frames, and the minute or so of settling, measuring and focusing before them. "Shoot for" sets
+ * the time itself.
+ */
+private fun sessionMinutes(p: Plan, s: AppSettings): Int {
+    if (s.mode == Mode.ASTRO && s.autopilotMinutes > 0) return s.autopilotMinutes
+    val seconds = p.frames * (p.exposureSec + s.cooldownSec + 0.5) + p.darks * (p.exposureSec + 0.5) + 45.0
+    return ceil(seconds / 60.0).toInt().coerceAtLeast(1)
+}
+
+/** One choice in the session-length strip: a big value, a small word under it. */
+private class Segment(val value: String, val label: String?, val selected: Boolean, val description: String)
+
+/**
+ * The strip over the viewfinder's foot changes with the mode: how long a Stars session takes at
+ * each preset; the trail and meteor durations; in Manual, the three numbers that matter, each
+ * opening Adjust.
+ */
 @Composable
-private fun PlanChip(plan: Plan, mode: Mode, onClick: () -> Unit, modifier: Modifier) {
-    val c = Sc.colors
-    val text = buildAnnotatedString {
-        withStyle(SpanStyle(color = c.accentText, fontWeight = FontWeight.SemiBold)) {
-            append(if (plan.manual) "Manual" else "Auto")
-        }
-        val parts = buildList {
-            when (mode) {
-                Mode.TRAILS -> add("${plan.minutes} min trails")
-                Mode.METEOR -> add("${plan.minutes} min watch")
-                else -> Unit
+private fun SecondaryRow(vm: StarCamViewModel, s: AppSettings, plan: Plan, cam: CamInfo?, onOpenPro: () -> Unit) {
+    when {
+        s.mode == Mode.TRAILS -> {
+            val options = listOf(10, 20, 30, 60)
+            SegmentStrip(options.map { m -> Segment("$m min", null, m == s.trailsMinutes, "Star trails for $m minutes") }) { i ->
+                vm.settingsStore.update { it.copy(trailsMinutes = options[i]) }
             }
-            add(exposureText(plan.exposureSec) + if (plan.minutes == null) " × ${plan.frames}" else " frames")
-            add(plan.iso?.let { "ISO $it" } ?: "ISO auto")
-            if (plan.darks > 0) add("+${plan.darks} darks")
         }
-        append(" · ")
-        append(parts.joinToString(" · "))
+        s.mode == Mode.METEOR -> {
+            val options = listOf(15, 30, 60, 120)
+            SegmentStrip(options.map { m ->
+                Segment(if (m >= 60) "${m / 60} h" else "$m min", null, m == s.meteorMinutes, "Watch for meteors for $m minutes")
+            }) { i -> vm.settingsStore.update { it.copy(meteorMinutes = options[i]) } }
+        }
+        plan.manual -> SegmentStrip(
+            listOf(
+                Segment(exposureText(plan.exposureSec), "Shutter", false, "Shutter ${exposureText(plan.exposureSec)}: opens Adjust"),
+                Segment("${plan.iso ?: s.iso}", "ISO", false, "ISO ${plan.iso ?: s.iso}: opens Adjust"),
+                Segment("${plan.frames}", "Frames", false, "${plan.frames} frames: opens Adjust"),
+            ),
+        ) { onOpenPro() }
+        else -> SegmentStrip(
+            Quality.entries.map { q ->
+                val minutes = sessionMinutes(planFor(s.copy(quality = q), cam), s)
+                Segment("~$minutes min", qualityName(q), q == s.quality,
+                    "${qualityName(q)}: about $minutes minutes, ${q.frames} frames")
+            },
+        ) { i -> vm.settingsStore.update { it.copy(quality = Quality.entries[i]) } }
     }
+}
+
+@Composable
+private fun SegmentStrip(segments: List<Segment>, onSelect: (Int) -> Unit) {
+    val c = Sc.colors
+    val twoLines = segments.any { it.label != null }
+    val shape = RoundedCornerShape(if (twoLines) 24.dp else 20.dp)
+    val inner = RoundedCornerShape(if (twoLines) 19.dp else 16.dp)
     Row(
-        modifier.height(40.dp).clip(CircleShape).background(c.glass).border(1.dp, c.hairline, CircleShape)
-            .clickable(role = Role.Button, onClick = onClick)
-            .semantics { contentDescription = "Plan: ${text.text}. Opens Pro controls." }
-            .padding(start = 14.dp, end = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        // About three quarters of the width, as in the design; four choices get a little more.
+        Modifier.padding(horizontal = 24.dp).widthIn(max = if (segments.size > 3) 330.dp else 280.dp).fillMaxWidth()
+            .height(if (twoLines) StripHeight else StripHeightOneLine)
+            .clip(shape).background(c.glass).border(1.dp, c.hairlineStrong, shape).padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Text(text, style = ScType.bodySmall.copy(fontFeatureSettings = "tnum"), color = c.text,
-            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-        Icon(ScIcons.ChevronRight, null, Modifier.size(16.dp).padding(start = 2.dp), tint = c.text3)
+        segments.forEachIndexed { i, seg ->
+            Column(
+                Modifier.weight(1f).fillMaxHeight()
+                    .scGlow(c.accentGlow.copy(alpha = c.accentGlow.alpha * 0.5f), radius = 10.dp, cornerRadius = 19.dp,
+                        enabled = seg.selected)
+                    .clip(inner)
+                    .then(
+                        if (seg.selected) Modifier.background(Brush.verticalGradient(listOf(c.selectedFill, c.selectedFill.copy(alpha = c.selectedFill.alpha * 0.7f))))
+                            .border(1.dp, c.selectedBorder, inner)
+                        else Modifier
+                    )
+                    .clickable(role = Role.RadioButton) { onSelect(i) }
+                    .semantics {
+                        contentDescription = seg.description
+                        selected = seg.selected
+                    },
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text(seg.value, style = ScType.headline.copy(fontSize = 16.sp, lineHeight = 19.sp,
+                    fontWeight = FontWeight.Medium, fontFeatureSettings = "tnum"),
+                    color = if (seg.selected) c.onSelected else c.text, maxLines = 1)
+                if (seg.label != null) {
+                    Text(seg.label, style = ScType.caption.copy(fontSize = 11.5.sp, lineHeight = 14.sp), maxLines = 1,
+                        color = if (seg.selected) c.accentText else c.text2)
+                }
+            }
+        }
     }
 }
 
-// ------------------------------------------------------------------------------- controls
-
-private fun modeIcon(m: Mode) = when (m) {
-    Mode.ASTRO -> ScIcons.Astro
-    Mode.TRAILS -> ScIcons.Trails
-    Mode.METEOR -> ScIcons.Meteor
-    Mode.PRO -> ScIcons.ProMode
-}
-
-/** Tab widths follow the label lengths, so METEOR β gets the room PRO does not need. */
-private fun modeWeight(m: Mode) = when (m) {
-    Mode.ASTRO -> 1f
-    Mode.TRAILS -> 1.05f
-    Mode.METEOR -> 1.25f
-    Mode.PRO -> 0.8f
-}
+// ------------------------------------------------------------------------------- modes
 
 @Composable
 private fun ModeTabs(mode: Mode, onSelect: (Mode) -> Unit) {
-    val c = Sc.colors
-    // With a large system font the labels alone fill the tabs; the icons go first.
-    val showIcons = LocalDensity.current.fontScale <= 1.2f
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 12.dp).height(44.dp)
-            .clip(ScShapes.chip).background(c.sunken).border(1.dp, c.hairline, ScShapes.chip)
-            .padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
-    ) {
-        Mode.entries.forEach { m ->
-            val sel = m == mode
-            val tint = if (sel) c.onSelected else c.text2
-            Row(
-                Modifier.weight(modeWeight(m)).fillMaxHeight().clip(ScShapes.segmentItem)
-                    .then(
-                        if (sel) Modifier.background(c.selectedFill).border(1.dp, c.selectedBorder, ScShapes.segmentItem)
-                        else Modifier
-                    )
-                    .clickable(role = Role.Tab) { onSelect(m) },
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (showIcons) {
-                    Icon(modeIcon(m), null, Modifier.size(15.dp), tint = if (sel) c.accent else c.text3)
-                    Spacer(Modifier.width(4.dp))
-                }
-                Text(
-                    buildAnnotatedString {
-                        append(m.name)
-                        if (m == Mode.METEOR) {
-                            withStyle(SpanStyle(color = c.warning, baselineShift = BaselineShift.Superscript,
-                                letterSpacing = 0.sp)) { append(" β") }
-                        }
-                    },
-                    style = ScType.label, color = tint, maxLines = 1, softWrap = false,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-    }
+    ScTabs(
+        tabs = listOf(
+            ScTab(ScIcons.Astro, "Stars"),
+            ScTab(ScIcons.Trails, "Star trails"),
+            ScTab(ScIcons.Meteor, "Meteor", badge = "β"),
+            ScTab(ScIcons.ProMode, "Manual"),
+        ),
+        selectedIndex = mode.ordinal,
+        onSelect = { onSelect(Mode.entries[it]) },
+        weights = listOf(0.8f, 1.2f, 1.07f, 0.93f),
+        modifier = Modifier.padding(horizontal = 4.dp),
+        height = 46.dp,
+    )
 }
 
-/**
- * The second row changes with the mode: astro quality presets; trail and meteor durations; for
- * manual exposure, the three numbers that matter, each opening the Pro sheet.
- */
-@Composable
-private fun SecondaryRow(vm: StarCamViewModel, s: AppSettings, plan: Plan, onOpenPro: () -> Unit) {
-    val modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).height(38.dp)
-    when {
-        s.mode == Mode.TRAILS -> OptionStrip(
-            options = listOf(10, 20, 30, 60),
-            selected = s.trailsMinutes,
-            text = { "$it" }, unit = "min",
-            modifier = modifier,
-        ) { m -> vm.settingsStore.update { it.copy(trailsMinutes = m) } }
-        s.mode == Mode.METEOR -> OptionStrip(
-            options = listOf(15, 30, 60, 120),
-            selected = s.meteorMinutes,
-            text = { "$it" }, unit = "min",
-            modifier = modifier,
-        ) { m -> vm.settingsStore.update { it.copy(meteorMinutes = m) } }
-        plan.manual -> Row(modifier, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            ManualChip("Shutter", exposureText(plan.exposureSec), Modifier.weight(1f), onOpenPro)
-            ManualChip("ISO", "${plan.iso ?: s.iso}", Modifier.weight(1f), onOpenPro)
-            ManualChip("Frames", "${plan.frames}", Modifier.weight(1f), onOpenPro)
-        }
-        else -> QualityStrip(s.quality, modifier) { q -> vm.settingsStore.update { it.copy(quality = q) } }
-    }
-}
+// ------------------------------------------------------------------------------- bottom
 
-@Composable
-private fun QualityStrip(quality: Quality, modifier: Modifier, onSelect: (Quality) -> Unit) {
-    val c = Sc.colors
-    Row(
-        modifier.clip(ScShapes.chip).background(c.sunken).border(1.dp, c.hairline, ScShapes.chip).padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
-    ) {
-        Quality.entries.forEach { q ->
-            val sel = q == quality
-            Row(
-                Modifier.weight(1f).fillMaxHeight().clip(ScShapes.segmentItem)
-                    .then(
-                        if (sel) Modifier.background(c.selectedFill).border(1.dp, c.selectedBorder, ScShapes.segmentItem)
-                        else Modifier
-                    )
-                    .clickable(role = Role.RadioButton) { onSelect(q) }
-                    .semantics { contentDescription = "${q.name.lowercase()}, ${q.frames} frames" },
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(q.name, style = ScType.label, color = if (sel) c.onSelected else c.text2)
-                Spacer(Modifier.width(6.dp))
-                Text("${q.frames}", style = ScType.data, color = if (sel) c.accentText else c.text3)
-            }
-        }
-    }
-}
-
-@Composable
-private fun OptionStrip(
-    options: List<Int>,
-    selected: Int,
-    text: (Int) -> String,
-    unit: String,
-    modifier: Modifier,
-    onSelect: (Int) -> Unit,
-) {
-    val c = Sc.colors
-    Row(
-        modifier.clip(ScShapes.chip).background(c.sunken).border(1.dp, c.hairline, ScShapes.chip).padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
-    ) {
-        options.forEach { o ->
-            val sel = o == selected
-            Box(
-                Modifier.weight(1f).fillMaxHeight().clip(ScShapes.segmentItem)
-                    .then(
-                        if (sel) Modifier.background(c.selectedFill).border(1.dp, c.selectedBorder, ScShapes.segmentItem)
-                        else Modifier
-                    )
-                    .clickable(role = Role.RadioButton) { onSelect(o) },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("${text(o)} $unit", style = ScType.data.copy(fontWeight = FontWeight.Medium),
-                    color = if (sel) c.onSelected else c.text2)
-            }
-        }
-    }
-}
-
-@Composable
-private fun ManualChip(label: String, value: String, modifier: Modifier, onClick: () -> Unit) {
-    val c = Sc.colors
-    Row(
-        modifier.fillMaxHeight().clip(ScShapes.chip).background(c.buttonSecondary)
-            .border(1.dp, c.hairline, ScShapes.chip).clickable(role = Role.Button, onClick = onClick)
-            .padding(horizontal = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center,
-    ) {
-        Text(label.uppercase(), style = ScType.label, color = c.text3)
-        Spacer(Modifier.width(6.dp))
-        Text(value, style = ScType.data.copy(fontWeight = FontWeight.Medium), color = c.text, maxLines = 1)
-    }
+/** The words the shutter's description gives each mode: "Start astro capture". */
+private fun captureName(m: Mode) = when (m) {
+    Mode.ASTRO -> "astro"
+    Mode.TRAILS -> "trails"
+    Mode.METEOR -> "meteor"
+    Mode.PRO -> "manual"
 }
 
 @Composable
@@ -912,7 +1100,6 @@ private fun BottomBar(
     canShoot: Boolean,
     onOpenPro: () -> Unit,
     onOpenSessions: () -> Unit,
-    onOpenSettings: () -> Unit,
 ) {
     val c = Sc.colors
     var thumb by remember { mutableStateOf<ImageBitmap?>(null) }
@@ -920,19 +1107,21 @@ private fun BottomBar(
     LaunchedEffect(idle) {
         if (idle) {
             thumb = withContext(Dispatchers.IO) {
-                latestPhoto(vm.repo.sessionsRoot())?.let { decodeDownsampled(it.absolutePath, 192)?.asImageBitmap() }
+                latestPhoto(vm.repo.sessionsRoot())?.let { decodeDownsampled(it.absolutePath, 256)?.asImageBitmap() }
             }
         }
     }
+    val square = RoundedCornerShape(17.dp)
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.SpaceEvenly,
+        Modifier.fillMaxWidth().padding(start = 32.dp, end = 32.dp, top = 14.dp, bottom = 10.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         BarItem("Gallery") {
             Box(
-                Modifier.size(44.dp).clip(CircleShape).background(c.buttonSecondary)
-                    .border(1.dp, c.hairlineStrong, CircleShape)
+                Modifier.size(58.dp).clip(square)
+                    .background(Brush.verticalGradient(listOf(c.raised, c.buttonSecondary)))
+                    .border(1.dp, c.hairlineStrong, square)
                     .clickable(role = Role.Button, onClick = onOpenSessions)
                     .semantics { contentDescription = "Sessions gallery" },
                 contentAlignment = Alignment.Center,
@@ -941,41 +1130,47 @@ private fun BottomBar(
                 if (t != null) {
                     Image(t, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
                         colorFilter = scImageFilter)
+                    Box(Modifier.fillMaxSize().border(1.dp, c.hairlineStrong, square))
                 } else {
-                    Icon(ScIcons.Gallery, null, Modifier.size(20.dp), tint = c.text)
+                    Icon(ScIcons.Photo, null, Modifier.size(26.dp), tint = c.iconBase)
                 }
             }
         }
-        BarItem("Night", selected = settings.nightMode) {
-            ScIconButton(
-                ScIcons.Night,
-                if (settings.nightMode) "Night vision on" else "Night vision off",
-                onClick = { vm.settingsStore.update { it.copy(nightMode = !it.nightMode) } },
-                selected = settings.nightMode,
+        BarItem(null) {
+            ScShutter(
+                enabled = canShoot,
+                onClick = { vm.startSession() },
+                contentDescription = "Start ${captureName(settings.mode)} capture",
+                size = 84.dp,
             )
         }
-        ScShutter(
-            enabled = canShoot,
-            onClick = { vm.startSession() },
-            contentDescription = "Start ${settings.mode.name.lowercase()} capture",
-        )
-        BarItem("Pro") {
-            ScIconButton(ScIcons.Sliders, "Pro controls", onClick = onOpenPro)
-        }
-        BarItem("Settings") {
-            ScIconButton(ScIcons.Settings, "Settings", onClick = onOpenSettings)
+        BarItem("Adjust") {
+            Box(
+                Modifier.size(58.dp).clip(square)
+                    .background(Brush.verticalGradient(listOf(c.raised, c.buttonSecondary)))
+                    .border(1.dp, c.hairlineStrong, square)
+                    .clickable(role = Role.Button, onClick = onOpenPro)
+                    .semantics { contentDescription = "Adjust: exposure, ISO, frames, focus" },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(ScIcons.Sliders, null, Modifier.size(28.dp), tint = c.iconBase)
+            }
         }
     }
 }
 
+/**
+ * A bottom-bar item with its name under it. The shutter gets an empty line of the same height, so
+ * all three centre on one line.
+ */
 @Composable
-private fun BarItem(label: String, selected: Boolean = false, content: @Composable () -> Unit) {
+private fun BarItem(label: String?, content: @Composable () -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         content()
         Text(
-            label, style = ScType.caption,
-            color = if (selected) Sc.colors.accentText else Sc.colors.text3,
-            modifier = Modifier.padding(top = 3.dp),
+            label ?: " ", style = ScType.button.copy(fontSize = 14.sp, fontWeight = FontWeight.Normal),
+            color = Sc.colors.text,
+            modifier = Modifier.padding(top = 6.dp),
         )
     }
 }
@@ -992,8 +1187,9 @@ private fun CameraProblemCard(
     onProbe: () -> Unit,
 ) {
     val c = Sc.colors
-    // No full-screen scrim: the bottom bar (Sessions, Settings) must stay reachable when the
-    // camera cannot come back - on a phone without a usable RAW camera, it never will.
+    // No full-screen scrim: the top row (the light map, Find, Settings) and the gallery must stay
+    // reachable when the camera cannot come back - on a phone without a usable RAW camera, it
+    // never will.
     Box(
         Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(16.dp),
         contentAlignment = Alignment.Center,
@@ -1001,7 +1197,7 @@ private fun CameraProblemCard(
         ScCard(Modifier.fillMaxWidth().blockTouches(), color = c.raised, borderColor = c.errorBorder) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
-                    Modifier.size(40.dp).clip(CircleShape).background(c.errorFill).border(1.dp, c.errorBorder, CircleShape),
+                    Modifier.size(42.dp).clip(CircleShape).background(c.errorFill).border(1.dp, c.errorBorder, CircleShape),
                     contentAlignment = Alignment.Center,
                 ) { Icon(ScIcons.Warning, null, Modifier.size(20.dp), tint = c.error) }
                 Spacer(Modifier.width(12.dp))
@@ -1009,7 +1205,7 @@ private fun CameraProblemCard(
             }
             Text(message, style = ScType.body, color = c.text2, modifier = Modifier.padding(top = 12.dp))
             if (noRaw) {
-                Text("The Tonight planner, Find and the dark-sky map at the top still work.",
+                Text("Tonight, Find and the light map still work.",
                     style = ScType.bodySmall, color = c.text3, modifier = Modifier.padding(top = 6.dp))
             }
             if (cameraLost) {
@@ -1035,8 +1231,8 @@ private fun CameraProblemCard(
 @Composable
 private fun ScreenShield(state: CaptureState, sessionStart: Long, onReveal: () -> Unit) {
     val night = Sc.colors.night
-    val dim = if (night) Color(0xFF4A100B) else Color(0xFF3A3A3A)
-    val dimmer = if (night) Color(0xFF350B07) else Color(0xFF2A2A2A)
+    val dim = if (night) Color(0xFF4A100B) else Color(0xFF3A3448)
+    val dimmer = if (night) Color(0xFF350B07) else Color(0xFF2A2536)
     val (cur, tot, what) = when (state) {
         is CaptureState.CapturingLights -> Triple(state.current, state.total, "frame")
         is CaptureState.CapturingDarks -> Triple(state.current, state.total, "dark")

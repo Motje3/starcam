@@ -17,12 +17,12 @@ Night sky photos from your phone: long exposures, stacked into one clear shot
 **Full description** (under 4,000):
 
 ```
-Stelli turns your phone into a night sky camera. Put it on a tripod, tap ASTRO, and Stelli takes a series of long exposures, lines them up and stacks them on the phone into one clean photo of the stars, the Milky Way or star trails.
+Stelli turns your phone into a night sky camera. Put it on a tripod, tap the shutter, and Stelli takes a series of long exposures, lines them up and stacks them on the phone into one clean photo of the stars, the Milky Way or star trails.
 
-Stelli needs a phone whose back camera gives apps RAW photos. On other phones it cannot take photos, but the planner, the sky view and the dark-sky map still work.
+Stelli needs a phone whose back camera gives apps RAW photos. On other phones it cannot take photos, but the planner, the sky view and the light map still work.
 
 TAKE THE PHOTO
-• Astro: 8, 20 or 40 frames stacked into one photo with less noise and more stars
+• Stars: 8, 20 or 40 frames (Quick, Balanced, Deep) stacked into one photo with less noise and more stars
 • Star trails, and a meteor watch (beta), that keep running with the screen off
 • Autopilot: leaves out frames spoiled by cloud or a knock, refocuses when the focus drifts, and stops when dawn comes
 • Darks: cover the lens for a few frames and Stelli takes out the hot pixels
@@ -34,7 +34,7 @@ PLAN THE NIGHT
 • Tonight: when it gets dark, where the Moon and the Milky Way are, and what is worth a shot
 • Sky view: hold the phone up and see the Milky Way, the stars and the Moon drawn over the camera; Find leads you to a galaxy, a planet or the North Star
 • Sky calendar: meteor showers, new and full moons, eclipses, planets at their best and the Milky Way season for where you are, with night alerts if you want them
-• Dark-sky map: an estimate of how dark your sky is (its Bortle class) and where the nearest darker sky is
+• Light map: an estimate of how dark your sky is (its Bortle class) and where the nearest darker sky is
 
 PRIVATE
 Stelli works fully offline, with no accounts, no ads and no tracking. Your photos and your location stay on your phone unless you share them.
@@ -45,10 +45,10 @@ Use a tripod, or lean the phone against something that does not move. Get away f
 
 **App icon**: `icon-512.png`, the owner's artwork (4 Nov 2026), also the launcher icon ·
 **Feature graphic**: `feature-graphic.png` · **Phone screenshots**: `screenshots\*.png`
-(1080 x 1920, in order): the emulator's screens (`tools\store-shots.ps1`) under a big icon and
-a short headline, drawn by `tools\store-screens.ps1`. Add screenshots of real results from the
-phone (a stacked photo, the studio) when you have them, first in the list: a line in that
-script's `$Screens` with the phone screenshot's full path and a headline, then run it again.
+(1080 x 1920, in order). The ones there show the old look: since 0.6.0 (5 Nov 2026) the app
+has the owner's design, and the new screens (`tools\ui-shots.ps1`) go to the owner's image AI,
+which designs the frames around them. Real results from the phone (a stacked photo, the studio)
+go first when there are some.
 
 ## Store settings
 

@@ -15,7 +15,11 @@ import kotlin.math.sqrt
  * Lightly smoothed (on the quaternion, so it stays a rotation), and published as Compose state
  * so a sky drawing redraws on every reading without recomposing the screen around it.
  */
-class SkyOrientation(context: Context) : SensorEventListener {
+class SkyOrientation(
+    context: Context,
+    /** The sky view follows every move; the capture screen's small compass makes do with less. */
+    private val rate: Int = SensorManager.SENSOR_DELAY_GAME,
+) : SensorEventListener {
 
     private val sm = context.getSystemService(SensorManager::class.java)
     private val rotation: Sensor? = sm?.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
@@ -31,7 +35,7 @@ class SkyOrientation(context: Context) : SensorEventListener {
     private var q: FloatArray? = null
 
     fun start() {
-        rotation?.let { sm?.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
+        rotation?.let { sm?.registerListener(this, it, rate) }
     }
 
     fun stop() {

@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -58,6 +59,7 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -83,6 +85,7 @@ import com.wm.starcam.ui.components.ScButtonKind
 import com.wm.starcam.ui.components.ScCard
 import com.wm.starcam.ui.components.ScConfirmDialog
 import com.wm.starcam.ui.components.ScGlass
+import com.wm.starcam.ui.components.ScIconBadge
 import com.wm.starcam.ui.components.ScIconButton
 import com.wm.starcam.ui.components.ScLabel
 import com.wm.starcam.ui.components.ScNotice
@@ -99,6 +102,7 @@ import com.wm.starcam.ui.theme.ScIcons
 import com.wm.starcam.ui.theme.ScShapes
 import com.wm.starcam.ui.theme.ScType
 import com.wm.starcam.ui.theme.ScreenMargin
+import com.wm.starcam.ui.theme.scBackground
 import com.wm.starcam.ui.theme.scImageFilter
 import com.wm.starcam.sky.StarCatalog
 import com.wm.starcam.util.ShareCard
@@ -145,7 +149,7 @@ fun SessionFlow(
     val cancelNow = { engine?.cancel(); Unit }
     val askStop = { confirmStop = true }
 
-    Box(Modifier.fillMaxSize().background(Sc.colors.background).blockTouches()) {
+    Box(Modifier.fillMaxSize().scBackground().blockTouches()) {
         when (state) {
             is CaptureState.WaitingStill -> HoldStillStep(vm, state, busy, settings, pending, cancelNow)
             CaptureState.Probing -> ReadingSkyStep(vm, busy, settings, pending, cancelNow)
@@ -678,9 +682,12 @@ private fun CapturingStep(
             vm = vm,
             refreshKey = st.current * 2 + if (st.lastStats != null) 1 else 0,
             enabled = s.livePreview,
-            chip = "Live stack · $kept frame" + if (kept == 1) "" else "s",
+            chip = "$kept frame" + if (kept == 1) "" else "s",
             stats = st.lastStats,
             onShield = onShield,
+            // Room left for the frame count, the time left and the ring under it: on a tall
+            // phone they used to be pushed below the buttons.
+            maxHeight = (LocalConfiguration.current.screenHeightDp * 0.38f).dp,
         )
         NowLine(busy, st, pending)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -847,7 +854,7 @@ private fun AutopilotLine(p: AutopilotStatus) {
         Column(Modifier.weight(1f)) {
             Text("Autopilot", style = ScType.caption.copy(fontWeight = FontWeight.SemiBold), color = c.text2)
             Text(
-                p.note ?: "Watching every frame for cloud, soft stars and a brightening sky",
+                p.note ?: "Watching for cloud, soft stars and dawn",
                 style = ScType.bodySmall, color = c.text, maxLines = 2,
             )
         }
@@ -875,7 +882,7 @@ private fun FrameTape(st: CaptureState.CapturingLights, completed: Int, rejected
     if (total > 40) {
         Box(Modifier.fillMaxWidth().height(8.dp).clip(CircleShape).background(c.raised)) {
             Box(Modifier.fillMaxWidth((completed.toFloat() / total).coerceIn(0f, 1f)).height(8.dp)
-                .clip(CircleShape).background(c.accent))
+                .clip(CircleShape).background(Brush.horizontalGradient(listOf(c.switchTrackOn, c.accent))))
         }
         return
     }
@@ -915,6 +922,8 @@ private fun LiveStackCard(
     stats: FrameStats?,
     placeholder: String = "The live stack appears after the first frame.",
     onShield: (() -> Unit)? = null,
+    /** At most this tall, narrower if need be: the numbers under it must fit the screen. */
+    maxHeight: Dp = Dp.Infinity,
 ) {
     val c = Sc.colors
     var image by remember { mutableStateOf<ImageBitmap?>(null) }
@@ -942,8 +951,9 @@ private fun LiveStackCard(
         }
     }
     Box(
-        Modifier.fillMaxWidth().aspectRatio(if (portrait) 3f / 4f else 4f / 3f).clip(ScShapes.card)
-            .background(c.sunken).border(1.dp, c.hairline, ScShapes.card),
+        Modifier.fillMaxWidth().wrapContentWidth().heightIn(max = maxHeight)
+            .aspectRatio(if (portrait) 3f / 4f else 4f / 3f).clip(ScShapes.card)
+            .background(c.sunken).border(1.dp, c.hairlineStrong, ScShapes.card),
     ) {
         val img = image
         if (img != null) {
@@ -1015,13 +1025,14 @@ private fun CoverLensStep(
             }
         },
     ) {
-        Icon(ScIcons.DarkFrame, null, Modifier.size(56.dp), tint = c.accent)
+        ScIconBadge(ScIcons.DarkFrame, size = 72.dp)
         StepTitle(
             "Cover the lens",
             "Put the lens cap on, or hold a dark cloth or your palm firmly over the camera. " +
                 "Stelli then takes ${s.darkCount} dark frames to find and remove hot pixels.",
             centered = true,
         )
+        // Nobody pressing anything skips the dark frames: the photo is stacked without them.
         ScRing(st.secondsLeft / 60f, Modifier.size(150.dp), strokeWidth = 6.dp) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Row(verticalAlignment = Alignment.Bottom) {
@@ -1031,10 +1042,6 @@ private fun CoverLensStep(
                 Text("then skips", style = ScType.caption, color = c.text3)
             }
         }
-        Text(
-            "If nobody presses anything, the dark frames are skipped and the photo is stacked without them.",
-            style = ScType.bodySmall, color = c.text3, textAlign = TextAlign.Center,
-        )
     }
 }
 
@@ -1101,7 +1108,8 @@ private fun StackingStep(
         actions = { StopButton("Stop", pending, onStop, Modifier.fillMaxWidth()) },
     ) {
         LiveStackCard(vm, refreshKey = st.percent, enabled = s.livePreview, chip = "Stacking", stats = null,
-            placeholder = "The image appears here as it stacks.")
+            placeholder = "The image appears here as it stacks.",
+            maxHeight = (LocalConfiguration.current.screenHeightDp * 0.34f).dp)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
             Column(Modifier.weight(1f)) {
                 Text("Processing your photo", style = ScType.bodySmall, color = c.text2)
@@ -1119,7 +1127,8 @@ private fun StackingStep(
                     indices.all { it < idx } -> RowState.Done
                     else -> RowState.Pending
                 }
-                CheckRow(g.title, rowState, detail = g.detail,
+                // What a stage does is said while it runs; done and waiting ones keep to their name.
+                CheckRow(g.title, rowState, detail = if (rowState == RowState.Active) g.detail else null,
                     trailing = if (rowState == RowState.Active) "${st.percent}%" else null)
             }
         }

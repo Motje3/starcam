@@ -1,5 +1,8 @@
 # StarCam — design handoff
 
+> **Superseded (Nov 2026).** The app now has the owner's purple design: `design/STYLE.md` is its
+> style. This folder is the first design, kept for its history.
+
 Dark-mode Android UI for StarCam, an astrophotography camera app. 24 boards: every screen and state from the brief, night-vision red variants, onboarding, foundations and a component sheet.
 
 ## What's here

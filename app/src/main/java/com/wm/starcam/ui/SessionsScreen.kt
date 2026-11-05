@@ -2,21 +2,26 @@ package com.wm.starcam.ui
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,16 +33,23 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.wm.starcam.session.Mode
 import com.wm.starcam.session.SessionRepository
 import com.wm.starcam.session.SessionSummary
-import com.wm.starcam.ui.components.ScCard
 import com.wm.starcam.ui.components.ScChip
+import com.wm.starcam.ui.components.ScEmptyState
 import com.wm.starcam.ui.components.ScGlass
 import com.wm.starcam.ui.components.ScScreen
 import com.wm.starcam.ui.components.ScSpinner
@@ -52,8 +64,9 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * Past sessions as a two-column grid, newest first, with what each one ended as: a finished
- * photo, RAWs only, or interrupted with frames saved. Thumbnails decode lazily on IO.
+ * Past sessions as a two-column grid of photos, newest first: the date on the picture, the mode as
+ * its icon with the frame count, and a badge only when a session did not simply finish (cut off,
+ * RAW frames only). Thumbnails decode lazily on IO.
  */
 @Composable
 fun SessionsScreen(
@@ -72,28 +85,15 @@ fun SessionsScreen(
     }
 
     ScScreen {
-        ScTopBar("Sessions", onBack, actions = {
-            free?.let {
-                Text("${bytesText(it)} free", style = ScType.data, color = c.text3,
-                    modifier = Modifier.padding(end = 8.dp))
-            }
-        })
+        ScTopBar("Gallery", onBack, subtitle = free?.let { "${bytesText(it)} free" })
         val list = sessions
         when {
             list == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 ScSpinner(size = 28.dp)
             }
-            list.isEmpty() -> Column(
-                Modifier.fillMaxSize().padding(32.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Icon(ScIcons.Gallery, null, Modifier.size(40.dp), tint = c.text3)
-                Text("No sessions yet", style = ScType.titleSmall, color = c.text,
-                    modifier = Modifier.padding(top = 12.dp))
-                Text("Every capture lands here, newest first, with its RAW frames and photo.",
-                    style = ScType.body, color = c.text2, textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(top = 6.dp))
+            list.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                ScEmptyState(ScIcons.Photo, "No photos yet",
+                    "Every session lands here, newest first, with its RAW frames and photo.")
             }
             else -> {
                 val byMode = list.groupBy { modeOf(it) }
@@ -101,13 +101,15 @@ fun SessionsScreen(
                     Row(
                         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
                             .padding(horizontal = ScreenMargin, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         ScChip("All ${list.size}", selected = filter == null, onClick = { filter = null }, height = 40.dp)
                         Mode.entries.forEach { m ->
                             val n = byMode[m]?.size ?: 0
                             if (n > 0) {
-                                ScChip("${modeLabel(m)} $n", selected = filter == m, onClick = { filter = m }, height = 40.dp)
+                                ScChip("$n", selected = filter == m, onClick = { filter = m }, height = 40.dp,
+                                    icon = modeIcon(m),
+                                    modifier = Modifier.semantics { contentDescription = "${modeLabel(m)}: $n" })
                             }
                         }
                     }
@@ -117,8 +119,8 @@ fun SessionsScreen(
                     columns = GridCells.Fixed(2),
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(start = ScreenMargin, end = ScreenMargin, top = 8.dp, bottom = 20.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     items(shown, key = { it.dir.absolutePath }) { s ->
                         SessionTile(s, onClick = { onOpen(s.dir) })
@@ -135,45 +137,60 @@ private fun modeOf(s: SessionSummary): Mode? =
 @Composable
 private fun SessionTile(s: SessionSummary, onClick: () -> Unit) {
     val c = Sc.colors
-    ScCard(Modifier.fillMaxWidth(), padding = PaddingValues(0.dp), onClick = onClick) {
-        Box(Modifier.fillMaxWidth().aspectRatio(4f / 3f).background(c.sunken)) {
-            // A plain state + effect: with produceState, lint's check reported the assignment as
-            // missing (a false "never assigns value" error that failed the lint task).
-            val path = s.finalJpg?.absolutePath
-            var thumb by remember(path) { mutableStateOf<ImageBitmap?>(null) }
-            LaunchedEffect(path) {
-                thumb = path?.let { p ->
-                    withContext(Dispatchers.IO) { decodeDownsampled(p, 400)?.asImageBitmap() }
-                }
+    val shape = RoundedCornerShape(20.dp)
+    val mode = modeOf(s)
+    Box(
+        Modifier.fillMaxWidth().aspectRatio(3f / 4f).clip(shape)
+            .background(Brush.verticalGradient(listOf(c.raised, c.sunken)))
+            .border(1.dp, c.hairlineStrong, shape)
+            .clickable(role = Role.Button, onClick = onClick),
+    ) {
+        // A plain state + effect: with produceState, lint's check reported the assignment as
+        // missing (a false "never assigns value" error that failed the lint task).
+        val path = s.finalJpg?.absolutePath
+        var thumb by remember(path) { mutableStateOf<ImageBitmap?>(null) }
+        LaunchedEffect(path) {
+            thumb = path?.let { p ->
+                withContext(Dispatchers.IO) { decodeDownsampled(p, 480)?.asImageBitmap() }
             }
-            val t = thumb
-            if (t != null) {
-                Image(t, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, colorFilter = scImageFilter)
-            } else {
-                Icon(ScIcons.Stack, null, Modifier.size(28.dp).align(Alignment.Center), tint = c.text3)
-            }
-            StatusBadge(s, Modifier.align(Alignment.TopStart).padding(8.dp))
         }
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
-            Text(sessionTitle(s.name, s.startedAt), style = ScType.headline.copy(fontFeatureSettings = "tnum"),
+        val t = thumb
+        if (t != null) {
+            Image(t, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, colorFilter = scImageFilter)
+        } else {
+            Icon(ScIcons.Stack, null, Modifier.size(30.dp).align(Alignment.Center), tint = c.text3)
+        }
+        StatusBadge(s, Modifier.align(Alignment.TopStart).padding(8.dp))
+        Column(
+            Modifier.align(Alignment.BottomStart).fillMaxWidth()
+                .background(Brush.verticalGradient(listOf(Color.Transparent, c.glass, c.glass)))
+                .padding(start = 12.dp, end = 12.dp, top = 22.dp, bottom = 10.dp),
+        ) {
+            Text(sessionTitle(s.name, s.startedAt),
+                style = ScType.headline.copy(fontSize = 15.sp, fontWeight = FontWeight.Medium, fontFeatureSettings = "tnum"),
                 color = c.text, maxLines = 1)
-            val mode = modeOf(s)?.let { modeLabel(it) } ?: s.mode
-            Text("$mode · ${s.frameCount} frame${if (s.frameCount == 1) "" else "s"}",
-                style = ScType.caption, color = c.text3, maxLines = 1)
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
+                if (mode != null) {
+                    Icon(modeIcon(mode), null, Modifier.size(14.dp), tint = c.accentText)
+                    Spacer(Modifier.width(5.dp))
+                }
+                Text("${mode?.let { modeLabel(it) } ?: s.mode} · ${s.frameCount}",
+                    style = ScType.caption.copy(fontFeatureSettings = "tnum"), color = c.text2, maxLines = 1)
+            }
         }
     }
 }
 
+/** Only what needs saying: meteors caught, a session cut off or failed, RAW frames only. */
 @Composable
 private fun StatusBadge(s: SessionSummary, modifier: Modifier) {
     val c = Sc.colors
     val (icon, text, color) = when {
-        s.finished && s.meteorCount > 0 ->
-            Triple(ScIcons.Check, "${s.meteorCount} meteor${if (s.meteorCount == 1) "" else "s"}", c.accentText)
-        s.finished -> Triple(ScIcons.Check, "Finished", c.accentText)
-        s.issueCount > 0 && s.frameCount > 0 -> Triple(ScIcons.Warning, "Interrupted · ${s.frameCount} saved", c.warning)
+        s.finished && s.meteorCount > 0 -> Triple(ScIcons.Meteor, "${s.meteorCount}", c.accentText)
+        s.finished -> return
+        s.issueCount > 0 && s.frameCount > 0 -> Triple(ScIcons.Warning, "Cut off · ${s.frameCount} saved", c.warning)
         s.issueCount > 0 -> Triple(ScIcons.Warning, "Failed", c.warning)
-        s.frameCount > 0 -> Triple(ScIcons.Stack, "RAWs only", c.text)
+        s.frameCount > 0 -> Triple(ScIcons.Stack, "RAW only", c.text)
         else -> Triple(ScIcons.Close, "Empty", c.text3)
     }
     ScGlass(modifier, padding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)) {

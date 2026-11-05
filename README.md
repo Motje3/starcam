@@ -21,7 +21,7 @@ Moon and your own sky, the Milky Way's nights and season, eclipses as seen from 
 planets at their best - each one a tap from the sky view at that moment, with an afternoon alert
 on nights worth going out for.
 
-A **dark-sky map** shows the light pollution around you (built into the app from 2025 satellite
+A **light map** shows the light pollution around you (built into the app from 2025 satellite
 night lights and a published sky-glow model, so it works offline), how dark your own sky is, and
 the darker places within reach - with the way there in your maps app and the night planned there.
 

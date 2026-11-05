@@ -90,6 +90,7 @@ import com.wm.starcam.ui.components.ScLabel
 import com.wm.starcam.ui.components.ScScreen
 import com.wm.starcam.ui.components.ScSpinner
 import com.wm.starcam.ui.components.ScTopBar
+import com.wm.starcam.ui.theme.NotoSans
 import com.wm.starcam.ui.theme.Sc
 import com.wm.starcam.ui.theme.ScIcons
 import com.wm.starcam.ui.theme.ScShapes
@@ -312,7 +313,7 @@ fun DarkSkyScreen(onBack: () -> Unit, onPlanThere: (GeoLocation, String) -> Unit
 
     ScScreen {
         ScTopBar(
-            title = "Dark skies",
+            title = "Light map",
             subtitle = place?.let { "Light pollution near you" } ?: "Find a darker sky",
             onBack = onBack,
         )
@@ -406,8 +407,14 @@ private fun BortleBadge(bortle: Int, night: Boolean, size: androidx.compose.ui.u
         Modifier.size(size).clip(CircleShape).background(bg).border(1.dp, Sc.colors.hairlineStrong, CircleShape),
         contentAlignment = Alignment.Center,
     ) {
+        // Night vision: dark on the bright red of a city sky, red on the near-black of a dark
+        // one; never white.
         Text("$bortle", style = ScType.bodySmall.copy(fontWeight = FontWeight.Bold),
-            color = if (bortle <= 3 || night) Color.White else Color(0xFF101010))
+            color = when {
+                night -> if (bortle >= 5) Color(0xFF1A0503) else Color(0xFFFF6A5A)
+                bortle <= 3 -> Color.White
+                else -> Color(0xFF101010)
+            })
     }
 }
 
@@ -618,7 +625,7 @@ private fun DarkSkyMap(
     }
 }
 
-private val TownStyle = TextStyle(fontSize = 10.sp, fontWeight = FontWeight.Medium,
+private val TownStyle = TextStyle(fontFamily = NotoSans, fontSize = 10.sp, fontWeight = FontWeight.Medium,
     shadow = androidx.compose.ui.graphics.Shadow(Color(0xDD000000), Offset.Zero, 5f))
 private val SiteStyle = TownStyle.copy(fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
 
@@ -742,28 +749,32 @@ private fun DrawScope.drawMap(
         }
     }
     // ---- the suggestions, numbered; the tapped point; you
-    val accent = if (night) Color(0xFFFF5A44) else Color(0xFF8FB8FF)
+    val accent = if (night) Color(0xFFFF5A44) else Color(0xFFCDAAFF)
+    val ink = if (night) Color(0xFF160505) else Color(0xFF140A28)
     spots.forEachIndexed { i, s ->
         val o = l.km(s.lat, s.lon)
         val p = Offset(sx(o.x), sy(o.y))
         val sel = s == selected
         val rad = (if (sel) 13f else 10f) * density
         if (sel) drawCircle(accent.copy(alpha = 0.35f), rad * 1.9f, p)
-        drawCircle(Color(0xFF0B1020), rad + 2f * density, p)
+        drawCircle(ink, rad + 2f * density, p)
         drawCircle(accent, rad, p)
         val text = "${i + 1}"
-        val layout = labels.getOrPut("n|$text") { measurer.measure(text, TextStyle(fontSize = 11.sp, fontWeight = FontWeight.Bold)) }
-        drawText(layout, color = Color(0xFF0B1020), topLeft = Offset(p.x - layout.size.width / 2f, p.y - layout.size.height / 2f))
+        val layout = labels.getOrPut("n|$text") {
+            measurer.measure(text, TextStyle(fontFamily = NotoSans, fontSize = 11.sp, fontWeight = FontWeight.Bold))
+        }
+        drawText(layout, color = ink, topLeft = Offset(p.x - layout.size.width / 2f, p.y - layout.size.height / 2f))
     }
     probe?.let { s ->
         val o = l.km(s.lat, s.lon)
         val p = Offset(sx(o.x), sy(o.y))
-        drawCircle(Color(0xFF0B1020), 9f * density, p)
+        drawCircle(ink, 9f * density, p)
         drawCircle(if (s == selected) accent else accent.copy(alpha = 0.7f), 7f * density, p, style = Stroke(2.5f * density))
     }
+    // You: a bright dot in a light ring (in night vision a dark one: nothing white).
     val here = Offset(sx(0f), sy(0f))
-    drawCircle(Color.White, 9f * density, here)
-    drawCircle(if (night) Color(0xFFFF3B30) else Color(0xFF2F7BFF), 6.5f * density, here)
+    drawCircle(if (night) Color(0xFF3A0E09) else Color(0xFFF5F0FF), 9f * density, here)
+    drawCircle(if (night) Color(0xFFFF3B30) else Color(0xFF9B5CF0), 6.5f * density, here)
 }
 
 private fun DrawScope.drawStar(c: Offset, r: Float, color: Color) {

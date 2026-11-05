@@ -10,6 +10,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Row
@@ -38,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shadow
@@ -57,8 +59,13 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import com.wm.starcam.ui.theme.NotoSans
 import com.wm.starcam.camera.CamInfo
 import com.wm.starcam.sensors.DeviceLocation
 import com.wm.starcam.sensors.SkyOrientation
@@ -74,6 +81,7 @@ import com.wm.starcam.ui.components.ScButton
 import com.wm.starcam.ui.components.ScButtonKind
 import com.wm.starcam.ui.components.ScDialog
 import com.wm.starcam.ui.components.ScGlass
+import com.wm.starcam.ui.components.ScIconBadge
 import com.wm.starcam.ui.components.ScSlider
 import com.wm.starcam.ui.theme.Sc
 import com.wm.starcam.ui.theme.ScIcons
@@ -130,6 +138,8 @@ fun SkyOverlay(
     cam: CamInfo?,
     onTime: (Long?) -> Unit,
     onClose: () -> Unit,
+    /** How much of the top the capture screen's own controls cover; the notes go below that. */
+    topInset: Dp = 52.dp,
     modifier: Modifier = Modifier,
 ) {
     val c = Sc.colors
@@ -218,12 +228,13 @@ fun SkyOverlay(
         }
         // ---- what it needs, and how sure it is
         Column(
-            Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(top = 58.dp, start = 10.dp, end = 10.dp),
+            Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(top = topInset + 6.dp, start = 12.dp, end = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             when {
                 !orientation.available -> SkyNote("This phone has no rotation sensor, so the sky cannot follow it.")
-                place == null -> ScGlass(Modifier.padding(top = 4.dp)) {
+                place == null -> ScGlass(Modifier.padding(top = 4.dp), shape = ScShapes.card,
+                    padding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)) {
                     Column(Modifier.padding(vertical = 4.dp)) {
                         Text("The sky view needs to know where you are.", style = ScType.bodySmall, color = c.text)
                         ScButton(if (locating) "Finding you…" else "Use my location", {
@@ -313,10 +324,16 @@ private fun TargetPicker(
         }
     }
     ScDialog(onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().background(c.surface).border(1.dp, c.hairline, ScShapes.card).padding(vertical = 16.dp)) {
-            Text("Find in the sky", style = ScType.titleSmall, color = c.text, modifier = Modifier.padding(horizontal = 20.dp))
-            Text("The sky view's arrow leads you to it; the phone ticks when it is in the middle.",
-                style = ScType.bodySmall, color = c.text2, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
+        Column(
+            Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(c.raised, c.surface)))
+                .border(1.dp, c.hairlineStrong, ScShapes.card).padding(vertical = 18.dp),
+        ) {
+            // The sky view's arrow leads to what is picked; the phone ticks when it is in the middle.
+            Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(ScIcons.Find, null, Modifier.size(24.dp), tint = c.accent)
+                Spacer(Modifier.width(12.dp))
+                Text("Find in the sky", style = ScType.titleSmall, color = c.text)
+            }
             val list = rows
             if (list == null) {
                 Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
@@ -338,13 +355,11 @@ private fun TargetPicker(
                             TargetRow(KindIcons.getValue(r.t.kind), r.t.name, line(r), dim) { onPick(r.t) }
                         }
                     }
-                    section("Up now", up, { r ->
-                        upIn(r.alt, r.az) + (r.t.about?.let { " · $it" } ?: "")
-                    }, dim = false)
-                    section("Later", later, { r ->
-                        "up at ${SkyCalendar.hm(r.rises!!, zone)}" + (r.t.about?.let { " · $it" } ?: "")
-                    }, dim = false)
-                    section("Not up from here today", never, { r -> r.t.about ?: "" }, dim = true)
+                    // What a thing is in a word ("galaxy"); its distance is for the photo's labels.
+                    fun kind(t: SkyTarget) = t.about?.substringBefore(" · ")?.let { " · $it" } ?: ""
+                    section("Up now", up, { r -> upIn(r.alt, r.az) + kind(r.t) }, dim = false)
+                    section("Later", later, { r -> "up at ${SkyCalendar.hm(r.rises!!, zone)}" + kind(r.t) }, dim = false)
+                    section("Not up from here today", never, { r -> r.t.about?.substringBefore(" · ") ?: "" }, dim = true)
                 }
             }
         }
@@ -355,10 +370,13 @@ private fun TargetPicker(
 private fun TargetRow(icon: ImageVector, name: String, line: String, dim: Boolean, onClick: () -> Unit) {
     val c = Sc.colors
     Row(
-        Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onClick).padding(horizontal = 20.dp, vertical = 8.dp),
+        Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onClick).padding(horizontal = 20.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, null, Modifier.size(18.dp), tint = if (dim) c.text3 else c.accentText)
+        ScIconBadge(icon, size = 36.dp,
+            tint = if (dim) c.text3 else c.accent,
+            fill = if (dim) c.sunken else c.selectedFill.copy(alpha = c.selectedFill.alpha * 0.6f),
+            border = if (dim) c.hairline else c.selectedBorder.copy(alpha = 0.35f))
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(name, style = ScType.body, color = if (dim) c.text2 else c.text)
@@ -369,7 +387,8 @@ private fun TargetRow(icon: ImageVector, name: String, line: String, dim: Boolea
 
 @Composable
 private fun SkyNote(text: String) {
-    ScGlass(Modifier.padding(top = 4.dp)) {
+    // A note can run to two lines: softly rounded, not a pill.
+    ScGlass(Modifier.padding(top = 4.dp), shape = ScShapes.chip) {
         Icon(ScIcons.Info, null, Modifier.size(14.dp), tint = Sc.colors.warning)
         Text(text, style = ScType.caption, color = Sc.colors.text)
     }
@@ -402,8 +421,8 @@ private fun SkyTime(
                     .padding(vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(ScIcons.Search, null, Modifier.size(14.dp), tint = c.accent)
-                Column(Modifier.padding(start = 6.dp).weight(1f)) {
+                Icon(ScIcons.Find, null, Modifier.size(18.dp), tint = c.accent)
+                Column(Modifier.padding(start = 8.dp).weight(1f)) {
                     Text("Find: $find", style = ScType.bodySmall.copy(fontWeight = FontWeight.Medium), color = c.text)
                     findWhere?.let { Text(it, style = ScType.caption, color = c.text2) }
                 }
@@ -444,8 +463,47 @@ private fun SkyTime(
 
 // A soft dark halo keeps the labels readable over a bright daytime preview.
 private val Halo = Shadow(Color(0xCC000000), Offset.Zero, blurRadius = 6f)
-private val LabelStyle = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.Medium, shadow = Halo)
-private val CardinalStyle = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.SemiBold, shadow = Halo)
+private val LabelStyle = TextStyle(fontFamily = NotoSans, fontSize = 11.sp, fontWeight = FontWeight.Medium, shadow = Halo)
+private val CardinalStyle = TextStyle(fontFamily = NotoSans, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, shadow = Halo)
+/** The design's name tag for what is being found: capitals, spaced out, in a pill. */
+private val PillStyle = TextStyle(fontFamily = NotoSans, fontSize = 12.sp, fontWeight = FontWeight.Medium,
+    letterSpacing = 0.16.em)
+
+/**
+ * [text] in a pill up and to the side of [at], joined to it by a thin leader line, as the design
+ * labels the Milky Way's core; it flips sides to stay in view.
+ */
+private fun DrawScope.pillLabel(
+    text: String,
+    at: Offset,
+    color: Color,
+    fill: Color,
+    textColor: Color,
+    measurer: TextMeasurer,
+    cache: HashMap<String, TextLayoutResult>,
+) {
+    val layout = cache.getOrPut("pill|$text") { measurer.measure(text, PillStyle) }
+    val padH = 14.dp.toPx()
+    val padV = 7.dp.toPx()
+    val w = layout.size.width + 2 * padH
+    val h = layout.size.height + 2 * padV
+    val reachX = 34.dp.toPx()
+    val reachY = 56.dp.toPx()
+    val margin = 8.dp.toPx()
+    val right = at.x + reachX + w <= size.width - margin
+    val up = at.y - reachY - h >= margin
+    val left = (if (right) at.x + reachX else at.x - reachX - w).coerceIn(margin, (size.width - margin - w).coerceAtLeast(margin))
+    val top = if (up) at.y - reachY - h else at.y + reachY
+    val anchor = Offset(if (right) left + h / 2f else left + w - h / 2f, if (up) top + h else top)
+    val d = anchor - at
+    val len = d.getDistance()
+    if (len > 14.dp.toPx()) {
+        drawLine(color.copy(alpha = 0.85f), at + d / len * 11.dp.toPx(), anchor, 1.2.dp.toPx(), cap = StrokeCap.Round)
+    }
+    drawRoundRect(fill, Offset(left, top), Size(w, h), CornerRadius(h / 2f))
+    drawRoundRect(color.copy(alpha = 0.85f), Offset(left, top), Size(w, h), CornerRadius(h / 2f), style = Stroke(1.2.dp.toPx()))
+    drawText(layout, color = textColor, topLeft = Offset(left + padH, top + padV))
+}
 
 private fun DrawScope.label(
     text: String,
@@ -548,12 +606,12 @@ private fun DrawScope.drawSky(
             path.lineTo(q[0], q[1])
             path.close()
         }
-        drawPath(path, tint(Color(0xFFC8D4F0)).copy(alpha = 0.07f + 0.03f * li))
+        drawPath(path, tint(Color(0xFFDCCBF6)).copy(alpha = 0.07f + 0.03f * li))
     }
 
     // ---- constellation figures
     val lines = catalog.lines
-    val lineColor = tint(Color(0xFF9FB4E0)).copy(alpha = 0.45f)
+    val lineColor = tint(Color(0xFFBBA8EC)).copy(alpha = 0.5f)
     val lineWidth = 1.dp.toPx()
     for (i in 0 until lines.size / 2) {
         // Below the horizon nothing is drawn but the core's arrow: those stars cannot be seen.
@@ -601,7 +659,9 @@ private fun DrawScope.drawSky(
 
     // ---- what is being found (the core unless something else was picked): marked where it is,
     // an arrow to it when out of view
-    val accent = tint(Color(0xFF8FB8FF))
+    val accent = tint(Color(0xFFCDAAFF))
+    val pillFill = if (night) Color(0xCC160505) else Color(0xC7140A2A)
+    val pillText = if (night) red else Color(0xFFF5F0FF)
     val vec = targetVec ?: s.core
     val altDeg = Math.toDegrees(kotlin.math.asin(vec[2].toDouble().coerceIn(-1.0, 1.0)))
     val baseName = target?.name ?: "Milky Way core"
@@ -614,10 +674,12 @@ private fun DrawScope.drawSky(
     }
     val inView = proj.project(vec, 0, w, h, p) && p[0] in 0f..w && p[1] in 0f..h
     if (inView) {
-        if (centred) drawCircle(accent.copy(alpha = 0.18f), 26 * dp1, Offset(p[0], p[1]))
-        drawCircle(accent, 16 * dp1, Offset(p[0], p[1]), style = Stroke(2 * dp1))
-        drawCircle(accent.copy(alpha = 0.4f), 26 * dp1, Offset(p[0], p[1]), style = Stroke(dp1))
-        label(coreName, accent, Offset(p[0], p[1] + 30 * dp1), measurer, labels, LabelStyle.copy(fontSize = 12.sp), centered = true)
+        // The design's marker: a ring round a dot, a leader line to its name in a pill.
+        val o = Offset(p[0], p[1])
+        if (centred) drawCircle(accent.copy(alpha = 0.18f), 26 * dp1, o)
+        drawCircle(accent, 9 * dp1, o, style = Stroke(1.6f * dp1))
+        drawCircle(accent, 2.6f * dp1, o)
+        pillLabel(coreName.uppercase(), o, accent, pillFill, pillText, measurer, labels)
     } else if (proj.direction(vec, 0, q)) {
         // From the centre towards the core, stopped just inside the frame.
         val cx = w / 2f
@@ -641,11 +703,19 @@ private fun DrawScope.drawSky(
             close()
         }
         drawPath(arrow, accent)
-        // The label behind the arrow, far enough along it that the two never overlap.
-        val coreStyle = LabelStyle.copy(fontSize = 12.sp)
-        val layout = labels.getOrPut("${coreStyle.fontSize}|$coreName") { measurer.measure(coreName, coreStyle) }
-        val reach = len + 8 * dp1 + abs(q[0]) * layout.size.width / 2f + abs(q[1]) * layout.size.height / 2f
-        label(coreName, accent, Offset(ex - q[0] * reach, ey - q[1] * reach), measurer, labels,
-            coreStyle, centered = true, keepInside = true)
+        // Its name in the design's pill behind the arrow, far enough along it that the two never
+        // overlap, and kept in view.
+        val text = coreName.uppercase()
+        val layout = labels.getOrPut("pill|$text") { measurer.measure(text, PillStyle) }
+        val pw = layout.size.width + 28 * dp1
+        val ph = layout.size.height + 14 * dp1
+        val reach = len + 8 * dp1 + abs(q[0]) * pw / 2f + abs(q[1]) * ph / 2f
+        val m = 8 * dp1
+        val left = (ex - q[0] * reach - pw / 2f).coerceIn(m, (w - m - pw).coerceAtLeast(m))
+        val top = (ey - q[1] * reach - ph / 2f).coerceIn(m, (h - m - ph).coerceAtLeast(m))
+        drawRoundRect(pillFill, Offset(left, top), Size(pw, ph), CornerRadius(ph / 2f))
+        drawRoundRect(accent.copy(alpha = 0.85f), Offset(left, top), Size(pw, ph), CornerRadius(ph / 2f),
+            style = Stroke(1.2f * dp1))
+        drawText(layout, color = pillText, topLeft = Offset(left + 14 * dp1, top + 7 * dp1))
     }
 }

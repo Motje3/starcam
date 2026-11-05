@@ -1,0 +1,81 @@
+# Stelli's look (0.6.0, November 2026)
+
+The style the app is built in, from the owner's main-screen design (an image AI's mockup, 5 Nov
+2026). The code is `app/src/main/java/com/wm/starcam/ui/theme` (tokens, type, icons) and
+`ui/components/Components.kt`. Give this page to whoever designs the next screen, with screenshots
+from `tools\ui-shots.ps1`, so it fits.
+
+## Feel
+
+A deep purple night sky, lavender light, a soft violet glow on whatever is chosen or primary.
+Few words: icons, numbers and pictures first, a short label where an icon alone would be unclear,
+explanations behind an (i). Dark only: the brightest thing on screen is the shutter's lavender
+disk, because a bright glance undoes 20 minutes of dark adaptation. Night vision turns everything
+red on black.
+
+## Colours
+
+| Token | Normal | Night vision | Use |
+|---|---|---|---|
+| background | `#0E0820` | `#120404` | the screen; a gradient from `#0F0822` (top) to `#1B0D35` (bottom) |
+| surface | `#1B1431` | `#1C0807` | cards |
+| raised | `#261D40` | `#260B09` | the top of a button's gradient, raised tiles |
+| buttonSecondary | `#1E1535` | `#1C0807` | buttons, icon squares |
+| hairline / strong | lavender `#C9B2FF` at 16 % / 27 % | red at 18 % / 28 % | edges |
+| text / text2 / text3 | `#F5F0FF` / `#C9BEE4` / `#948CB1` | `#FF5544` / `#D9483A` / `#A8392E` | |
+| accent | `#B88AFF` | `#FF5544` | chosen things, icons, rings |
+| accentText | `#D3B6FF` | `#FF6A5A` | accent words |
+| accent2 | `#E7A0FF` | `#FF7A5C` | the pink of the icon's horizon: gradients' bright end |
+| selected fill / edge | `#8C55EA` at 38 % / `#B184FF` | red at 20 % / 60 % | the chosen segment, tab, chip |
+| primary | gradient `#6B37C6` to `#45208A`, edge `#B993FF` | `#4A120B` to `#320A06` | the main button |
+| glow | `#9F5CFF` at 55 %, blurred 10-20 dp | half as strong | behind primary and chosen controls |
+| warning / error | `#FFC870` / `#FF7E96` | `#FF7B5C` / `#FF5544` | |
+| two-tone icons | lines `#E6D9FB`, detail `#C98DFF` | `#D9483A`, `#FF5544` | |
+
+## Type
+
+**Noto Sans** (Google Fonts, SIL OFL), one variable file. Every number in tabular figures.
+
+| Style | Size / weight | Example |
+|---|---|---|
+| title | 26 sp SemiBold | a step's or verdict's headline |
+| screenTitle | 20 sp SemiBold | a screen's name in its top bar |
+| headline | 16 sp SemiBold | a card's name |
+| body / bodySmall | 15 / 13 sp Regular | text |
+| button | 15 sp Medium | buttons, tabs |
+| label | 11 sp SemiBold, spaced 0.12 em, capitals | TONIGHT, TIME LEFT |
+| display / countdown | 64 / 80 sp Light | the frame count, the hold-still countdown |
+| stat | 22 sp Medium | numbers on tiles |
+
+## Shapes and spacing
+
+- Buttons and chips are **pills**. Tool buttons are **rounded squares** (16 dp corners, 44-48 dp).
+- Cards 22 dp corners, tiles 18 dp, the bottom sheet 28 dp at the top.
+- Screen margin 16 dp; 8-12 dp between things in a card; touch targets at least 44 dp, the
+  shutter 84 dp on the capture screen. The capture screen is kept slim, as in the design: a 44 dp
+  top row, a 50 dp Tonight card, a 48 dp session-length strip three quarters of the width, 46 dp
+  tabs, 58 dp gallery and Adjust squares. (The mockup draws its buttons smaller still; 44 dp is
+  the least a finger, in a glove, can hit.)
+
+## Components
+
+- **Pill button with icon** (Light map, Find, Tonight): a two-tone icon and a word, a lavender edge
+  and a faint glow. **Primary button**: the purple gradient with a glow (Next, Share, Save).
+- **Segment strip** (the session length, Quick / Balanced / Deep): a dark glass pill; each segment
+  a big value over a small word; the chosen one lit, edged and glowing.
+- **Tabs** (the modes): icon and word, the chosen one lavender with a glowing bar under it.
+- **Shutter**: a lavender disk inside a ring that runs from pink to violet, glowing; dim and flat
+  when it cannot fire.
+- **Cards**: violet glass with a hairline edge; a card's head is its icon in lavender and its name.
+- **Icon badge**: an icon on a softly lit disc (list rows, empty states, a settings page's head).
+- **Progress ring**: lavender, pink at its start, with a soft glow.
+- **Sky label** (the sky view): a ring round a dot, a thin leader line, the name in capitals in a
+  glass pill with a lavender edge.
+
+## Icons
+
+The owner's set, redrawn as vectors (1.6 stroke on a 24 grid, round ends): the sparkle (Stars),
+the orbits (Star trails), the meteor, the sliders on their side (Manual) and standing up
+(Adjust), the map with its pin (Light map), the crosshair with a star (Find), the constellation
+(sky view), the gear (Settings), the eye (night vision), three sparkles (Tonight). The rest of the
+app's icons are drawn in the same stroke. Two-tone where the design has a bright detail.

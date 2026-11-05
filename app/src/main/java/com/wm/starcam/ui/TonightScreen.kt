@@ -47,6 +47,9 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.drawText
@@ -71,12 +74,15 @@ import com.wm.starcam.ui.components.ScButton
 import com.wm.starcam.ui.components.ScButtonKind
 import com.wm.starcam.ui.components.ScCard
 import com.wm.starcam.ui.components.ScDialog
+import com.wm.starcam.ui.components.ScIconBadge
 import com.wm.starcam.ui.components.ScIconButton
 import com.wm.starcam.ui.components.ScLabel
 import com.wm.starcam.ui.components.ScScreen
 import com.wm.starcam.ui.components.ScSpinner
 import com.wm.starcam.ui.components.ScTopBar
 import com.wm.starcam.ui.theme.Sc
+import com.wm.starcam.ui.theme.ScDuo
+import com.wm.starcam.ui.theme.ScDuoIcon
 import com.wm.starcam.ui.theme.ScIcons
 import com.wm.starcam.ui.theme.ScShapes
 import com.wm.starcam.ui.theme.ScType
@@ -135,36 +141,81 @@ internal fun placeLabel(p: GeoLocation): String = String.format(
     abs(p.latDeg), if (p.latDeg >= 0) "N" else "S", abs(p.lonDeg), if (p.lonDeg >= 0) "E" else "W",
 )
 
-/** Short state of tonight for the capture screen's button: "Dark 20:21", "Dark now". */
-private fun pillText(p: NightPlan?, nowMs: Long, zone: ZoneId): String {
-    if (p == null) return "Tonight"
-    val dusk = p.astroDuskMs
-    val dawn = p.astroDawnMs
-    return when {
-        dusk == null || dawn == null -> "Tonight"  // no full darkness: the planner says so
-        nowMs < dusk -> "Dark ${hm(dusk, zone)}"
-        nowMs < dawn -> "Dark now"
-        else -> "Tonight"
+/**
+ * Tonight at a glance, for the capture screen's Tonight card: the best thing to shoot in the dark
+ * ([SkyTargets.bestOf], the planner's own pick), when it gets dark, the place's Bortle class and
+ * the Moon. All of it worked out on the phone; no weather, which Stelli cannot know.
+ */
+data class TonightSummary(
+    /** False until a place is set in the planner: then only the Moon is known. */
+    val hasPlace: Boolean,
+    val bestName: String?,
+    val bestAtMs: Long?,
+    /** "Dark in 22 min", "Dark at 18:42", "Dark till 05:40", "No full dark tonight". */
+    val darkText: String?,
+    val bortle: Int?,
+    val moon: MoonPhase,
+    val southern: Boolean,
+)
+
+/** Works out [TonightSummary] for the place last used in the planner (no location request). */
+fun tonightSummary(context: android.content.Context, nowMs: Long): TonightSummary {
+    val place = SkyPlaceStore(context).load()
+    val moon = SkyMath.moonPhase(nowMs)
+    val loc = place?.loc ?: return TonightSummary(false, null, null, null, null, moon, false)
+    val z = planZone(loc)
+    var plan = NightPlanner.plan(tonightDate(z), z, loc)
+    // In the morning the night that began yesterday is over: the coming one is "tonight".
+    val end = plan.astroDawnMs ?: plan.nauticalDawnMs ?: plan.civilDawnMs ?: plan.sunriseMs ?: plan.windowEndMs
+    if (nowMs > end) plan = NightPlanner.plan(tonightDate(z).plusDays(1), z, loc)
+    val dusk = plan.astroDuskMs
+    val dawn = plan.astroDawnMs
+    val darkText = when {
+        dusk == null || dawn == null -> "No full dark tonight"
+        nowMs < dusk -> {
+            val mins = ((dusk - nowMs) / 60_000L).toInt()
+            when {
+                mins < 1 -> "Dark now"
+                mins < 60 -> "Dark in $mins min"
+                mins < 120 -> "Dark in 1 h ${mins - 60} min"
+                else -> "Dark at ${hm(dusk, z)}"
+            }
+        }
+        nowMs < dawn -> "Dark till ${hm(dawn, z)}"
+        else -> null
     }
+    val from = maxOf(dusk ?: plan.nauticalDuskMs ?: plan.civilDuskMs ?: plan.sunsetMs ?: nowMs, nowMs)
+    val to = dawn ?: plan.nauticalDawnMs ?: plan.civilDawnMs ?: plan.sunriseMs ?: plan.windowEndMs
+    val best = runCatching {
+        val catalog = StarCatalog.load(context)
+        SkyTargets.bestOf(SkyTargets.all(catalog), from, to, loc, count = 1).firstOrNull()
+    }.getOrNull()
+    val bortle = runCatching {
+        com.wm.starcam.darksky.SkyQuality.bortle(
+            com.wm.starcam.darksky.SkyQuality.sqm(com.wm.starcam.darksky.DarkSkyData.glow(context).alr(loc.latDeg, loc.lonDeg))
+        )
+    }.getOrNull()
+    return TonightSummary(true, best?.target?.name, best?.atMs, darkText, bortle, moon, loc.latDeg < 0)
 }
 
 /**
- * Tonight's darkness at a glance for the capture screen, from the place last used in the planner
- * (no location request from here).
+ * [tonightSummary] for the capture screen while [active]: worked out again each time it becomes
+ * active (the screen back to idle: a place may just have been set in the planner), when [refresh]
+ * changes, and every five minutes after that.
  */
 @Composable
-fun rememberTonightText(): String {
+fun rememberTonightSummary(active: Boolean, refresh: Any? = null): TonightSummary? {
     val context = LocalContext.current
-    var text by remember { mutableStateOf("Tonight") }
-    LaunchedEffect(Unit) {
-        text = withContext(Dispatchers.Default) {
-            val place = SkyPlaceStore(context).load()
-            val z = place?.let { planZone(it.loc) } ?: ZoneId.systemDefault()
-            val plan = place?.let { runCatching { NightPlanner.plan(tonightDate(z), z, it.loc) }.getOrNull() }
-            pillText(plan, System.currentTimeMillis(), z)
+    var summary by remember { mutableStateOf<TonightSummary?>(null) }
+    LaunchedEffect(active, refresh) {
+        while (active) {
+            summary = withContext(Dispatchers.Default) {
+                runCatching { tonightSummary(context, System.currentTimeMillis()) }.getOrNull()
+            } ?: summary
+            delay(5 * 60_000L)
         }
     }
-    return text
+    return summary
 }
 
 // -------------------------------------------------------------------------------- screen
@@ -387,31 +438,32 @@ private fun WorthAShotCard(plan: NightPlan, zone: ZoneId, nowMs: Long?, onFind: 
     if (list.isNullOrEmpty()) return
     ScCard(Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(ScIcons.Constellation, null, Modifier.size(20.dp), tint = c.accentText)
-            Spacer(Modifier.width(8.dp))
+            Icon(ScIcons.Sparkles, null, Modifier.size(20.dp), tint = c.accent)
+            Spacer(Modifier.width(10.dp))
             Text("Worth a shot tonight", style = ScType.headline, color = c.text)
         }
-        Text("Each at its best in the dark. Tap one to find it in the sky view at that moment.",
-            style = ScType.bodySmall, color = c.text2, modifier = Modifier.padding(top = 4.dp, bottom = 4.dp))
+        Spacer(Modifier.height(6.dp))
+        // Each at its best in the dark; a tap finds it in the sky view at that moment.
         for (b in list) {
             Row(
                 Modifier.fillMaxWidth().clip(ScShapes.chip).clickable(role = Role.Button) { onFind(b.atMs, b.target.name) }
-                    .padding(vertical = 8.dp),
+                    .padding(vertical = 7.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(
+                ScIconBadge(
                     when (b.target.kind) {
                         SkyTarget.Kind.PLANET -> ScIcons.Planet
                         SkyTarget.Kind.CONSTELLATION -> ScIcons.Constellation
+                        SkyTarget.Kind.CORE -> ScIcons.Sparkles
                         else -> ScIcons.Astro
                     },
-                    null, Modifier.size(18.dp), tint = c.accentText,
+                    size = 38.dp,
                 )
                 Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                    Text(b.target.name, style = ScType.body, color = c.text)
+                    Text(b.target.name, style = ScType.body.copy(fontWeight = FontWeight.Medium), color = c.text)
                     Text(
                         "best at ${SkyCalendar.hm(b.atMs, zone)} · ${b.altDeg.roundToInt()}° up in the " +
-                            SkyCalendar.compass(b.azDeg) + (b.target.about?.let { " · $it" } ?: ""),
+                            SkyCalendar.compass(b.azDeg),
                         style = ScType.caption, color = c.text3,
                     )
                 }
@@ -437,13 +489,12 @@ private fun DarkSkyCard(loc: GeoLocation, onOpen: () -> Unit) {
     }
     ScCard(Modifier.fillMaxWidth(), onClick = onOpen) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(ScIcons.Map, null, Modifier.size(22.dp), tint = c.accent)
-            Spacer(Modifier.width(12.dp))
+            ScDuoIcon(ScDuo.LightMap, Modifier.size(30.dp))
+            Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text("Find a darker sky", style = ScType.body.copy(fontWeight = FontWeight.SemiBold), color = c.text)
                 Text(
-                    bortle?.let { "Your sky: Bortle $it, ${com.wm.starcam.darksky.SkyQuality.name(it).lowercase()}. See the darker places within reach." }
-                        ?: "Light pollution around you and the darker places within reach.",
+                    bortle?.let { "Your sky: Bortle $it · the light map" } ?: "The light map: darker places near you",
                     style = ScType.bodySmall, color = c.text2,
                 )
             }
@@ -513,7 +564,12 @@ private fun TonightAnswer(p: NightPlan, nowMs: Long?, zone: ZoneId, onShowSky: (
                 "the dark hours without the Moon come when the core is down."
     }
     ScCard(Modifier.fillMaxWidth()) {
-        Text(verdict, style = ScType.title, color = c.text)
+        Row(verticalAlignment = Alignment.Top) {
+            Text(verdict, style = ScType.title, color = c.text, modifier = Modifier.weight(1f))
+            Spacer(Modifier.width(12.dp))
+            // Tonight's Moon as it is: the phase the planner is talking about.
+            MoonGlyph(p.moonPhase, p.location.latDeg < 0, Modifier.padding(top = 2.dp).size(44.dp))
+        }
         if (best != null) {
             Text("${hm(best.startMs, zone)} – ${hm(best.endMs, zone)}", style = ScType.readout,
                 color = c.accentText, modifier = Modifier.padding(top = 6.dp))
@@ -543,12 +599,7 @@ private fun TonightAnswer(p: NightPlan, nowMs: Long?, zone: ZoneId, onShowSky: (
         ScButton(
             if (target != null) "Show me the sky at ${hm(target, zone)}" else "Show me the sky now",
             { onShowSky(target) }, Modifier.fillMaxWidth().padding(top = 14.dp),
-            kind = ScButtonKind.Primary, icon = ScIcons.Astro, height = 52.dp,
-        )
-        Text(
-            "Hold the phone up: the Milky Way, the stars and the Moon are drawn over the camera where " +
-                "they are.",
-            style = ScType.caption, color = c.text3, modifier = Modifier.padding(top = 6.dp),
+            kind = ScButtonKind.Primary, icon = ScIcons.Constellation, height = 52.dp,
         )
     }
 }
@@ -590,26 +641,33 @@ private fun NightBar(p: NightPlan, nowMs: Long?, zone: ZoneId) {
             fun flush(until: Long) {
                 runColor?.let { drawRect(it, Offset(x(runStart), 0f), Size(x(until) - x(runStart), barH)) }
             }
-            for (s in p.samples) {
-                if (s.epochMs + 600_000L < start || s.epochMs > end) continue
-                val col = when {
-                    s.sunAlt > -18 -> twilight
-                    s.moonAlt > 0 && p.moonPhase.illuminated >= NightPlanner.DIM_MOON_FRACTION -> moonlight
-                    else -> dark
+            // The bar with rounded ends, like the rest of the design.
+            val bar = Path().apply {
+                addRoundRect(RoundRect(0f, 0f, size.width, barH, CornerRadius(9.dp.toPx())))
+            }
+            clipPath(bar) {
+                for (s in p.samples) {
+                    if (s.epochMs + 600_000L < start || s.epochMs > end) continue
+                    val col = when {
+                        s.sunAlt > -18 -> twilight
+                        s.moonAlt > 0 && p.moonPhase.illuminated >= NightPlanner.DIM_MOON_FRACTION -> moonlight
+                        else -> dark
+                    }
+                    if (col != runColor) {
+                        flush(s.epochMs.coerceAtLeast(start))
+                        runColor = col
+                        runStart = s.epochMs.coerceAtLeast(start)
+                    }
                 }
-                if (col != runColor) {
-                    flush(s.epochMs.coerceAtLeast(start))
-                    runColor = col
-                    runStart = s.epochMs.coerceAtLeast(start)
+                flush(end)
+                p.bestCoreWindow?.let { b ->
+                    drawRect(bestColor.copy(alpha = 0.85f), Offset(x(b.startMs), barH * 0.25f),
+                        Size(x(b.endMs) - x(b.startMs), barH * 0.5f))
                 }
             }
-            flush(end)
-            p.bestCoreWindow?.let { b ->
-                drawRect(bestColor.copy(alpha = 0.85f), Offset(x(b.startMs), barH * 0.25f),
-                    Size(x(b.endMs) - x(b.startMs), barH * 0.5f))
-            }
+            // Now: a line in the pink of the icon's horizon.
             nowMs?.let { n ->
-                if (n in start..end) drawLine(c.warning, Offset(x(n), -3.dp.toPx()), Offset(x(n), barH + 3.dp.toPx()), 2.dp.toPx())
+                if (n in start..end) drawLine(c.accent2, Offset(x(n), -3.dp.toPx()), Offset(x(n), barH + 3.dp.toPx()), 2.dp.toPx())
             }
             fun timeLabel(t: Long, align: Float) {
                 val l = measurer.measure(hm(t, zone), labelStyle)
@@ -688,7 +746,7 @@ private fun TimelineCard(p: NightPlan, nowMs: Long?, zone: ZoneId) {
             altitudeCurve(p, start, end, ::x, ::y, { it.coreAlt }, c.accent, 3.dp.toPx())
             nowMs?.let { n ->
                 if (n in start..end) {
-                    drawLine(c.warning, Offset(x(n), 0f), Offset(x(n), plotH), strokeWidth = 1.5.dp.toPx())
+                    drawLine(c.accent2, Offset(x(n), 0f), Offset(x(n), plotH), strokeWidth = 1.5.dp.toPx())
                 }
             }
             // Hour labels every two hours.

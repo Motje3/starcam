@@ -37,7 +37,7 @@ fun VideoScreen(file: File, onBack: () -> Unit) {
     ScScreen {
         ScTopBar(
             title = "Watch it build up",
-            subtitle = file.parentFile?.parentFile?.name,
+            subtitle = file.parentFile?.parentFile?.let { sessionTitle(it.name, it.lastModified()) },
             onBack = onBack,
         )
         Box(Modifier.fillMaxWidth().weight(1f).background(Color.Black), contentAlignment = Alignment.Center) {

@@ -281,12 +281,12 @@ fun StudioScreen(dir: File, vm: StarCamViewModel, onBack: () -> Unit) {
     ScScreen {
         ScTopBar(
             title = "Edit",
-            subtitle = dir.name,
+            subtitle = sessionTitle(dir.name, dir.lastModified()),
             onBack = if (saving) null else onBack,
             actions = {
                 if (session != null) {
                     ScButton("Reset", { params = defaults.copy(rotation = params.rotation) },
-                        kind = ScButtonKind.Text, enabled = !saving, height = 40.dp)
+                        kind = ScButtonKind.Secondary, icon = ScIcons.Reset, enabled = !saving, height = 40.dp)
                 }
             },
         )

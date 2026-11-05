@@ -1,5 +1,9 @@
 package com.wm.starcam.ui.theme
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material3.Icon
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
@@ -7,32 +11,27 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.addPathNodes
 import androidx.compose.ui.unit.dp
+import java.util.Locale
+import kotlin.math.cos
+import kotlin.math.sin
 
 /**
- * The handoff's icon set (design/handoff/screens/Foundations.html): 24 dp grid, 1.75 stroke,
- * round caps and joins, outline only. Ported path for path from the SVGs, so the app and the
- * mockups draw identical glyphs. Tint with Icon(tint = ...); the stroke colour is replaced.
+ * The icon set: 24 dp grid, 1.6 stroke, round caps and joins. The capture screen's icons follow
+ * the owner's set (design, Nov 2026: the sparkle, the star-trail orbits, the meteor, the sliders,
+ * the map with its pin, the crosshair, the constellation, the gear), redrawn as vectors so they
+ * stay sharp at any size and turn red in night vision. Tint with Icon(tint = ...); [ScDuo] has
+ * the two-tone versions, line work and a bright detail.
  */
 object ScIcons {
-    val Astro by icon { path("M12 3C12.8 9 15 11.2 21 12C15 12.8 12.8 15 12 21C11.2 15 9 12.8 3 12C9 11.2 11.2 9 12 3Z") }
-    val Trails by icon {
-        path("M12 4a8 8 0 0 1 8 8")
-        path("M12 7.5a4.5 4.5 0 0 1 4.5 4.5")
-        path("M4 12a8 8 0 0 0 8 8")
-        path("M7.5 12a4.5 4.5 0 0 0 4.5 4.5")
-        circle(12f, 12f, 1.2f)
-    }
-    val Meteor by icon {
-        path("M4 4l9.5 9.5")
-        path("M8.5 3.5l7 7")
-        path("M3.5 8.5l7 7")
-        circle(16.5f, 16.5f, 3f)
-    }
-    /** PRO mode: a gauge. */
+    /** Stars (the astro mode): the four-point sparkle, in outline. */
+    val Astro get() = ScDuo.Stars.merged
+    val Trails get() = ScDuo.Trails.merged
+    val Meteor get() = ScDuo.Meteor.merged
+    /** Manual exposure (the Manual mode): three sliders on their side. */
     val ProMode by icon {
-        circle(12f, 13f, 7.5f)
-        path("M12 13l3.5-3.5")
-        path("M12 3v1.5M4.2 6.2l1.1 1.1M19.8 6.2l-1.1 1.1")
+        sliderRow(7.5f, 8.5f)
+        sliderRow(12f, 15.5f)
+        sliderRow(16.5f, 8.3f)
     }
     val Gallery by icon {
         rect(3.5f, 4.5f, 17f, 15f, 3f)
@@ -40,16 +39,12 @@ object ScIcons {
         path("M20.5 16l-4.5-4.5L7 20")
     }
     /** Night vision: an eye. */
-    val Night by icon {
-        path("M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12z")
-        circle(12f, 12f, 2.75f)
-    }
-    /** Pro controls: sliders. */
+    val Night get() = ScDuo.Eye.merged
+    /** The Adjust sheet: three sliders standing up. */
     val Sliders by icon {
-        path("M6 4v3M6 11v9M12 4v9M12 17v3M18 4v2M18 10v10")
-        circle(6f, 9f, 2f)
-        circle(12f, 15f, 2f)
-        circle(18f, 8f, 2f)
+        sliderColumn(7f, 15.5f)
+        sliderColumn(12f, 8.5f)
+        sliderColumn(17f, 13.5f)
     }
     val Tripod by icon {
         path("M12 9v4M12 13l-5 8M12 13l5 8M12 13v8")
@@ -127,14 +122,13 @@ object ScIcons {
         circle(12f, 12f, 4f)
         path("M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2")
     }
-    val Settings by icon {
-        circle(12f, 12f, 3f)
-        path("M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z")
-    }
+    val Settings get() = ScDuo.Gear.merged
     val Search by icon {
         circle(11f, 11f, 6.5f)
         path("M16 16l4.5 4.5")
     }
+    /** Find in the sky: the crosshair with a star. */
+    val Find get() = ScDuo.Find.merged
     val ZoomIn by icon {
         circle(11f, 11f, 6.5f)
         path("M16 16l4.5 4.5M11 8.5v5M8.5 11h5")
@@ -168,8 +162,8 @@ object ScIcons {
         circle(12f, 12f, 2.25f)
         path("M3.6 10.5h6.2M14.2 10.5h6.2M12 14.25v7.2")
     }
-    /** The dark-sky map: a folded map. */
-    val Map by icon { path("M9 4.5L3.5 6.5v13l5.5-2 6 2 5.5-2v-13l-5.5 2-6-2zM9 4.5v13M15 6.5v13") }
+    /** The light map: a folded map with a pin. */
+    val Map get() = ScDuo.LightMap.merged
     val Calendar by icon {
         rect(3.5f, 5f, 17f, 15.5f, 2.5f)
         path("M3.5 10h17M8 3v4M16 3v4")
@@ -190,14 +184,8 @@ object ScIcons {
         circle(12f, 12f, 5f)
         path("M4.2 15.2c-1.6 1.8-1.9 3.2-.9 3.8 1.9 1.1 7.4-1.3 12.3-5.3s7.4-8 5.5-9.1c-.9-.5-2.4-.1-4.3 1")
     }
-    /** A constellation: four stars joined up. */
-    val Constellation by icon {
-        path("M6.3 15.6l2.6-3.1M11.4 10.9l2.3 1.4M16.5 11.6l1.9-4.1")
-        circle(5f, 17f, 1.6f)
-        circle(10f, 10.6f, 1.6f)
-        circle(15.2f, 13.4f, 1.6f)
-        circle(19.2f, 5.8f, 1.6f)
-    }
+    /** A constellation: the sky view. */
+    val Constellation get() = ScDuo.SkyView.merged
     /** An eclipse: two discs overlapping. */
     val Eclipse by icon {
         circle(10f, 12f, 6.5f)
@@ -208,41 +196,218 @@ object ScIcons {
         circle(12f, 12f, 1.8f)
         circle(12f, 19f, 1.8f)
     }
+    /** Three sparkles: tonight's sky. */
+    val Sparkles get() = ScDuo.Sparkles.merged
+    /** A photo frame with a mountain: a picture. */
+    val Photo by icon {
+        rect(3.5f, 4.5f, 17f, 15f, 3f)
+        path("M3.5 16.5l5-5 4 4 2.5-2.5 5.5 5.5")
+        circle(15.5f, 8.8f, 1.4f)
+    }
+}
+
+/**
+ * Two-tone icons: [DuoIcon.base] is the line work, [DuoIcon.accent] the bright detail; draw them
+ * with [ScDuoIcon]. [DuoIcon.merged] is both in one, for a single tint.
+ */
+object ScDuo {
+    val Stars by duo {
+        base { path(sparkle(12f, 12f, 7.2f, 0.6f)) }
+    }
+    val Trails by duo {
+        base {
+            circle(12f, 12f, 2.9f)
+            circle(12f, 12f, 5.6f)
+            path("M18.96 7.3A8.4 8.4 0 0 1 6.83 18.62")
+            path("M5.76 17.62A8.4 8.4 0 0 1 16.2 4.73")
+        }
+        accent { dot(17.73f, 5.86f, 1.3f) }
+    }
+    val Meteor by duo {
+        base { path("M5.8 14.5L16.2 4.1M8.1 16.3L20.4 4M12.5 15.8L18.7 9.9") }
+        accent { fill(sparkle(5.6f, 18.2f, 2.5f, 0.25f)) }
+    }
+    val Find by duo {
+        base {
+            circle(12f, 12f, 6.6f)
+            path("M12 1.9v4.3M12 17.8v4.3M1.9 12h4.3M17.8 12h4.3")
+        }
+        accent { fill(sparkle(12f, 12f, 3.9f, 0f)) }
+    }
+    val LightMap by duo {
+        base {
+            path("M10.74 7.32L8.7 6.4L2.9 8.7V20.9L8.7 18.3L13.8 20.9L19.5 18.3V12.2")
+            path("M8.7 6.4V18.3M13.8 13.4V20.9")
+        }
+        accent {
+            path("M16.2 15.5L12.62 10.64A4.45 4.45 0 1 1 19.78 10.64Z")
+            dot(16.2f, 8f, 1.25f)
+        }
+    }
+    val SkyView by duo {
+        base { path("M4.4 18.4L11.1 13.1L19.3 5.6M11.1 13.1L16.7 16.9L19.3 5.6") }
+        accent {
+            dot(4.4f, 18.4f, 1.6f)
+            dot(11.1f, 13.1f, 1.65f)
+            dot(16.7f, 16.9f, 1.6f)
+            dot(19.3f, 5.6f, 1.9f)
+        }
+    }
+    val Gear by duo {
+        base {
+            path(gear(12f, 12f, 9.6f, 7.3f, 8, 7f, 14f, 10f))
+            circle(12f, 12f, 2.8f)
+        }
+    }
+    val Eye by duo {
+        base { path("M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12z") }
+        accent { dot(12f, 12f, 2.7f) }
+    }
+    val Sparkles by duo {
+        accent {
+            fill(sparkle(9.2f, 14.2f, 6f, 0.5f))
+            fill(sparkle(17.6f, 5.9f, 3.3f, 0.3f))
+            fill(sparkle(18.4f, 16.6f, 2.3f, 0.2f))
+        }
+    }
+}
+
+class DuoIcon(val base: ImageVector, val accent: ImageVector?, val merged: ImageVector)
+
+/** A two-tone icon: line work in [base], the bright detail in [accent]. Size it with [modifier]. */
+@Composable
+fun ScDuoIcon(
+    icon: DuoIcon,
+    modifier: Modifier = Modifier,
+    base: Color = Sc.colors.iconBase,
+    accent: Color = Sc.colors.iconAccent,
+) {
+    Box(modifier) {
+        Icon(icon.base, null, Modifier.matchParentSize(), tint = base)
+        icon.accent?.let { Icon(it, null, Modifier.matchParentSize(), tint = accent) }
+    }
 }
 
 // ------------------------------------------------------------------------------- builder
 
 private class IconPaths {
-    val paths = ArrayList<String>()
+    /** Path data, and whether it is filled rather than stroked. */
+    val paths = ArrayList<Pair<String, Boolean>>()
     fun path(d: String) {
-        paths += d
+        paths += d to false
+    }
+    fun fill(d: String) {
+        paths += d to true
     }
     fun circle(cx: Float, cy: Float, r: Float) {
-        paths += "M${cx - r},${cy}a$r,$r 0 1,0 ${2 * r},0a$r,$r 0 1,0 ${-2 * r},0z"
+        path(circleData(cx, cy, r))
+    }
+    fun dot(cx: Float, cy: Float, r: Float) {
+        fill(circleData(cx, cy, r))
     }
     fun rect(x: Float, y: Float, w: Float, h: Float, rx: Float) {
         val r = rx.coerceAtMost(minOf(w, h) / 2f)
-        paths += "M${x + r},${y}h${w - 2 * r}a$r,$r 0 0 1 $r,${r}v${h - 2 * r}" +
+        path("M${x + r},${y}h${w - 2 * r}a$r,$r 0 0 1 $r,${r}v${h - 2 * r}" +
             "a$r,$r 0 0 1 ${-r},${r}h${-(w - 2 * r)}a$r,$r 0 0 1 ${-r},${-r}" +
-            "v${-(h - 2 * r)}a$r,$r 0 0 1 $r,${-r}z"
+            "v${-(h - 2 * r)}a$r,$r 0 0 1 $r,${-r}z")
+    }
+    /** A slider on its side at height [y], its knob at [x]: the line stops at the knob. */
+    fun sliderRow(y: Float, x: Float, r: Float = 1.8f) {
+        path("M3.4 ${y}H${x - r}M${x + r} ${y}H20.6")
+        circle(x, y, r)
+    }
+    /** A slider standing up at [x], its knob at [y]. */
+    fun sliderColumn(x: Float, y: Float, r: Float = 1.8f) {
+        path("M$x 3.4V${y - r}M$x ${y + r}V20.6")
+        circle(x, y, r)
     }
 }
 
-/** Lazily built stroke icon; `val X by icon { ... }`. */
-private fun icon(block: IconPaths.() -> Unit) = lazy {
-    val p = IconPaths().apply(block)
+private fun circleData(cx: Float, cy: Float, r: Float) =
+    "M${cx - r},${cy}a$r,$r 0 1,0 ${2 * r},0a$r,$r 0 1,0 ${-2 * r},0z"
+
+/**
+ * A four-point sparkle centred on ([cx], [cy]) reaching [r] along each axis, its sides curving in:
+ * [waist] 0 is the sharpest star, 1 a plain diamond.
+ */
+private fun sparkle(cx: Float, cy: Float, r: Float, waist: Float): String {
+    val k = waist * r * 0.5f
+    fun f(v: Float) = String.format(Locale.US, "%.3f", v)
+    return "M${f(cx)} ${f(cy - r)}" +
+        "Q${f(cx + k)} ${f(cy - k)} ${f(cx + r)} ${f(cy)}" +
+        "Q${f(cx + k)} ${f(cy + k)} ${f(cx)} ${f(cy + r)}" +
+        "Q${f(cx - k)} ${f(cy + k)} ${f(cx - r)} ${f(cy)}" +
+        "Q${f(cx - k)} ${f(cy - k)} ${f(cx)} ${f(cy - r)}Z"
+}
+
+/**
+ * A gear outline: [teeth] trapezoid teeth reaching [rOuter], the valleys arcs at [rInner]; each
+ * tooth [halfTop] degrees wide either side at its tip, [halfBase] at its root.
+ */
+private fun gear(
+    cx: Float, cy: Float, rOuter: Float, rInner: Float, teeth: Int,
+    halfTop: Float, halfBase: Float, rotation: Float,
+): String {
+    fun f(v: Double) = String.format(Locale.US, "%.3f", v)
+    fun pt(r: Float, deg: Double): String {
+        val a = Math.toRadians(deg)
+        return "${f(cx + r * cos(a))} ${f(cy + r * sin(a))}"
+    }
+    val sb = StringBuilder()
+    val step = 360.0 / teeth
+    for (i in 0 until teeth) {
+        val a = rotation + i * step
+        sb.append(if (i == 0) "M" else "L").append(pt(rInner, a - halfBase))
+        sb.append("L").append(pt(rOuter, a - halfTop))
+        sb.append("L").append(pt(rOuter, a + halfTop))
+        sb.append("L").append(pt(rInner, a + halfBase))
+        sb.append("A$rInner $rInner 0 0 1 ").append(pt(rInner, a + step - halfBase))
+    }
+    return sb.append("Z").toString()
+}
+
+private fun build(p: IconPaths): ImageVector {
     val b = ImageVector.Builder(
         defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f,
     )
-    for (d in p.paths) {
-        b.addPath(
-            pathData = addPathNodes(d),
-            fill = null,
-            stroke = SolidColor(Color.Black),
-            strokeLineWidth = 1.75f,
-            strokeLineCap = StrokeCap.Round,
-            strokeLineJoin = StrokeJoin.Round,
-        )
+    for ((d, filled) in p.paths) {
+        if (filled) {
+            b.addPath(pathData = addPathNodes(d), fill = SolidColor(Color.Black))
+        } else {
+            b.addPath(
+                pathData = addPathNodes(d),
+                fill = null,
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 1.6f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }
     }
-    b.build()
+    return b.build()
+}
+
+/** Lazily built stroke icon; `val X by icon { ... }`. */
+private fun icon(block: IconPaths.() -> Unit) = lazy { build(IconPaths().apply(block)) }
+
+private class DuoBuilder {
+    val base = IconPaths()
+    val accent = IconPaths()
+    fun base(block: IconPaths.() -> Unit) {
+        base.block()
+    }
+    fun accent(block: IconPaths.() -> Unit) {
+        accent.block()
+    }
+}
+
+/** Lazily built two-tone icon; `val X by duo { base { ... }; accent { ... } }`. */
+private fun duo(block: DuoBuilder.() -> Unit) = lazy {
+    val d = DuoBuilder().apply(block)
+    val merged = IconPaths().also { it.paths += d.base.paths; it.paths += d.accent.paths }
+    DuoIcon(
+        base = build(d.base),
+        accent = if (d.accent.paths.isEmpty()) null else build(d.accent),
+        merged = build(merged),
+    )
 }

@@ -99,9 +99,9 @@ if (Tap 'Find in the sky*') {
     Shot 'find'
 }
 
-# The dark-sky map.
+# The light map (the dark-sky map).
 Launch
-if (Tap 'Dark-sky map*') {
+if (Tap 'Light map*') {
     WaitFor 'Your sky' 30 | Out-Null
     Shot 'darksky'
     Back

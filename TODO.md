@@ -1,11 +1,11 @@
 # Stelli: to do before Google Play
 
-Updated 2026-11-04 on 0.5.1 (versionCode 10). Everything that needed no decision is done: the
-upload key and the signed AAB, the privacy policy and terms of use (on the web and in the app),
-the reworded card for phones without RAW, the release build checked on the emulator, and the store
-listing texts and graphics (`store/`). What is left happens on GitHub, in Play Console and on the
-phone: the easy part first, at the PC, then the part that needs the phone. PLAY_STORE.md has the
-policy check (4 Nov 2026) and the answer to every Play Console form.
+Updated 2026-11-05 on 0.6.0 (versionCode 11, the owner's new design). Everything that needed no
+decision is done: the upload key and the signed AAB, the privacy policy and terms of use (on the
+web and in the app), the reworded card for phones without RAW, the release build checked on the
+emulator, and the store listing texts and graphics (`store/`). What is left happens on GitHub, in
+Play Console and on the phone: the easy part first, at the PC, then the part that needs the
+phone. PLAY_STORE.md has the policy check (4 Nov 2026) and the answer to every Play Console form.
 
 Already fine: target SDK 36, arm64 only, 16 KB pages, no internet or advertising-ID permission (so
 Data safety can say "no data collected"), coarse location only after "Use my location", inexact
@@ -24,13 +24,14 @@ Easy: every answer is written down. In this order, as each Play Console step nee
 - [x] **Create the app.** "Stelli: Night Sky Camera", `com.wm.stelli`, Free (a free app can never
       become paid, but it can sell in-app products).
 - [ ] **Store listing**: the texts in `store/listing.md`, `icon-512.png`, `feature-graphic.png` and
-      `screenshots/`; category Photography, email info@siteaanpakkers.com.
+      the screenshots (to be made from the new screens, "The new look" below); category
+      Photography, email info@siteaanpakkers.com.
 - [ ] **App content** (the answers in PLAY_STORE.md): privacy policy (the URL above), ads no, app
       access without restrictions, the content rating questionnaire, target audience 13+, data
       safety: no data collected or shared, advertising ID no; news, government, financial and
       health apps: no. Trader status: confirm it and give the terms link.
-- [ ] **Upload the bundle**: `app/build/outputs/bundle/release/app-release.aab` to Internal
-      testing, with Play App Signing (Google's key). Then download the APK Play makes from it (App
+- [ ] **Upload the bundle**: `app/build/outputs/bundle/release/app-release.aab` (0.6.0,
+      versionCode 11, the new look) to Internal testing, with Play App Signing (Google's key). Then download the APK Play makes from it (App
       bundle explorer › Downloads › signed universal APK) and check it has no INTERNET permission
       (automatic protection, PLAY_STORE.md).
 
@@ -76,15 +77,17 @@ features are Pro is decided after the testing.
       local `.env`, gitignored, kept out of this public repo). An organisation account skips the
       12 testers / 14 days closed test.
 
-## Next: the new look
+## The new look
 
-The owner finds the current screens weak and is having an image AI redesign them (4 Nov 2026):
-the app's screens, taken with `tools\ui-shots.ps1`, went to it with a brief (keep every control
-and piece of information, dark only, the new icon's purple night sky). When the mockups and their
-style sheet come back:
-- [ ] Build them in Compose, screen by screen, the red night-vision variant included.
-- [ ] Retake the screens (`tools\ui-shots.ps1`, `tools\store-shots.ps1`) and make the store
-      screenshots from them: the owner's AI designs the frames around the real screens.
+The owner had an image AI redesign the main screen (4-5 Nov 2026) and asked for the whole app to
+match it. Built in 0.6.0; `design/STYLE.md` is the style, PROGRESS.md says what changed.
+- [x] Build it in Compose, every screen, the red night-vision variant included (5 Nov 2026).
+- [ ] The owner looks at the new screens (Desktop › Stelli screens › new design) and has the AI
+      improve whatever they do not like; built the same way.
+- [ ] See it on the phone, under a real sky: `tools\build.ps1` with the phone plugged in installs
+      the debug build over the one there (same key, the sessions stay).
+- [ ] Store screenshots from the new screens (`tools\ui-shots.ps1`): the owner's AI designs the
+      frames around the real screens. The ones in `store/screenshots` still show the old look.
 
 ## Worth doing
 
@@ -98,6 +101,6 @@ style sheet come back:
       this photo): phone screenshots, first in `tools\store-screens.ps1`'s list. Also: the sky
       calendar with its Meteors filter (the Geminids) for the meteor screenshot.
 - [ ] **Feature graphic** from the owner's artwork (asked of an image AI, 4 Nov 2026), with the
-      name and tagline set in Geist on top; the current one still has the old star.
+      name and tagline on top; the current one still has the old star.
 - [ ] Tablets and foldables: with target SDK 36, Android 16 ignores the portrait lock on large
       screens. Test on a tablet emulator, or exclude tablets in Play Console (Device catalog).

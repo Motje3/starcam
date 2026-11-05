@@ -2,6 +2,8 @@ package com.wm.starcam.ui
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
@@ -36,9 +38,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -73,8 +80,10 @@ import com.wm.starcam.ui.components.ScTopBar
 import com.wm.starcam.ui.components.Tone
 import com.wm.starcam.ui.theme.Sc
 import com.wm.starcam.ui.theme.ScIcons
+import com.wm.starcam.ui.theme.ScShapes
 import com.wm.starcam.ui.theme.ScType
 import com.wm.starcam.ui.theme.ScreenMargin
+import com.wm.starcam.ui.theme.scGlow
 import com.wm.starcam.ui.theme.scImageFilter
 import com.wm.starcam.util.ShareCard
 import com.wm.starcam.util.MeteorHighlights
@@ -361,6 +370,18 @@ fun SessionDetailScreen(
                         tone = if (mine.galleryFailed) Tone.Warning else Tone.Accent, icon = ScIcons.CheckCircle,
                     )
                 }
+                // ---- What you do with a photo, one tap each. Edit waits for a stack to develop.
+                val photo = d.jpgFile
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (d.hasMaster || d.cacheCount > 0) {
+                        ActionTile(ScIcons.Edit, "Edit", onEdit, Modifier.weight(1f), primary = true,
+                            enabled = d.hasMaster && !restacking)
+                    }
+                    ActionTile(ScIcons.Share, "Share", { photo?.let { photoUri(context, it) }?.let { sharePhoto(context, it) } },
+                        Modifier.weight(1f), enabled = photo != null)
+                    ActionTile(ScIcons.Open, "Open", { photo?.let { photoUri(context, it) }?.let { openPhoto(context, it) } },
+                        Modifier.weight(1f), enabled = photo != null)
+                }
                 if (single != null && stacked != null) {
                     ScSegmented(listOf("Photo", "1 frame vs stacked"), if (comparing) 1 else 0,
                         { comparing = it == 1 }, Modifier.fillMaxWidth())
@@ -433,60 +454,31 @@ fun SessionDetailScreen(
                 // ---- The meteors it caught, each cut out of its frame
                 if (d.meteors > 0) MeteorCard(dir, d.meteors)
 
-                // ---- What went into it
+                // ---- What went into it, at a glance
                 val st = d.stats
+                val totalSec = Math.round((st?.framesUsed ?: d.frameCount) * (d.exposureNs / 1e9))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ScStatTile(
+                    StatTile(ScIcons.Stack,
                         if (st != null) "${st.framesUsed}/${st.framesTotal}" else "${d.frameCount}",
-                        if (st != null) "frames stacked" else "frames captured",
-                        Modifier.weight(1f),
-                    )
-                    val totalSec = Math.round((st?.framesUsed ?: d.frameCount) * (d.exposureNs / 1e9))
-                    ScStatTile(if (d.exposureNs > 0) durationShort(totalSec) else "-", "total exposure", Modifier.weight(1f))
+                        if (st != null) "stacked" else "captured", Modifier.weight(1f))
+                    StatTile(ScIcons.Timer, if (d.exposureNs > 0) durationShort(totalSec) else "-", "exposure",
+                        Modifier.weight(1f))
+                    StatTile(ScIcons.Camera, if (d.exposureNs > 0) exposureText(d.exposureNs) else "-",
+                        if (d.iso > 0) "ISO ${d.iso}" else "per frame", Modifier.weight(1f))
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ScStatTile(
-                        if (d.exposureNs > 0) exposureText(d.exposureNs) else "-",
-                        if (d.iso > 0) "each frame · ISO ${d.iso}" else "each frame",
-                        Modifier.weight(1f),
-                    )
-                    ScStatTile(
+                    StatTile(ScIcons.Focus,
                         if (st != null && st.fwhmStack > 0f) String.format(Locale.US, "%.1f px", st.fwhmStack) else "-",
-                        "star size (FWHM)", Modifier.weight(1f),
-                    )
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ScStatTile(
+                        "star size", Modifier.weight(1f))
+                    StatTile(ScIcons.Close,
                         if (st != null) String.format(Locale.US, "%.1f%%", st.rejectionPct) else "-",
-                        "rejected in stacking", Modifier.weight(1f),
-                    )
-                    ScStatTile("${d.bumpedCount}", "bumped (gyro)", Modifier.weight(1f))
+                        "rejected", Modifier.weight(1f))
+                    StatTile(ScIcons.Tripod, "${d.bumpedCount}", "bumped", Modifier.weight(1f))
                 }
                 if (d.autopilot.isNotEmpty()) AutopilotReport(d.autopilot)
                 if (st == null) {
-                    ScNotice("Not stacked — the session did not finish, or stacking on the phone was off.",
+                    ScNotice("Not stacked yet: the session did not finish, or stacking on the phone was off.",
                         tone = Tone.Normal, icon = ScIcons.Info)
-                }
-
-                // ---- Edit. Shown before a first stack too (disabled), so the screen does not jump
-                // when the stack finishes and the card would otherwise appear above its message.
-                if (d.hasMaster || d.cacheCount > 0) {
-                    ScCard(Modifier.fillMaxWidth()) {
-                        Text("Edit photo", style = ScType.headline, color = c.text)
-                        Text(
-                            if (d.hasMaster) {
-                                "Sky and landscape brightness, contrast, colour, light pollution and noise, " +
-                                    "previewed as you go. Saved as a new photo; this one stays."
-                            } else {
-                                "Once the session is stacked: sky and landscape brightness, contrast, " +
-                                    "colour, light pollution and noise, previewed as you go."
-                            },
-                            style = ScType.bodySmall, color = c.text2, modifier = Modifier.padding(top = 4.dp),
-                        )
-                        ScButton("Edit", onEdit, Modifier.fillMaxWidth().padding(top = 10.dp),
-                            kind = ScButtonKind.Primary, icon = ScIcons.Edit,
-                            enabled = d.hasMaster && !restacking, height = 52.dp)
-                    }
                 }
 
                 // ---- The stack building up, as a video
@@ -504,24 +496,19 @@ fun SessionDetailScreen(
 
                 // ---- Re-process
                 ScCard(Modifier.fillMaxWidth()) {
-                    Text(if (st != null || d.cacheCount == 0) "Re-process with different settings" else "Stack this session",
-                        style = ScType.headline, color = c.text)
+                    CardHead(ScIcons.Refresh,
+                        if (st != null || d.cacheCount == 0) "Re-process" else "Stack this session")
                     if (d.cacheCount == 0) {
                         Text(
-                            "The working files were not kept for this session, so it cannot be " +
-                                "re-stacked here. Its DNGs (if saved) stack fine on a computer.",
-                            style = ScType.bodySmall, color = c.text2, modifier = Modifier.padding(top = 4.dp),
+                            "The working files were not kept, so it cannot be re-stacked here. Its DNGs " +
+                                "(if saved) stack fine on a computer.",
+                            style = ScType.bodySmall, color = c.text2, modifier = Modifier.padding(top = 6.dp),
                         )
                     } else {
                         Text(
-                            if (st != null) {
-                                "Re-stacks from the ${d.cacheCount} kept frames, starting from the options " +
-                                    "this photo was made with. The new photo replaces it here and is added " +
-                                    "to the gallery."
-                            } else {
-                                "Stacks the ${d.cacheCount} kept frames into a photo, saved here and to the gallery."
-                            },
-                            style = ScType.bodySmall, color = c.text2, modifier = Modifier.padding(top = 4.dp),
+                            if (st != null) "From the ${d.cacheCount} kept frames, with other settings. The new photo replaces this one."
+                            else "The ${d.cacheCount} kept frames into a photo, here and in the gallery.",
+                            style = ScType.bodySmall, color = c.text2, modifier = Modifier.padding(top = 6.dp),
                         )
                         Spacer(Modifier.height(8.dp))
                         OptionRow("Stretch", StretchLabels, stretchIndex, !restacking) { stretchIndex = it }
@@ -566,29 +553,20 @@ fun SessionDetailScreen(
 
                 // ---- Files
                 ScCard(Modifier.fillMaxWidth()) {
-                    Text("Files", style = ScType.headline, color = c.text)
+                    CardHead(ScIcons.Log, "Files")
                     Spacer(Modifier.height(6.dp))
-                    d.jpgFile?.let { FileRow("Photo · JPEG", bytesText(it.length())) }
-                    if (d.dngCount > 0) FileRow("RAW · ${d.dngCount} DNG", bytesText(d.dngBytes))
-                    if (d.cacheCount > 0) FileRow("Working files · ${d.cacheCount}", bytesText(d.cacheBytes))
-                    if (d.replayFrames > 0) FileRow("Replay pictures · ${d.replayFrames}", bytesText(d.replayBytes))
+                    d.jpgFile?.let { FileRow(ScIcons.Photo, "Photo · JPEG", bytesText(it.length())) }
+                    if (d.dngCount > 0) FileRow(ScIcons.Camera, "RAW · ${d.dngCount} DNG", bytesText(d.dngBytes))
+                    if (d.cacheCount > 0) FileRow(ScIcons.Stack, "Working files · ${d.cacheCount}", bytesText(d.cacheBytes))
+                    if (d.replayFrames > 0) FileRow(ScIcons.Play, "Replay pictures · ${d.replayFrames}", bytesText(d.replayBytes))
                     Text(
                         dir.absolutePath.substringAfter("/0/"),
                         style = ScType.data, color = c.text3, modifier = Modifier.padding(top = 8.dp),
                     )
                     Text(
-                        "Over USB, copy this folder to a computer for desktop stacking — the DNGs are in lights/.",
+                        "Copy this folder to a computer over USB; the DNGs are in lights/.",
                         style = ScType.caption, color = c.text3, modifier = Modifier.padding(top = 4.dp),
                     )
-                    val jpg = d.jpgFile
-                    if (jpg != null) {
-                        Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            ScButton("Share photo", { photoUri(context, jpg)?.let { sharePhoto(context, it) } },
-                                Modifier.weight(1f), icon = ScIcons.Share)
-                            ScButton("Open", { photoUri(context, jpg)?.let { openPhoto(context, it) } },
-                                Modifier.weight(1f), icon = ScIcons.Open)
-                        }
-                    }
                 }
 
                 ScButton("Delete session", { showDeleteDialog = true }, Modifier.fillMaxWidth(),
@@ -709,9 +687,67 @@ private fun SwitchRow(label: String, checked: Boolean, enabled: Boolean, onChang
 }
 
 @Composable
-private fun FileRow(label: String, value: String) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+private fun FileRow(icon: ImageVector, label: String, value: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, null, Modifier.size(17.dp), tint = Sc.colors.accent)
+        Spacer(Modifier.width(10.dp))
         Text(label, style = ScType.body, color = Sc.colors.text, modifier = Modifier.weight(1f))
-        Text(value, style = ScType.data, color = Sc.colors.text2)
+        Text(value, style = ScType.dataLarge, color = Sc.colors.text2)
+    }
+}
+
+/** A card's head: its icon in the accent colour and its name. */
+@Composable
+internal fun CardHead(icon: ImageVector, title: String, modifier: Modifier = Modifier) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, null, Modifier.size(20.dp), tint = Sc.colors.accent)
+        Spacer(Modifier.width(10.dp))
+        Text(title, style = ScType.headline, color = Sc.colors.text)
+    }
+}
+
+/** One number from the session: its icon, the value, a word for what it is. */
+@Composable
+private fun StatTile(icon: ImageVector, value: String, label: String, modifier: Modifier) {
+    val c = Sc.colors
+    Column(
+        modifier.clip(ScShapes.tile).background(c.tile).border(1.dp, c.hairline, ScShapes.tile)
+            .padding(horizontal = 12.dp, vertical = 11.dp),
+    ) {
+        Icon(icon, null, Modifier.size(16.dp), tint = c.accent)
+        Text(value, style = ScType.stat.copy(fontSize = 18.sp, lineHeight = 22.sp), color = c.text, maxLines = 1,
+            modifier = Modifier.padding(top = 6.dp))
+        Text(label, style = ScType.caption, color = c.text3, maxLines = 1)
+    }
+}
+
+/** A square-ish action under the photo: an icon over its word; the primary one lit. */
+@Composable
+private fun ActionTile(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier,
+    primary: Boolean = false,
+    enabled: Boolean = true,
+) {
+    val c = Sc.colors
+    Column(
+        modifier.height(72.dp).alpha(if (enabled) 1f else 0.4f)
+            .scGlow(c.accentGlow.copy(alpha = c.accentGlow.alpha * 0.45f), radius = 12.dp, cornerRadius = 18.dp,
+                enabled = primary && enabled)
+            .clip(ScShapes.tile)
+            .background(
+                if (primary) Brush.verticalGradient(c.primaryGradient)
+                else Brush.verticalGradient(listOf(c.raised, c.buttonSecondary))
+            )
+            .border(1.dp, if (primary) c.primaryBorder else c.hairlineStrong, ScShapes.tile)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(icon, null, Modifier.size(22.dp), tint = if (primary) c.primaryText else c.accent)
+        Text(label, style = ScType.button, color = if (primary) c.primaryText else c.text,
+            modifier = Modifier.padding(top = 5.dp))
     }
 }

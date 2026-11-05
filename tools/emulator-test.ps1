@@ -566,11 +566,11 @@ if (Wanted 'darksky') {
     A shell pm grant com.wm.stelli android.permission.ACCESS_COARSE_LOCATION 2>&1 | Out-Null
     & $adbExe -s $Serial emu geo fix 4.90 52.37 2>&1 | Out-Null
     Launch | Out-Null
-    # The capture screen's top bar: your sky's Bortle class, one tap to the map.
+    # The capture screen: your sky's Bortle class on the Tonight card, the light map one tap away.
     $fromBar = $false
-    $bar = Nodes | Where-Object { $_.'content-desc' -like 'Dark-sky map*' } | Select-Object -First 1
+    $bar = Nodes | Where-Object { $_.'content-desc' -like 'Light map*' } | Select-Object -First 1
     if ($bar) {
-        $label = ((Nodes | Where-Object { $_.text -match '^Bortle \d$' } | Select-Object -First 1).text)
+        $label = ((Nodes | Where-Object { $_.'content-desc' -match 'Bortle \d' } | Select-Object -First 1).'content-desc')
         $c = Center $bar
         A shell input tap $c[0] $c[1]
         $fromBar = (WaitFor 'Your sky' 30) -and [bool]$label

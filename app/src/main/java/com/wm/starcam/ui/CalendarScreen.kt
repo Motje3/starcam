@@ -10,6 +10,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -51,6 +52,7 @@ import com.wm.starcam.ui.components.ScButton
 import com.wm.starcam.ui.components.ScButtonKind
 import com.wm.starcam.ui.components.ScCard
 import com.wm.starcam.ui.components.ScChip
+import com.wm.starcam.ui.components.ScIconBadge
 import com.wm.starcam.ui.components.ScLabel
 import com.wm.starcam.ui.components.ScScreen
 import com.wm.starcam.ui.components.ScSpinner
@@ -182,7 +184,7 @@ fun CalendarScreen(onBack: () -> Unit, onShowSky: (Long) -> Unit, onPlanNight: (
         val list = events
         LazyColumn(
             Modifier.fillMaxSize(),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = ScreenMargin, vertical = 8.dp),
+            contentPadding = PaddingValues(horizontal = ScreenMargin, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             item("alerts") { AlertsCard(alertsOn, ::setAlerts) }
@@ -192,7 +194,8 @@ fun CalendarScreen(onBack: () -> Unit, onShowSky: (Long) -> Unit, onPlanNight: (
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     CalendarFilter.entries.forEach { f ->
-                        ScChip(f.label, filter == f, { filter = f })
+                        ScChip(f.label, filter == f, { filter = f }, height = 40.dp,
+                            icon = f.kinds?.first()?.let { kindIcon(it) } ?: ScIcons.Calendar)
                     }
                 }
             }
@@ -253,17 +256,14 @@ fun CalendarScreen(onBack: () -> Unit, onShowSky: (Long) -> Unit, onPlanNight: (
 @Composable
 private fun AlertsCard(on: Boolean, onChange: (Boolean) -> Unit) {
     val c = Sc.colors
-    ScCard(Modifier.fillMaxWidth()) {
+    ScCard(Modifier.fillMaxWidth(), padding = PaddingValues(start = 14.dp, end = 6.dp, top = 12.dp, bottom = 12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(ScIcons.Bell, null, Modifier.size(20.dp), tint = c.accent)
+            ScIconBadge(ScIcons.Bell, size = 40.dp)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text("Night alerts", style = ScType.body.copy(fontWeight = FontWeight.SemiBold), color = c.text)
-                Text(
-                    "A notification in the afternoon when tonight is worth it: a Milky Way window, a meteor peak, " +
-                        "an eclipse, a close pairing.",
-                    style = ScType.caption, color = c.text2,
-                )
+                // A Milky Way window, a meteor peak, an eclipse, a close pairing: said in the afternoon.
+                Text("When tonight is worth it", style = ScType.caption, color = c.text2)
             }
             ScSwitch(on, onChange)
         }

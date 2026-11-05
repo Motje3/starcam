@@ -42,6 +42,7 @@ import com.wm.starcam.session.AppSettings
 import com.wm.starcam.session.FocusMode
 import com.wm.starcam.session.Mode
 import com.wm.starcam.ui.components.ScButton
+import com.wm.starcam.ui.components.ScButtonKind
 import com.wm.starcam.ui.components.ScChip
 import com.wm.starcam.ui.components.NightWindow
 import com.wm.starcam.ui.components.ScIconButton
@@ -114,26 +115,39 @@ fun ProSheet(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(ScIcons.Sliders, null, Modifier.size(24.dp), tint = c.accent)
+                Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("Pro controls", style = ScType.titleSmall, color = c.text)
+                    Text("Adjust", style = ScType.titleSmall, color = c.text)
                     Text(
                         modeLabel(s.mode) + when {
                             longMode -> " · ${plan.minutes} min"
                             manual -> " · manual"
-                            else -> " · " + s.quality.name.lowercase().replaceFirstChar { it.uppercase() }
+                            else -> " · " + qualityName(s.quality)
                         },
                         style = ScType.caption, color = c.text3,
                     )
                 }
-                ScIconButton(ScIcons.Settings, "All settings", onOpenSettings, filled = false)
-                Spacer(Modifier.width(4.dp))
-                ScButton("Done", onDismiss, height = 44.dp)
+                ScIconButton(ScIcons.Settings, "All settings", onOpenSettings)
+                Spacer(Modifier.width(8.dp))
+                ScButton("Done", onDismiss, kind = ScButtonKind.Accent, height = 44.dp)
             }
+            // What the shutter will do, in one line: the plan the capture screen no longer spells out.
+            Text(
+                listOfNotNull(
+                    if (manual) "Manual" else "Auto",
+                    exposureText(plan.exposureSec) + if (plan.minutes == null) " × ${plan.frames}" else " frames",
+                    plan.iso?.let { "ISO $it" } ?: "ISO auto",
+                    if (plan.darks > 0) "+${plan.darks} darks" else null,
+                ).joinToString(" · "),
+                style = ScType.dataLarge, color = c.accentText,
+                modifier = Modifier.padding(start = 2.dp),
+            )
 
             // ---- Exposure
             Row(
-                Modifier.fillMaxWidth().clip(ScShapes.button).background(c.tile)
-                    .border(1.dp, c.hairline, ScShapes.button)
+                Modifier.fillMaxWidth().clip(ScShapes.tile).background(c.tile)
+                    .border(1.dp, c.hairline, ScShapes.tile)
                     .clickable(enabled = !forcedManual, role = Role.Switch) {
                         up { it.copy(manualExposure = !it.manualExposure) }
                     }
@@ -144,7 +158,7 @@ fun ProSheet(
                     Text("Auto exposure", style = ScType.headline.copy(fontWeight = FontWeight.Medium), color = c.text)
                     Text(
                         when {
-                            forcedManual -> "PRO mode is always manual"
+                            forcedManual -> "Always off in the Manual mode"
                             manual -> "Off · you set shutter, ISO and frames"
                             else -> "On · a test frame picks the ISO"
                         },
@@ -283,9 +297,9 @@ private fun DialTile(
 ) {
     val c = Sc.colors
     Column(
-        modifier.clip(ScShapes.button)
+        modifier.clip(ScShapes.tile)
             .background(if (selected) c.selectedFill else c.tile)
-            .border(1.dp, if (selected) c.selectedBorder else c.hairline, ScShapes.button)
+            .border(1.dp, if (selected) c.selectedBorder else c.hairline, ScShapes.tile)
             .clickable(role = Role.Tab, onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 9.dp),
     ) {

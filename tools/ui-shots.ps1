@@ -6,11 +6,12 @@
 #   4-studio      that photo in the editing studio
 #   5-tonight     the Tonight planner, for Amsterdam
 #   6-gallery     the sessions gallery
-# and in extra\: Find over the viewfinder, the sky view, the sky calendar, the dark-sky map,
-# Settings, the Pro controls, the PRO (manual) mode, night vision and the first-launch cards (from
-# clearing the app's data, last). The status bar is in demo mode (21:30, full battery and signal). The emulator must be
-# running with the app installed, either build (tools\emulator-test.ps1 starts it). -Clean deletes
-# the emulator's sessions first, so the gallery shows only this run's.
+# and in extra\: Find over the viewfinder, the sky view, the sky calendar, the light map,
+# Settings, the Adjust sheet, the Manual mode, night vision and the first-launch cards (from
+# clearing the app's data, last). The status bar is in demo mode (21:30, full battery and
+# signal). The emulator must be running with the app installed, either build
+# (tools\emulator-test.ps1 starts it). -Clean deletes the emulator's sessions first, so the
+# gallery shows only this run's.
 #
 #   powershell -ExecutionPolicy Bypass -File tools\ui-shots.ps1 -Clean -Out "$env:USERPROFILE\Desktop\Stelli screens"
 #
@@ -38,9 +39,8 @@ function Center($n) {
         @([int](([int]$matches[1] + [int]$matches[3]) / 2), [int](([int]$matches[2] + [int]$matches[4]) / 2))
     }
 }
-# Taps the first node whose text or description matches the wildcard $like, case and all ("Pro"
-# is the Pro controls' label, "PRO" the mode). A label under a button is not the button: tap a
-# button by its description ("Pro controls", "Night vision off").
+# Taps the first node whose text or description matches the wildcard $like, case and all. A label
+# under a button is not the button: tap a button by its description ("Adjust*", "Night vision off").
 function Tap([string]$like) {
     $n = Nodes | Where-Object { $_.text -clike $like -or $_.'content-desc' -clike $like } | Select-Object -First 1
     if (-not $n) { Write-Host "not found: $like"; return $false }
@@ -100,8 +100,14 @@ Demo @('-e', 'command', 'network', '-e', 'wifi', 'show', '-e', 'level', '4', '-e
 Demo @('-e', 'command', 'network', '-e', 'mobile', 'show', '-e', 'datatype', 'none', '-e', 'level', '4', '-e', 'fully', 'true')
 Demo @('-e', 'command', 'notifications', '-e', 'visible', 'false')
 
-# 1, 2: the viewfinder, then a session running, finished early.
+# 1, 2: the viewfinder, then a session running, finished early. The planner is opened once first,
+# so its place (the emulator's geo fix) is known and the Tonight card has tonight to show.
 Launch
+if (Tap 'Tonight planner*') {
+    WaitFor 'Show me the sky' 40 | Out-Null
+    Launch
+    WaitFor 'Bortle' 15 | Out-Null
+}
 Shot '1-main'
 StartSession
 if (WaitFor 'Finish & stack now' 180) {
@@ -166,11 +172,11 @@ if (Tap 'Tonight planner*') {
     for ($k = 0; $k -lt 8; $k++) { A shell input swipe 636 2200 636 1000 300; Start-Sleep -Milliseconds 700 }
     if ((Tap 'Sky calendar') -and (WaitFor 'New moon' 40)) { Shot 'extra\calendar' }
 }
-# The dark-sky map, Settings, the Pro sheet, night vision.
+# The light map, Settings, the Adjust sheet, the Manual mode, night vision.
 Launch
-if (Tap 'Dark-sky map*') {
+if (Tap 'Light map*') {
     WaitFor 'Your sky' 30 | Out-Null
-    Shot 'extra\darksky'
+    Shot 'extra\lightmap'
 }
 Launch
 if (Tap 'Settings') {
@@ -178,15 +184,15 @@ if (Tap 'Settings') {
     Shot 'extra\settings'
 }
 Launch
-if (Tap 'Pro controls') {
+if (Tap 'Adjust*') {
     Start-Sleep -Seconds 2
-    Shot 'extra\pro-controls'
+    Shot 'extra\adjust'
 }
 Launch
-if (Tap 'PRO') {
+if (Tap 'Manual') {
     Start-Sleep -Seconds 2
-    Shot 'extra\pro-mode'
-    Tap 'ASTRO' | Out-Null
+    Shot 'extra\manual-mode'
+    Tap 'Stars' | Out-Null
 }
 Launch
 if (Tap 'Night vision off') {
