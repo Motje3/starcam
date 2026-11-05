@@ -276,6 +276,26 @@ object ScDuo {
             fill(sparkle(18.4f, 16.6f, 2.3f, 0.2f))
         }
     }
+    /** Four rings: the capture screen's Quick tools. */
+    val Tools by duo {
+        base {
+            circle(6.6f, 6.6f, 3.4f)
+            circle(17.4f, 6.6f, 3.4f)
+            circle(6.6f, 17.4f, 3.4f)
+            circle(17.4f, 17.4f, 3.4f)
+        }
+    }
+    /** [Tools] while they are open: the right-hand two filled. */
+    val ToolsOpen by duo {
+        base {
+            circle(6.6f, 6.6f, 3.4f)
+            circle(6.6f, 17.4f, 3.4f)
+        }
+        accent {
+            dot(17.4f, 6.6f, 4.2f)
+            dot(17.4f, 17.4f, 4.2f)
+        }
+    }
 }
 
 class DuoIcon(val base: ImageVector, val accent: ImageVector?, val merged: ImageVector)

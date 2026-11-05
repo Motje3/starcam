@@ -2,16 +2,20 @@ package com.wm.starcam.ui
 
 import android.hardware.GeomagneticField
 import android.hardware.SensorManager
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -27,6 +31,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -39,6 +44,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -49,17 +55,22 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
@@ -76,9 +87,10 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -96,16 +108,19 @@ import com.wm.starcam.sky.SkyMath
 import com.wm.starcam.ui.components.ScButton
 import com.wm.starcam.ui.components.ScButtonKind
 import com.wm.starcam.ui.components.ScCard
+import com.wm.starcam.ui.components.ScChevron
 import com.wm.starcam.ui.components.ScGlass
 import com.wm.starcam.ui.components.ScShutter
 import com.wm.starcam.ui.components.ScSlider
 import com.wm.starcam.ui.components.ScSpinner
+import com.wm.starcam.ui.components.ScSwitch
 import com.wm.starcam.ui.components.ScTab
 import com.wm.starcam.ui.components.ScTabs
 import com.wm.starcam.ui.theme.DuoIcon
 import com.wm.starcam.ui.theme.NightPreviewTint
 import com.wm.starcam.ui.theme.NotoSans
 import com.wm.starcam.ui.theme.Sc
+import com.wm.starcam.ui.theme.ScColors
 import com.wm.starcam.ui.theme.ScDuo
 import com.wm.starcam.ui.theme.ScDuoIcon
 import com.wm.starcam.ui.theme.ScIcons
@@ -130,10 +145,10 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
- * The capture screen, as the owner's design (Nov 2026) has it: the night's tools along the top
- * (the light map, Find, night vision, the sky view, Settings), tonight in one card, the
- * viewfinder across the whole width with a small compass, the session length over its foot, the
- * modes as tabs, and the gallery, the shutter and Adjust at the bottom.
+ * The capture screen, as the owner's design (Nov 2026) has it: the light map, Find and Quick tools
+ * (Find, night vision, the sky view, Settings) along the top, tonight in one line, the viewfinder
+ * across the whole width with a small compass, the session length and the lenses over its foot,
+ * the modes as tabs, and the gallery, the shutter and Adjust at the bottom.
  *
  * While a session runs, [SessionFlow] draws its full-screen steps on top. The idle layout - and
  * with it the CameraPreview - stays composed underneath, so the viewfinder surface that is part of
@@ -161,12 +176,21 @@ fun CaptureScreen(
     val camInfo by vm.camInfo.collectAsState()
     val cameraLost by vm.cameraLost.collectAsState()
     val noRawCamera by vm.noRawCamera.collectAsState()
+    val sky by vm.skyView.collectAsState()
     val sessionStart by engine?.sessionStartedAtMs.collectOr(0L)
 
     var showPro by rememberSaveable { mutableStateOf(false) }
     var framingBoost by remember { mutableStateOf(false) }
+    // Quick tools: the card the square at the top right opens.
+    var toolsOpen by remember { mutableStateOf(false) }
     // A session restarts the viewfinder without the boost; the toggle must not keep claiming it.
-    LaunchedEffect(state is CaptureState.Idle) { if (state !is CaptureState.Idle) framingBoost = false }
+    // Nor do Quick tools stay open over it.
+    LaunchedEffect(state is CaptureState.Idle) {
+        if (state !is CaptureState.Idle) {
+            framingBoost = false
+            toolsOpen = false
+        }
+    }
 
     // Screen shield: pure black over a running burst (battery, dark adaptation). Pure UI - the
     // session runs on underneath - and disarmed outside the capture phases, so the next session
@@ -182,6 +206,7 @@ fun CaptureScreen(
             settings = settings,
             idle = state is CaptureState.Idle,
             framingBoost = framingBoost,
+            toolsOpen = toolsOpen,
             onBoostChange = {
                 framingBoost = it
                 vm.setFramingBoost(it)
@@ -189,9 +214,9 @@ fun CaptureScreen(
             onOpenPro = { showPro = true },
             onOpenSessions = onOpenSessions,
             onOpenSession = onOpenSession,
-            onOpenSettings = onOpenSettings,
             onOpenTonight = onOpenTonight,
             onOpenDarkSky = onOpenDarkSky,
+            onTools = { toolsOpen = !toolsOpen },
         )
 
         // Not composed while the shield covers it: drawn underneath, its clocks and rings kept
@@ -233,6 +258,26 @@ fun CaptureScreen(
             }
         }
 
+        // ---- Quick tools: over the camera card too, which on a phone without a RAW camera never
+        // goes away, so that Settings stays within reach.
+        if (toolsOpen && state is CaptureState.Idle) {
+            QuickTools(
+                nightMode = settings.nightMode,
+                skyOn = sky != null,
+                onFind = {
+                    toolsOpen = false
+                    vm.skyView.value = SkyViewRequest(pick = true)
+                },
+                onNight = { vm.settingsStore.update { it.copy(nightMode = !it.nightMode) } },
+                onSky = { vm.skyView.value = if (vm.skyView.value == null) SkyViewRequest() else null },
+                onSettings = {
+                    toolsOpen = false
+                    onOpenSettings()
+                },
+                onClose = { toolsOpen = false },
+            )
+        }
+
         // ---- Shield: last child, so it draws (and takes every touch) above everything.
         if (shieldOn && shieldEligible) {
             ScreenShield(state, sessionStart, onReveal = { shieldOn = false })
@@ -267,13 +312,14 @@ private fun IdleLayout(
     settings: AppSettings,
     idle: Boolean,
     framingBoost: Boolean,
+    toolsOpen: Boolean,
     onBoostChange: (Boolean) -> Unit,
     onOpenPro: () -> Unit,
     onOpenSessions: () -> Unit,
     onOpenSession: (File) -> Unit,
-    onOpenSettings: () -> Unit,
     onOpenTonight: () -> Unit,
     onOpenDarkSky: () -> Unit,
+    onTools: () -> Unit,
 ) {
     val camInfo by vm.camInfo.collectAsState()
     val ready by vm.ready.collectAsState()
@@ -282,85 +328,101 @@ private fun IdleLayout(
     val sky by vm.skyView.collectAsState()
     val restacking = restack?.running == true
     val plan = remember(settings, camInfo) { planFor(settings, camInfo) }
+    val lengths = remember(settings, plan, camInfo) { lengthsFor(vm, settings, plan, camInfo) }
     // Worked out again when the sky view closes too: a place may have been set from it.
     val tonight = rememberTonightSummary(idle, refresh = sky == null)
+    // The session lengths, opened from the pill over the viewfinder's foot. The menu stands on
+    // the pill, so the height of what is under the viewfinder is kept.
+    var lengthsOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(idle) { if (!idle) lengthsOpen = false }
+    var footHeight by remember { mutableStateOf(0.dp) }
+    val density = LocalDensity.current
 
-    Column(Modifier.fillMaxSize().scBackground().windowInsetsPadding(WindowInsets.safeDrawing)) {
-        TopRow(
-            nightMode = settings.nightMode,
-            skyOn = sky != null,
-            onLightMap = onOpenDarkSky,
-            onFind = { vm.skyView.value = SkyViewRequest(pick = true) },
-            onNight = { vm.settingsStore.update { it.copy(nightMode = !it.nightMode) } },
-            onSky = { vm.skyView.value = if (vm.skyView.value == null) SkyViewRequest() else null },
-            onSettings = onOpenSettings,
-        )
-        Viewfinder(
-            vm = vm,
-            settings = settings,
-            camInfo = camInfo,
-            plan = plan,
-            idle = idle,
-            tonight = tonight,
-            framingBoost = framingBoost,
-            restacking = restacking,
-            onBoostOff = { onBoostChange(false) },
-            onOpenPro = onOpenPro,
-            onOpenSession = onOpenSession,
-            onOpenTonight = onOpenTonight,
-            modifier = Modifier.weight(1f),
-        )
-        ModeTabs(settings.mode) { m -> vm.settingsStore.update { it.copy(mode = m) } }
-        BottomBar(
-            vm = vm,
-            settings = settings,
-            idle = idle,
-            canShoot = ready && cameraError == null && !restacking,
-            onOpenPro = onOpenPro,
-            onOpenSessions = onOpenSessions,
-        )
+    Box(Modifier.fillMaxSize().scBackground().windowInsetsPadding(WindowInsets.safeDrawing)) {
+        Column(Modifier.fillMaxSize()) {
+            TopRow(
+                toolsOpen = toolsOpen,
+                onLightMap = onOpenDarkSky,
+                onFind = { vm.skyView.value = SkyViewRequest(pick = true) },
+                onTools = onTools,
+            )
+            Viewfinder(
+                vm = vm,
+                settings = settings,
+                camInfo = camInfo,
+                idle = idle,
+                tonight = tonight,
+                // Quick tools' tail takes the chevron's place, as in the design.
+                tonightChevron = !toolsOpen,
+                lengths = lengths,
+                lengthsOpen = lengthsOpen,
+                onLengths = { if (lengths.options.isEmpty()) onOpenPro() else lengthsOpen = !lengthsOpen },
+                framingBoost = framingBoost,
+                restacking = restacking,
+                onBoostOff = { onBoostChange(false) },
+                onOpenSession = onOpenSession,
+                onOpenTonight = onOpenTonight,
+                modifier = Modifier.weight(1f),
+            )
+            Column(Modifier.onSizeChanged { footHeight = with(density) { it.height.toDp() } }) {
+                ModeTabs(settings.mode) { m -> vm.settingsStore.update { it.copy(mode = m) } }
+                BottomBar(
+                    vm = vm,
+                    settings = settings,
+                    idle = idle,
+                    canShoot = ready && cameraError == null && !restacking,
+                    onOpenPro = onOpenPro,
+                    onOpenSessions = onOpenSessions,
+                )
+            }
+        }
+        if (lengthsOpen && sky == null) {
+            BackHandler { lengthsOpen = false }
+            DismissLayer { lengthsOpen = false }
+            LengthMenu(
+                options = lengths.options,
+                onPick = { i ->
+                    lengths.onPick(i)
+                    lengthsOpen = false
+                },
+                modifier = Modifier.align(Alignment.BottomStart)
+                    .padding(start = 12.dp, bottom = footHeight + 10.dp + FootRowHeight + 8.dp),
+            )
+        }
     }
 }
 
 // ------------------------------------------------------------------------------- top row
 
 /**
- * The night's tools, one tap each: the light map (how dark the sky is here, and where it is
- * darker), Find (the sky view's list of galaxies, planets and stars to be led to), night vision,
- * the sky view itself, and Settings. On a narrow phone the two pills lose their words.
+ * The top row, as the owner's design has it: the light map (how dark the sky is here, and where
+ * it is darker) on the left; Find (the sky view's list of galaxies, planets and stars to be led
+ * to) and the square that opens Quick tools on the right. On a narrow phone the pills lose their
+ * words.
  */
 @Composable
-private fun TopRow(
-    nightMode: Boolean,
-    skyOn: Boolean,
-    onLightMap: () -> Unit,
-    onFind: () -> Unit,
-    onNight: () -> Unit,
-    onSky: () -> Unit,
-    onSettings: () -> Unit,
-) {
+private fun TopRow(toolsOpen: Boolean, onLightMap: () -> Unit, onFind: () -> Unit, onTools: () -> Unit) {
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
-    BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+    BoxWithConstraints(
+        Modifier.fillMaxWidth().height(TopRowHeight).padding(horizontal = 12.dp),
+        contentAlignment = Alignment.Center,
+    ) {
         // The words go in only where they fit, whatever the phone's width and font size: first
         // the light map's (its icon says less), then Find's.
         fun wordWidth(s: String) = with(density) { measurer.measure(s, PillText).size.width.toDp() } + 10.dp
-        val bare = 44.dp * 2 + 44.dp * 3 + 6.dp * 4
+        val bare = 44.dp * 3 + 8.dp + 10.dp
         val lightWords = bare + wordWidth("Light map") <= maxWidth
         val findWords = lightWords && bare + wordWidth("Light map") + wordWidth("Find") <= maxWidth
-        Row(
-            Modifier.fillMaxWidth().height(44.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
+        Row(Modifier.fillMaxWidth().height(44.dp), verticalAlignment = Alignment.CenterVertically) {
             TopPill(ScDuo.LightMap, if (lightWords) "Light map" else null,
                 "Light map: how dark the sky is around you", onLightMap)
+            Spacer(Modifier.weight(1f))
+            Spacer(Modifier.width(8.dp))
             TopPill(ScDuo.Find, if (findWords) "Find" else null,
                 "Find in the sky: a galaxy, a planet, a star", onFind)
-            Spacer(Modifier.weight(1f))
-            TopSquare(ScDuo.Eye, if (nightMode) "Night vision on" else "Night vision off", nightMode, onNight)
-            TopSquare(ScDuo.SkyView, if (skyOn) "Sky view on" else "Sky view", skyOn, onSky)
-            TopSquare(ScDuo.Gear, "Settings", false, onSettings)
+            Spacer(Modifier.width(10.dp))
+            ToolsButton(toolsOpen, onTools)
         }
     }
 }
@@ -368,10 +430,14 @@ private fun TopRow(
 /** The top pills' words: a step smaller than a button's, as the design sets them. */
 private val PillText = ScType.button.copy(fontSize = 14.sp)
 
-/** The design keeps the card and the session-length strip slim, so the sky gets the room. */
-private val TonightCardHeight = 50.dp
-private val StripHeight = 48.dp
-private val StripHeightOneLine = 42.dp
+/**
+ * The design keeps the top row, the Tonight bar and the row over the viewfinder's foot slim, so
+ * the sky gets the room. The top row is its 44 dp buttons and 8 dp above and below them; Quick
+ * tools hang from these heights.
+ */
+private val TopRowHeight = 60.dp
+private val TonightBarHeight = 44.dp
+private val FootRowHeight = 42.dp
 
 /** A glowing pill: a two-tone icon and, room permitting, its name. */
 @Composable
@@ -396,87 +462,66 @@ private fun TopPill(icon: DuoIcon, text: String?, description: String, onClick: 
     }
 }
 
-/** A softly rounded square tool button, lit while its tool is on. */
+/**
+ * The square that opens Quick tools: lit, as the design draws it, and its right-hand rings filled
+ * while they are open.
+ */
 @Composable
-private fun TopSquare(icon: DuoIcon, description: String, selected: Boolean, onClick: () -> Unit) {
+private fun ToolsButton(open: Boolean, onClick: () -> Unit) {
     val c = Sc.colors
     Box(
         Modifier.size(44.dp)
-            .scGlow(c.accentGlow.copy(alpha = c.accentGlow.alpha * 0.6f), radius = 12.dp, cornerRadius = 16.dp,
-                enabled = selected)
+            .scGlow(c.accentGlow.copy(alpha = c.accentGlow.alpha * 0.6f), radius = 12.dp, cornerRadius = 16.dp)
             .clip(ScShapes.iconButton)
-            .background(if (selected) c.selectedFill else c.buttonSecondary)
-            .border(1.dp, if (selected) c.selectedBorder else c.hairlineStrong, ScShapes.iconButton)
+            .background(c.selectedFill)
+            .border(1.dp, c.selectedBorder, ScShapes.iconButton)
             .clickable(role = Role.Button, onClick = onClick)
-            .semantics { contentDescription = description },
+            .semantics { contentDescription = "Quick tools" },
         contentAlignment = Alignment.Center,
     ) {
-        ScDuoIcon(icon, Modifier.size(22.dp))
+        if (open) ScDuoIcon(ScDuo.ToolsOpen, Modifier.size(22.dp), base = c.iconAccent, accent = c.iconBase)
+        else ScDuoIcon(ScDuo.Tools, Modifier.size(22.dp))
     }
 }
 
-// ------------------------------------------------------------------------------ tonight card
+// ------------------------------------------------------------------------------ tonight bar
 
 /**
- * Tonight in one line: the Moon as it is tonight, the best thing to shoot in the dark, the sky's
- * Bortle class and when it gets dark. Opens the planner. Without a place it asks for one.
+ * Tonight in one line, as the owner's design has it: the Moon as it is tonight, the sky's Bortle
+ * class and how long it stays dark. Opens the planner, which has the rest (the best thing to
+ * shoot, the Moon's hours); without a place it asks for one.
  */
 @Composable
-private fun TonightCard(t: TonightSummary?, onOpen: () -> Unit) {
+private fun TonightBar(t: TonightSummary?, chevron: Boolean, onOpen: () -> Unit) {
     val c = Sc.colors
-    val title = when {
-        t == null -> "Tonight"
-        !t.hasPlace -> "Plan your night"
-        t.bestName != null -> t.bestName
-        else -> "Moon ${(t.moon.illuminated * 100).roundToInt()}% lit"
-    }
-    val sub = when {
+    val rest = when {
         t == null -> null
-        !t.hasPlace -> "Tap to set your place"
+        !t.hasPlace -> "Set your place"
         else -> listOfNotNull(t.bortle?.let { "Bortle $it" }, t.darkText).joinToString(" · ").ifEmpty { null }
     }
-    val shape = RoundedCornerShape(18.dp)
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val roomy = maxWidth >= 400.dp
-        Row(
-            Modifier.fillMaxWidth().heightIn(min = TonightCardHeight).clip(shape)
-                .background(Brush.verticalGradient(listOf(c.raised.copy(alpha = 0.94f), c.surface.copy(alpha = 0.94f))))
-                .border(1.dp, c.hairlineStrong, shape)
-                .clickable(role = Role.Button, onClick = onOpen)
-                .semantics { contentDescription = "Tonight planner: $title" + (sub?.let { ". $it" } ?: "") }
-                .padding(start = 14.dp, end = 6.dp, top = 5.dp, bottom = 5.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            MoonGlyph(t?.moon, t?.southern == true, Modifier.size(26.dp))
-            if (roomy) {
-                Box(Modifier.padding(horizontal = 12.dp).width(1.dp).height(28.dp).background(c.hairlineStrong))
-                Text("TONIGHT", style = ScType.label.copy(letterSpacing = 0.14.em, fontSize = 12.sp), color = c.accentText)
-                Spacer(Modifier.width(14.dp))
-            } else {
-                Spacer(Modifier.width(12.dp))
-            }
-            Column(Modifier.weight(1f)) {
-                Text(title, style = ScType.headline.copy(fontSize = 16.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium),
-                    color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (sub != null) {
-                    Text(sub, style = ScType.caption.copy(fontSize = 12.5.sp), color = c.text2, maxLines = 1,
-                        overflow = TextOverflow.Ellipsis)
-                }
-            }
-            Spacer(Modifier.width(8.dp))
-            Row(
-                Modifier.height(38.dp)
-                    .scGlow(c.accentGlow.copy(alpha = c.accentGlow.alpha * 0.35f), radius = 10.dp)
-                    .clip(CircleShape)
-                    .background(Brush.verticalGradient(listOf(c.raised, c.buttonSecondary)))
-                    .border(1.dp, c.selectedBorder.copy(alpha = 0.8f), CircleShape)
-                    .padding(horizontal = 13.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                ScDuoIcon(ScDuo.Sparkles, Modifier.size(18.dp))
-                Spacer(Modifier.width(7.dp))
-                Text("Tonight", style = PillText, color = c.text)
-            }
+    Row(
+        Modifier.fillMaxWidth().height(TonightBarHeight).clip(CircleShape)
+            .background(c.surface.copy(alpha = 0.94f))
+            // A clearer lavender edge than a card's, as the design draws it.
+            .border(1.dp, c.hairline.copy(alpha = if (c.night) 0.45f else 0.72f), CircleShape)
+            .clickable(role = Role.Button, onClick = onOpen)
+            .semantics { contentDescription = "Tonight planner" + (rest?.let { ": $it" } ?: "") }
+            .padding(start = 18.dp, end = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        MoonGlyph(t?.moon, t?.southern == true, Modifier.size(22.dp))
+        Spacer(Modifier.width(16.dp))
+        Text(
+            buildAnnotatedString {
+                withStyle(SpanStyle(color = c.text, fontWeight = FontWeight.Medium)) { append("Tonight") }
+                if (rest != null) append(" · $rest")
+            },
+            style = PillText.copy(fontWeight = FontWeight.Normal), color = c.text2,
+            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+        )
+        Spacer(Modifier.width(8.dp))
+        Box(Modifier.size(20.dp)) {
+            if (chevron) Icon(ScIcons.ChevronDown, null, Modifier.matchParentSize(), tint = c.text)
         }
     }
 }
@@ -542,7 +587,7 @@ private fun PowerWarning(vm: StarCamViewModel, modifier: Modifier) {
 private fun LensSwitch(lenses: List<CamInfo>, current: CamInfo?, onSwitch: (String) -> Unit) {
     val c = Sc.colors
     Row(
-        Modifier.height(40.dp).clip(CircleShape).background(c.glass)
+        Modifier.height(FootRowHeight).clip(CircleShape).background(c.glass)
             .border(1.dp, c.hairlineStrong, CircleShape).padding(3.dp),
         horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
@@ -570,21 +615,23 @@ private fun LensSwitch(lenses: List<CamInfo>, current: CamInfo?, onSwitch: (Stri
 
 /**
  * The viewfinder across the whole width (or height, on a short phone), its edges fading into the
- * screen; tonight's card over its top, the compass at its side, the session length over its foot.
- * The corner brackets mark the part of the frame those leave in view.
+ * screen; the Tonight bar over its top, the compass at its side, the session length and the lenses
+ * over its foot. The corner brackets mark the part of the frame those leave in view.
  */
 @Composable
 private fun Viewfinder(
     vm: StarCamViewModel,
     settings: AppSettings,
     camInfo: CamInfo?,
-    plan: Plan,
     idle: Boolean,
     tonight: TonightSummary?,
+    tonightChevron: Boolean,
+    lengths: Lengths,
+    lengthsOpen: Boolean,
+    onLengths: () -> Unit,
     framingBoost: Boolean,
     restacking: Boolean,
     onBoostOff: () -> Unit,
-    onOpenPro: () -> Unit,
     onOpenSession: (File) -> Unit,
     onOpenTonight: () -> Unit,
     modifier: Modifier,
@@ -603,12 +650,10 @@ private fun Viewfinder(
         val pw = if (fullWidth) maxWidth else maxHeight * aspect
         val ph = if (fullWidth) maxWidth / aspect else maxHeight
         val previewTop = (maxHeight - ph) / 2
-        // How far the card reaches into the preview from its top, and the session-length strip
+        // How far the Tonight bar reaches into the preview from its top, and the row over its foot
         // from its foot (the preview is centred, so the gap is the same at both ends).
-        val cardFoot = 4.dp + TonightCardHeight + 10.dp - previewTop
-        val strip = if (settings.mode == Mode.TRAILS || settings.mode == Mode.METEOR) StripHeightOneLine else StripHeight
-        val lensRow = if (lenses.size >= 2) 40.dp + 10.dp else 0.dp
-        val selectorHead = 10.dp + strip + lensRow + 6.dp - previewTop
+        val cardFoot = 4.dp + TonightBarHeight + 10.dp - previewTop
+        val selectorHead = 10.dp + FootRowHeight + 6.dp - previewTop
 
         Box(Modifier.align(Alignment.Center).size(pw, ph)) {
             CameraPreview(vm, Modifier.fillMaxSize())
@@ -653,7 +698,7 @@ private fun Viewfinder(
             Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 4.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            TonightCard(tonight, onOpenTonight)
+            TonightBar(tonight, tonightChevron, onOpenTonight)
             PowerWarning(vm, Modifier.align(Alignment.End))
             // After a crash or a kill the app used to come back to a plain viewfinder, with
             // the cut-off session's frames sitting unannounced in Sessions.
@@ -719,17 +764,18 @@ private fun Viewfinder(
             }
         }
 
-        // ---- over the foot: the lenses, then how long the session takes. The sky view puts its
+        // ---- over the foot: how long the session takes, and the lenses. The sky view puts its
         // clock there instead.
         if (sky == null) {
-            Column(
-                Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(bottom = 10.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+            Row(
+                Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                    .padding(start = 12.dp, end = 12.dp, bottom = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
+                LengthPill(lengths, lengthsOpen, onLengths)
+                Spacer(Modifier.weight(1f))
                 // Lens chips only with 2+ RAW-capable back cameras.
                 if (lenses.size >= 2) LensSwitch(lenses, camInfo) { vm.switchLens(it) }
-                SecondaryRow(vm, settings, plan, camInfo, onOpenPro)
             }
         }
     }
@@ -975,84 +1021,101 @@ private fun sessionMinutes(p: Plan, s: AppSettings): Int {
     return ceil(seconds / 60.0).toInt().coerceAtLeast(1)
 }
 
-/** One choice in the session-length strip: a big value, a small word under it. */
-private class Segment(val value: String, val label: String?, val selected: Boolean, val description: String)
+/** One session length on offer: its value, and a word beside it (the Stars presets' names). */
+private class LengthOption(val value: String, val label: String?, val selected: Boolean, val description: String)
 
 /**
- * The strip over the viewfinder's foot changes with the mode: how long a Stars session takes at
- * each preset; the trail and meteor durations; in Manual, the three numbers that matter, each
- * opening Adjust.
+ * What the session-length pill offers changes with the mode: the trail and meteor durations; how
+ * long a Stars session takes at each preset. With numbers of one's own (Manual, or Adjust set by
+ * hand) the length follows from them, so the pill offers nothing and opens Adjust. [current] is
+ * what the pill says.
  */
-@Composable
-private fun SecondaryRow(vm: StarCamViewModel, s: AppSettings, plan: Plan, cam: CamInfo?, onOpenPro: () -> Unit) {
-    when {
-        s.mode == Mode.TRAILS -> {
-            val options = listOf(10, 20, 30, 60)
-            SegmentStrip(options.map { m -> Segment("$m min", null, m == s.trailsMinutes, "Star trails for $m minutes") }) { i ->
-                vm.settingsStore.update { it.copy(trailsMinutes = options[i]) }
-            }
+private class Lengths(val current: String, val options: List<LengthOption>, val onPick: (Int) -> Unit)
+
+private fun lengthsFor(vm: StarCamViewModel, s: AppSettings, plan: Plan, cam: CamInfo?): Lengths = when {
+    s.mode == Mode.TRAILS -> {
+        val options = listOf(10, 20, 30, 60)
+        Lengths(
+            "${s.trailsMinutes} min",
+            options.map { m -> LengthOption("$m min", null, m == s.trailsMinutes, "Star trails for $m minutes") },
+        ) { i -> vm.settingsStore.update { it.copy(trailsMinutes = options[i]) } }
+    }
+    s.mode == Mode.METEOR -> {
+        val options = listOf(15, 30, 60, 120)
+        fun text(m: Int) = if (m >= 60) "${m / 60} h" else "$m min"
+        Lengths(
+            text(s.meteorMinutes),
+            options.map { m -> LengthOption(text(m), null, m == s.meteorMinutes, "Watch for meteors for $m minutes") },
+        ) { i -> vm.settingsStore.update { it.copy(meteorMinutes = options[i]) } }
+    }
+    plan.manual -> Lengths("~${sessionMinutes(plan, s)} min", emptyList()) {}
+    else -> {
+        val options = Quality.entries.map { q ->
+            val minutes = sessionMinutes(planFor(s.copy(quality = q), cam), s)
+            LengthOption("~$minutes min", qualityName(q), q == s.quality,
+                "${qualityName(q)}: about $minutes minutes, ${q.frames} frames")
         }
-        s.mode == Mode.METEOR -> {
-            val options = listOf(15, 30, 60, 120)
-            SegmentStrip(options.map { m ->
-                Segment(if (m >= 60) "${m / 60} h" else "$m min", null, m == s.meteorMinutes, "Watch for meteors for $m minutes")
-            }) { i -> vm.settingsStore.update { it.copy(meteorMinutes = options[i]) } }
+        Lengths(options.firstOrNull { it.selected }?.value ?: "~${sessionMinutes(plan, s)} min", options) { i ->
+            vm.settingsStore.update { it.copy(quality = Quality.entries[i]) }
         }
-        plan.manual -> SegmentStrip(
-            listOf(
-                Segment(exposureText(plan.exposureSec), "Shutter", false, "Shutter ${exposureText(plan.exposureSec)}: opens Adjust"),
-                Segment("${plan.iso ?: s.iso}", "ISO", false, "ISO ${plan.iso ?: s.iso}: opens Adjust"),
-                Segment("${plan.frames}", "Frames", false, "${plan.frames} frames: opens Adjust"),
-            ),
-        ) { onOpenPro() }
-        else -> SegmentStrip(
-            Quality.entries.map { q ->
-                val minutes = sessionMinutes(planFor(s.copy(quality = q), cam), s)
-                Segment("~$minutes min", qualityName(q), q == s.quality,
-                    "${qualityName(q)}: about $minutes minutes, ${q.frames} frames")
-            },
-        ) { i -> vm.settingsStore.update { it.copy(quality = Quality.entries[i]) } }
     }
 }
 
+/** How long the session takes, over the viewfinder's foot: a clock, the length, a chevron. */
 @Composable
-private fun SegmentStrip(segments: List<Segment>, onSelect: (Int) -> Unit) {
+private fun LengthPill(lengths: Lengths, open: Boolean, onClick: () -> Unit) {
     val c = Sc.colors
-    val twoLines = segments.any { it.label != null }
-    val shape = RoundedCornerShape(if (twoLines) 24.dp else 20.dp)
-    val inner = RoundedCornerShape(if (twoLines) 19.dp else 16.dp)
+    val opensAdjust = lengths.options.isEmpty()
     Row(
-        // About three quarters of the width, as in the design; four choices get a little more.
-        Modifier.padding(horizontal = 24.dp).widthIn(max = if (segments.size > 3) 330.dp else 280.dp).fillMaxWidth()
-            .height(if (twoLines) StripHeight else StripHeightOneLine)
-            .clip(shape).background(c.glass).border(1.dp, c.hairlineStrong, shape).padding(4.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        Modifier.height(FootRowHeight).clip(CircleShape).background(c.glass)
+            .border(1.dp, c.hairline.copy(alpha = if (c.night) 0.3f else 0.42f), CircleShape)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics {
+                contentDescription = "Session length: ${lengths.current}" + if (opensAdjust) ". Opens Adjust" else ""
+            }
+            .padding(start = 13.dp, end = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        segments.forEachIndexed { i, seg ->
-            Column(
-                Modifier.weight(1f).fillMaxHeight()
-                    .scGlow(c.accentGlow.copy(alpha = c.accentGlow.alpha * 0.5f), radius = 10.dp, cornerRadius = 19.dp,
-                        enabled = seg.selected)
-                    .clip(inner)
-                    .then(
-                        if (seg.selected) Modifier.background(Brush.verticalGradient(listOf(c.selectedFill, c.selectedFill.copy(alpha = c.selectedFill.alpha * 0.7f))))
-                            .border(1.dp, c.selectedBorder, inner)
-                        else Modifier
-                    )
-                    .clickable(role = Role.RadioButton) { onSelect(i) }
+        Icon(ScIcons.Clock, null, Modifier.size(20.dp), tint = c.iconBase)
+        Spacer(Modifier.width(9.dp))
+        Text(lengths.current, style = PillText.copy(fontFeatureSettings = "tnum"), color = c.text, maxLines = 1)
+        Spacer(Modifier.width(8.dp))
+        ScChevron(open, Modifier.size(18.dp), tint = c.text)
+    }
+}
+
+/** The lengths on offer, standing on the pill; the chosen one lit. */
+@Composable
+private fun LengthMenu(options: List<LengthOption>, onPick: (Int) -> Unit, modifier: Modifier) {
+    val c = Sc.colors
+    val shape = RoundedCornerShape(20.dp)
+    val row = RoundedCornerShape(15.dp)
+    Column(
+        modifier.width(IntrinsicSize.Max).widthIn(min = 140.dp)
+            .scGlow(c.accentGlow.copy(alpha = c.accentGlow.alpha * 0.35f), radius = 14.dp, cornerRadius = 20.dp)
+            .clip(shape).background(popoverFill(c)).border(1.dp, c.selectedBorder, shape)
+            .blockTouches()
+            .padding(5.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        options.forEachIndexed { i, o ->
+            Row(
+                Modifier.fillMaxWidth().height(44.dp).clip(row)
+                    .then(if (o.selected) Modifier.background(c.selectedFill).border(1.dp, c.selectedBorder, row) else Modifier)
+                    .clickable(role = Role.RadioButton) { onPick(i) }
                     .semantics {
-                        contentDescription = seg.description
-                        selected = seg.selected
-                    },
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
+                        contentDescription = o.description
+                        selected = o.selected
+                    }
+                    .padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(seg.value, style = ScType.headline.copy(fontSize = 16.sp, lineHeight = 19.sp,
+                Text(o.value, style = ScType.headline.copy(fontSize = 16.sp, lineHeight = 19.sp,
                     fontWeight = FontWeight.Medium, fontFeatureSettings = "tnum"),
-                    color = if (seg.selected) c.onSelected else c.text, maxLines = 1)
-                if (seg.label != null) {
-                    Text(seg.label, style = ScType.caption.copy(fontSize = 11.5.sp, lineHeight = 14.sp), maxLines = 1,
-                        color = if (seg.selected) c.accentText else c.text2)
+                    color = if (o.selected) c.onSelected else c.text, maxLines = 1)
+                if (o.label != null) {
+                    Spacer(Modifier.weight(1f).widthIn(min = 16.dp))
+                    Text(o.label, style = ScType.bodySmall, color = if (o.selected) c.accentText else c.text2, maxLines = 1)
                 }
             }
         }
@@ -1171,6 +1234,187 @@ private fun BarItem(label: String?, content: @Composable () -> Unit) {
     }
 }
 
+// ------------------------------------------------------------------------------- quick tools
+
+/** Quick tools' card is as wide as two tiles need; its tail rises this far above it. */
+private val QuickToolsWidth = 288.dp
+private val TailHeight = 12.dp
+
+/**
+ * Quick tools (the owner's design, 5 Nov 2026): Find, night vision, the sky view and Settings, as
+ * four tiles on a card that hangs under the Tonight bar, its tail pointing up at the square that
+ * opens it. The switches leave it open; a touch anywhere else, the cross or Back closes it.
+ */
+@Composable
+private fun QuickTools(
+    nightMode: Boolean,
+    skyOn: Boolean,
+    onFind: () -> Unit,
+    onNight: () -> Unit,
+    onSky: () -> Unit,
+    onSettings: () -> Unit,
+    onClose: () -> Unit,
+) {
+    val c = Sc.colors
+    BackHandler(onBack = onClose)
+    BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+        DismissLayer(onClose)
+        // The tail's tip under the square's middle: 12 dp margin plus half its 44 dp.
+        val shape = remember { PopoverShape(corner = 14.dp, tail = TailHeight, tailWidth = 16.dp, tailFromEnd = 22.dp) }
+        Box(
+            Modifier.align(Alignment.TopEnd)
+                // Under the Tonight bar, the tail's tip just touching it.
+                .padding(top = TopRowHeight + 4.dp + TonightBarHeight + 10.dp - TailHeight, end = 12.dp)
+                .width((maxWidth - 24.dp).coerceAtMost(QuickToolsWidth)),
+        ) {
+            // The glow, round the card but not its tail.
+            Box(
+                Modifier.matchParentSize().padding(top = TailHeight)
+                    .scGlow(c.accentGlow.copy(alpha = c.accentGlow.alpha * 0.35f), radius = 16.dp, cornerRadius = 14.dp),
+            )
+            Column(
+                Modifier.fillMaxWidth().clip(shape).background(popoverFill(c)).border(1.dp, c.selectedBorder, shape)
+                    .blockTouches()
+                    .padding(start = 10.dp, end = 10.dp, top = TailHeight, bottom = 10.dp),
+            ) {
+                Row(Modifier.fillMaxWidth().height(46.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Quick tools",
+                        style = ScType.headline.copy(fontSize = 18.sp, lineHeight = 24.sp, fontWeight = FontWeight.Medium),
+                        color = c.text, modifier = Modifier.weight(1f).padding(start = 6.dp),
+                    )
+                    Box(
+                        Modifier.size(40.dp).clip(CircleShape)
+                            .clickable(role = Role.Button, onClick = onClose)
+                            .semantics { contentDescription = "Close quick tools" },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(ScIcons.Close, null, Modifier.size(20.dp), tint = c.text)
+                    }
+                }
+                Spacer(Modifier.height(2.dp))
+                Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val tile = Modifier.weight(1f).fillMaxHeight()
+                    ToolTile(ScDuo.Find, "Find", "Find in the sky: a galaxy, a planet, a star", tile, opens = true,
+                        onClick = onFind)
+                    ToolTile(ScDuo.Eye, "Night vision", if (nightMode) "Night vision on" else "Night vision off", tile,
+                        checked = nightMode, onClick = onNight)
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val tile = Modifier.weight(1f).fillMaxHeight()
+                    ToolTile(ScDuo.SkyView, "Sky view", if (skyOn) "Sky view on" else "Sky view", tile,
+                        checked = skyOn, onClick = onSky)
+                    ToolTile(ScDuo.Gear, "Settings", "Settings", tile, onClick = onSettings)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * One of Quick tools' tiles: the tool's icon, its name and, under the name, what a tap does: a
+ * switch, or Open. Settings' chevron sits beside its name.
+ */
+@Composable
+private fun ToolTile(
+    icon: DuoIcon,
+    title: String,
+    description: String,
+    modifier: Modifier,
+    checked: Boolean? = null,
+    opens: Boolean = false,
+    onClick: () -> Unit,
+) {
+    val c = Sc.colors
+    val shape = RoundedCornerShape(14.dp)
+    Row(
+        modifier.heightIn(min = 64.dp).clip(shape)
+            .background(c.text.copy(alpha = 0.035f)).border(1.dp, c.hairlineStrong, shape)
+            .then(
+                if (checked != null) Modifier.toggleable(value = checked, role = Role.Switch, onValueChange = { onClick() })
+                else Modifier.clickable(role = Role.Button, onClick = onClick)
+            )
+            .semantics { contentDescription = description }
+            .padding(start = 10.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ScDuoIcon(icon, Modifier.size(22.dp))
+        Spacer(Modifier.width(9.dp))
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(title, style = PillText, color = c.text, maxLines = 2, modifier = Modifier.weight(1f))
+                if (checked == null && !opens) Icon(ScIcons.ChevronRight, null, Modifier.size(16.dp), tint = c.text2)
+            }
+            if (opens) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Open", style = PillText.copy(fontWeight = FontWeight.Normal), color = c.accentText)
+                    Spacer(Modifier.width(3.dp))
+                    Icon(ScIcons.ChevronRight, null, Modifier.size(14.dp), tint = c.accentText)
+                }
+            }
+            if (checked != null) {
+                Spacer(Modifier.height(2.dp))
+                // The tile is the switch; this only shows it.
+                ScSwitch(checked, null, Modifier.align(Alignment.End).height(30.dp))
+            }
+        }
+    }
+}
+
+/**
+ * A card with a small tail rising from its top edge, [tailFromEnd] in from the right, its sides
+ * curving in to the tip as the design draws Quick tools'. The card itself starts [tail] down.
+ */
+private class PopoverShape(
+    private val corner: Dp,
+    private val tail: Dp,
+    private val tailWidth: Dp,
+    private val tailFromEnd: Dp,
+) : Shape {
+    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
+        val r = with(density) { corner.toPx() }
+        val t = with(density) { tail.toPx() }
+        val half = with(density) { tailWidth.toPx() } / 2f
+        val tip = size.width - with(density) { tailFromEnd.toPx() }
+        val w = size.width
+        val h = size.height
+        val path = Path().apply {
+            moveTo(r, t)
+            lineTo(tip - half, t)
+            cubicTo(tip - half * 0.4f, t, tip - half * 0.12f, t * 0.4f, tip, 0f)
+            cubicTo(tip + half * 0.12f, t * 0.4f, tip + half * 0.4f, t, tip + half, t)
+            lineTo(w - r, t)
+            arcTo(Rect(w - 2 * r, t, w, t + 2 * r), -90f, 90f, false)
+            lineTo(w, h - r)
+            arcTo(Rect(w - 2 * r, h - 2 * r, w, h), 0f, 90f, false)
+            lineTo(r, h)
+            arcTo(Rect(0f, h - 2 * r, 2 * r, h), 90f, 90f, false)
+            lineTo(0f, t + r)
+            arcTo(Rect(0f, t, 2 * r, t + 2 * r), 180f, 90f, false)
+            close()
+        }
+        return Outline.Generic(path)
+    }
+}
+
+/** Quick tools' and the session lengths' glass: the raised violet, lit a touch. */
+private fun popoverFill(c: ScColors): Color = c.selectedBorder.copy(alpha = 0.06f).compositeOver(c.raised)
+
+/** Under an open menu: the first touch anywhere else closes it, and goes no further. */
+@Composable
+private fun DismissLayer(onDismiss: () -> Unit) {
+    val dismiss by rememberUpdatedState(onDismiss)
+    Box(
+        Modifier.fillMaxSize().pointerInput(Unit) {
+            awaitEachGesture {
+                awaitFirstDown(requireUnconsumed = false)
+                dismiss()
+            }
+        },
+    )
+}
+
 // ------------------------------------------------------------------------------- overlays
 
 @Composable
@@ -1183,9 +1427,9 @@ private fun CameraProblemCard(
     onProbe: () -> Unit,
 ) {
     val c = Sc.colors
-    // No full-screen scrim: the top row (the light map, Find, Settings) and the gallery must stay
-    // reachable when the camera cannot come back - on a phone without a usable RAW camera, it
-    // never will.
+    // No full-screen scrim: the top row (the light map, Find, Quick tools with Settings) and the
+    // gallery must stay reachable when the camera cannot come back - on a phone without a usable
+    // RAW camera, it never will.
     Box(
         Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(16.dp),
         contentAlignment = Alignment.Center,

@@ -69,16 +69,27 @@ each; the rest waits one tap away.
 - Cards 22 dp corners, tiles 18 dp, the bottom sheet 28 dp at the top.
 - Screen margin 16 dp; 8-12 dp between things in a card; touch targets at least 44 dp, the
   shutter 84 dp on the capture screen. The capture screen is kept slim, as in the design: a 44 dp
-  top row, a 50 dp Tonight card, a 48 dp session-length strip three quarters of the width, 46 dp
-  tabs, 58 dp gallery and Adjust squares. (The mockup draws its buttons smaller still; 44 dp is
-  the least a finger, in a glove, can hit.)
+  top row, a 44 dp Tonight bar, a 42 dp row over the viewfinder's foot (the session length, the
+  lenses), 46 dp tabs, 58 dp gallery and Adjust squares. (The mockup draws its buttons smaller
+  still; 44 dp is the least a finger, in a glove, can hit.)
 
 ## Components
 
-- **Pill button with icon** (Light map, Find, Tonight): a two-tone icon and a word, a lavender edge
-  and a faint glow. **Primary button**: the purple gradient with a glow (Next, Share, Save).
-- **Segment strip** (the session length, Quick / Balanced / Deep): a dark glass pill; each segment
-  a big value over a small word; the chosen one lit, edged and glowing.
+- **Pill button with icon** (Light map, Find): a two-tone icon and a word, a lavender edge and a
+  faint glow. **Primary button**: the purple gradient with a glow (Next, Share, Save).
+- **The capture screen's top** (the owner's design, 5 Nov 2026): the Light map pill on the left,
+  Find and the **Quick tools** square (four rings, always lit) on the right; under them the
+  **Tonight bar**, one line in a pill ("Tonight · Bortle 6 · Dark till 05:49", the Moon before
+  it, a chevron after it) that opens the planner.
+- **Quick tools**: a card of violet glass with a lavender edge, hanging under the Tonight bar, its
+  curved tail pointing up at the square; "Quick tools" and a cross, then 2 × 2 tiles (an icon, the
+  name, and under it a switch or "Open ›"; Settings' chevron beside its name). The switches leave
+  it open; a touch anywhere else closes it.
+- **A pill that opens a list** (the session length, over the viewfinder's foot): a clock, the
+  value and a chevron in a dark glass pill; tapped, the choices stand on it in a glass card, the
+  chosen one lit. The lenses share its row, on the right.
+- **Segment strip** (focus and the start delay in Adjust): a dark glass pill of choices; the
+  chosen one lit, edged and glowing.
 - **Tabs** (the modes): icon and word, the chosen one lavender with a glowing bar under it.
 - **Shutter**: a lavender disk inside a ring that runs from pink to violet, glowing; dim and flat
   when it cannot fire.
@@ -116,5 +127,6 @@ each; the rest waits one tap away.
 The owner's set, redrawn as vectors (1.6 stroke on a 24 grid, round ends): the sparkle (Stars),
 the orbits (Star trails), the meteor, the sliders on their side (Manual) and standing up
 (Adjust), the map with its pin (Light map), the crosshair with a star (Find), the constellation
-(sky view), the gear (Settings), the eye (night vision), three sparkles (Tonight). The rest of the
-app's icons are drawn in the same stroke. Two-tone where the design has a bright detail.
+(sky view), the gear (Settings), the eye (night vision), three sparkles (Tonight), four rings
+(Quick tools; the right two filled while open). The rest of the app's icons are drawn in the same
+stroke. Two-tone where the design has a bright detail.

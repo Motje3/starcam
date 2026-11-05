@@ -83,6 +83,14 @@ function WaitFor([string]$pattern, [int]$seconds) {
     $false
 }
 function Back { A shell input keyevent 4; Start-Sleep -Milliseconds 800 }
+# Night vision, the sky view and Settings are in Quick tools, the square at the top right. A switch
+# leaves them open, so -Switch closes them after it (and a tile not there closes them too).
+function Tool([string]$label, [switch]$Switch) {
+    if (-not (Tap 'Quick tools')) { return $false }
+    $ok = Tap $label
+    if ($Switch -or -not $ok) { Back }
+    $ok
+}
 function Shot([string]$name) {
     # The Android 16 image's graphics crash its system_server on screencap (see DEBUGGING.md).
     if ($script:apiLevel -ge 36) { return }
@@ -157,7 +165,7 @@ A shell pm grant com.wm.stelli android.permission.POST_NOTIFICATIONS 2>&1 | Out-
 # ---- self-test
 if (Wanted 'self-test') {
     Launch | Out-Null
-    Tap 'Settings' | Out-Null
+    Tool 'Settings' | Out-Null
     for ($k = 0; $k -lt 4 -and -not ((AllText) -match '\|Advanced\|'); $k++) { A shell input swipe 1100 590 150 590 300; Start-Sleep -Milliseconds 700 }
     Tap 'Advanced' | Out-Null
     for ($k = 0; $k -lt 8 -and -not ((AllText) -match 'Engine self-test'); $k++) { A shell input swipe 636 2200 636 1000 300; Start-Sleep -Milliseconds 700 }
@@ -532,7 +540,7 @@ if (Wanted 'sky') {
     $fromChip = $false
     $find = $false
     $where = $false
-    if (Tap 'Sky view') {
+    if (Tool 'Sky view' -Switch) {
         $fromChip = WaitFor 'The sky now' 15
         # Find: the North Star (always up from Amsterdam) picked from the list; the card says where.
         $f = Nodes | Where-Object { $_.text -like 'Find:*' } | Select-Object -First 1

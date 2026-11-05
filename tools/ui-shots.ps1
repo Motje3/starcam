@@ -59,6 +59,14 @@ function WaitFor([string]$pattern, [int]$seconds) {
 }
 function Down { A shell input swipe 636 2000 636 1200 300; Start-Sleep -Milliseconds 700 }
 function Back { A shell input keyevent 4; Start-Sleep -Milliseconds 900 }
+# Night vision, the sky view and Settings are in Quick tools, the square at the top right. A switch
+# leaves them open, so -Switch closes them after it (and a tile not there closes them too).
+function Tool([string]$like, [switch]$Switch) {
+    if (-not (Tap 'Quick tools')) { return $false }
+    $ok = Tap $like
+    if ($Switch -or -not $ok) { Back }
+    $ok
+}
 function Shot([string]$name) {
     Start-Sleep -Seconds 1
     A shell screencap -p /data/local/tmp/shot.png 2>&1 | Out-Null
@@ -179,7 +187,12 @@ if (Tap 'Light map*') {
     Shot 'extra\lightmap'
 }
 Launch
-if (Tap 'Settings') {
+if (Tap 'Quick tools') {
+    Shot 'extra\quick-tools'
+    Back
+}
+Launch
+if (Tool 'Settings') {
     Start-Sleep -Seconds 2
     Shot 'extra\settings'
 }
@@ -195,10 +208,10 @@ if (Tap 'Manual') {
     Tap 'Stars' | Out-Null
 }
 Launch
-if (Tap 'Night vision off') {
+if (Tool 'Night vision off' -Switch) {
     Start-Sleep -Seconds 2
     Shot 'extra\night'
-    Tap 'Night vision on' | Out-Null
+    Tool 'Night vision on' -Switch | Out-Null
 }
 # The first-launch cards: the app's data cleared, last.
 A shell pm clear com.wm.stelli 2>&1 | Out-Null

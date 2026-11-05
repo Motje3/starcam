@@ -88,6 +88,14 @@ function StartSession([string]$sim) {
     }
 }
 function CloseSky { $n = FindNode 'Close the sky view'; if ($n) { TapNode $n } }
+# Night vision, the sky view and Settings are in Quick tools, the square at the top right. A switch
+# leaves them open, so -Switch closes them after it (and a tile not there closes them too).
+function Tool([string]$like, [switch]$Switch) {
+    if (-not (Tap 'Quick tools')) { return $false }
+    $ok = Tap $like
+    if ($Switch -or -not $ok) { Back }
+    $ok
+}
 
 # ---- the pictures: one folder per part of the app, numbered in the order they were taken
 $script:dir = $Out
@@ -208,7 +216,7 @@ function StackHere {
 # A Settings switch turned on or off, by its row, when its value ("On ...", "Off ...") says otherwise.
 function SetSwitch([string]$tab, [string]$label, [bool]$on) {
     Launch
-    if (-not ((Tap 'Settings') -and (TapTab $tab) -and (ScrollTo $label))) { return }
+    if (-not ((Tool 'Settings') -and (TapTab $tab) -and (ScrollTo $label))) { return }
     $isOn = (AllText) -match ([regex]::Escape($label) + '\|+On\b')
     if ($isOn -ne $on) { Tap $label | Out-Null }
 }
@@ -240,7 +248,7 @@ Demo @('-e', 'command', 'network', '-e', 'wifi', 'show', '-e', 'level', '4', '-e
 Demo @('-e', 'command', 'network', '-e', 'mobile', 'show', '-e', 'datatype', 'none', '-e', 'level', '4', '-e', 'fully', 'true')
 Demo @('-e', 'command', 'notifications', '-e', 'visible', 'false')
 Launch
-if ((AllText) -match 'Night vision on') { Tap 'Night vision on' | Out-Null }
+Tool 'Night vision on' -Switch | Out-Null
 if ($Clean) {
     if ($Serial -notlike 'emulator-*') { throw '-Clean is for the emulator only: it deletes every session' }
     A shell rm -rf $sessions 2>&1 | Out-Null
@@ -255,7 +263,7 @@ if ($Clean) {
 if (Wanted '01') {
     Section '01 first launch'
     Launch
-    if ((Tap 'Settings') -and (TapTab 'Interface') -and (ScrollTo 'Show the intro again') -and (Tap 'Show the intro again')) {
+    if ((Tool 'Settings') -and (TapTab 'Interface') -and (ScrollTo 'Show the intro again') -and (Tap 'Show the intro again')) {
         for ($i = 1; $i -le 6; $i++) {
             WaitFor '\|Next\||\|Got it\|' 10 | Out-Null
             Shot "intro $i"
@@ -276,7 +284,7 @@ if (Wanted '02') {
     # The planner opened once first, so the Tonight card has the place and tonight to show.
     if (Tap 'Tonight planner*') { WaitFor 'Show me the sky' 40 | Out-Null; Launch; WaitFor 'Bortle' 15 | Out-Null }
     Tap 'Stars' | Out-Null
-    Tap 'Balanced*' | Out-Null
+    if (Tap 'Session length*') { Tap 'Balanced*' | Out-Null }
     foreach ($m in @(@('Stars', 'stars'), @('Star trails', 'star trails'), @('Meteor', 'meteor watch'), @('Manual', 'manual'))) {
         Tap $m[0] | Out-Null
         Start-Sleep -Seconds 1
@@ -295,8 +303,12 @@ if (Wanted '02') {
             }
         }
     }
+    # Quick tools, and the session lengths (Star trails'), each as it opens.
+    if (Tap 'Quick tools') { Shot 'quick tools'; Back }
+    Tap 'Star trails' | Out-Null
+    if (Tap 'Session length*') { Shot 'star trails, session length'; Back }
     Tap 'Stars' | Out-Null
-    if (Tap 'Sky view') {
+    if (Tool 'Sky view' -Switch) {
         WaitFor 'The sky now' 15 | Out-Null
         Start-Sleep -Seconds 2
         Shot 'sky view'
@@ -541,7 +553,7 @@ if (Wanted '07') {
 if (Wanted '08') {
     Section '08 settings'
     Launch
-    if (Tap 'Settings') {
+    if (Tool 'Settings') {
         WaitFor 'Search settings' 10 | Out-Null
         foreach ($t in $tabs) {
             if (TapTab $t) {
@@ -595,11 +607,13 @@ if (Wanted '08') {
 if (Wanted '09') {
     Section '09 night vision'
     Launch
-    if (Tap 'Night vision off') {
+    if (Tool 'Night vision off') {
         Start-Sleep -Seconds 2
+        Shot 'quick tools'
+        Back
         Shot 'main screen'
         if (Tap 'Adjust*') { Start-Sleep -Seconds 1; Shot 'adjust'; Back }
-        if (Tap 'Settings') {
+        if (Tool 'Settings') {
             Start-Sleep -Seconds 1
             if (TapTab 'Interface') { Top }
             Shot 'settings'
@@ -613,7 +627,7 @@ if (Wanted '09') {
             if ($tile) { TapNode $tile; Start-Sleep -Seconds 3; Shot 'photo page' }
         }
         Launch
-        Tap 'Night vision on' | Out-Null
+        Tool 'Night vision on' -Switch | Out-Null
     }
 }
 
