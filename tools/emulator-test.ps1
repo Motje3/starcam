@@ -12,10 +12,10 @@
 #   meteors     a meteor watch with one meteor in it stacked: the meteor found and cut out of its frame
 #   whatsin     a session of the real sky (Orion, drawn from the star catalogue) stacked, then "What's
 #               in this photo": recognised as Orion the right way round, a labelled copy saved
-#   tonight     the Tonight planner opened from the viewfinder, for a place set with geo fix; what is
-#               worth a shot tonight listed, the first opened in the sky view to be found
+#   tonight     the Tonight planner opened from the top row's moon, for a place set with geo fix; what
+#               is worth a shot tonight listed, the first opened in the sky view to be found
 #   sky         the sky view: from the top bar's Find (its list open), from the planner onto the
-#               viewfinder, closed, from its own chip; Find: the North Star picked, where it stands
+#               viewfinder, closed, from Quick tools; Find: the North Star picked, where it stands
 #   darksky     the dark-sky map from the top bar (showing your Bortle class) and from the planner:
 #               your sky, a suggested spot, planned for there
 #   calendar    the sky calendar: a year listed, the Geminids opened in the sky view
@@ -90,6 +90,13 @@ function Tool([string]$label, [switch]$Switch) {
     $ok = Tap $label
     if ($Switch -or -not $ok) { Back }
     $ok
+}
+# The planner: the moon on the top row ($moon) opens tonight's card, whose button opens it.
+function Planner($moon) {
+    $c = Center $moon
+    A shell input tap $c[0] $c[1]
+    Start-Sleep -Milliseconds 800
+    (Tap 'Plan tonight') -or (Tap 'Set your place')
 }
 function Shot([string]$name) {
     # The Android 16 image's graphics crash its system_server on screencap (see DEBUGGING.md).
@@ -451,18 +458,17 @@ if (Wanted 'whatsin') {
         "stacked=$stacked found=$found orion=$orion upright=$upright matched=$matched saved=$saved gallery=$([bool]$copy)"
 }
 
-# ---- the Tonight planner from the viewfinder chip, with the emulator placed in Amsterdam
+# ---- the Tonight planner from the top row's moon, with the emulator placed in Amsterdam
 if (Wanted 'tonight') {
     A shell pm grant com.wm.stelli android.permission.ACCESS_COARSE_LOCATION 2>&1 | Out-Null
     & $adbExe -s $Serial emu geo fix 4.90 52.37 2>&1 | Out-Null
     Launch | Out-Null
-    $chip = Nodes | Where-Object { $_.'content-desc' -like 'Tonight planner*' } | Select-Object -First 1
+    $chip = Nodes | Where-Object { $_.'content-desc' -like 'Tonight*' } | Select-Object -First 1
     $planned = $false
     $worth = $false
     $found = $false
     if ($chip) {
-        $c = Center $chip
-        A shell input tap $c[0] $c[1]
+        Planner $chip | Out-Null
         $planned = WaitFor 'Show me the sky' 40
         Start-Sleep -Seconds 1
         Shot 'tonight'
@@ -499,7 +505,7 @@ if (Wanted 'tonight') {
     Check 'tonight' ([bool]$chip -and $planned -and $worth -and $found) "chip=$([bool]$chip) planned=$planned worth=$worth found=$found"
 }
 
-# ---- the sky view: from the planner's button onto the viewfinder, closed, and from its own chip
+# ---- the sky view: from the planner's button onto the viewfinder, closed, and from Quick tools
 if (Wanted 'sky') {
     A shell pm grant com.wm.stelli android.permission.ACCESS_COARSE_LOCATION 2>&1 | Out-Null
     Launch | Out-Null
@@ -515,11 +521,10 @@ if (Wanted 'sky') {
         $n = Nodes | Where-Object { $_.'content-desc' -eq 'Close the sky view' } | Select-Object -First 1
         if ($n) { $c = Center $n; A shell input tap $c[0] $c[1]; Start-Sleep -Seconds 1 }
     }
-    $chip = Nodes | Where-Object { $_.'content-desc' -like 'Tonight planner*' } | Select-Object -First 1
+    $chip = Nodes | Where-Object { $_.'content-desc' -like 'Tonight*' } | Select-Object -First 1
     $fromPlanner = $false
     if ($chip) {
-        $c = Center $chip
-        A shell input tap $c[0] $c[1]
+        Planner $chip | Out-Null
         if (WaitFor 'Show me the sky' 40) {
             $b = Nodes | Where-Object { $_.text -like 'Show me the sky*' } | Select-Object -First 1
             $c = Center $b
@@ -574,7 +579,8 @@ if (Wanted 'darksky') {
     A shell pm grant com.wm.stelli android.permission.ACCESS_COARSE_LOCATION 2>&1 | Out-Null
     & $adbExe -s $Serial emu geo fix 4.90 52.37 2>&1 | Out-Null
     Launch | Out-Null
-    # The capture screen: your sky's Bortle class on the Tonight card, the light map one tap away.
+    # The capture screen: your sky's Bortle class in the top row's moon (its description), the
+    # light map a tap away.
     $fromBar = $false
     $bar = Nodes | Where-Object { $_.'content-desc' -like 'Light map*' } | Select-Object -First 1
     if ($bar) {
@@ -585,11 +591,10 @@ if (Wanted 'darksky') {
         Back
         WaitFor 'Start astro capture' 15 | Out-Null
     }
-    $chip = Nodes | Where-Object { $_.'content-desc' -like 'Tonight planner*' } | Select-Object -First 1
+    $chip = Nodes | Where-Object { $_.'content-desc' -like 'Tonight*' } | Select-Object -First 1
     $opened = $false; $spot = $false; $planned = $false
     if ($chip) {
-        $c = Center $chip
-        A shell input tap $c[0] $c[1]
+        Planner $chip | Out-Null
         WaitFor 'Show me the sky' 40 | Out-Null
         for ($k = 0; $k -lt 6 -and -not ((AllText) -match 'Find a darker sky'); $k++) { A shell input swipe 636 2200 636 900 300; Start-Sleep -Milliseconds 700 }
         if (Tap 'Find a darker sky') {
@@ -615,11 +620,10 @@ if (Wanted 'darksky') {
 # in the sky view at their best moment
 if (Wanted 'calendar') {
     Launch | Out-Null
-    $chip = Nodes | Where-Object { $_.'content-desc' -like 'Tonight planner*' } | Select-Object -First 1
+    $chip = Nodes | Where-Object { $_.'content-desc' -like 'Tonight*' } | Select-Object -First 1
     $listed = $false; $opened = $false; $sky = $false
     if ($chip) {
-        $c = Center $chip
-        A shell input tap $c[0] $c[1]
+        Planner $chip | Out-Null
         WaitFor 'Show me the sky' 40 | Out-Null
         for ($k = 0; $k -lt 6 -and -not ((AllText) -match 'Sky calendar'); $k++) { A shell input swipe 636 2200 636 900 300; Start-Sleep -Milliseconds 700 }
         if (Tap 'Sky calendar') {

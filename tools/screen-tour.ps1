@@ -96,6 +96,8 @@ function Tool([string]$like, [switch]$Switch) {
     if ($Switch -or -not $ok) { Back }
     $ok
 }
+# The planner: the moon on the top row opens tonight's card, whose button opens it.
+function Planner { (Tap 'Tonight*') -and ((Tap 'Plan tonight') -or (Tap 'Set your place')) }
 
 # ---- the pictures: one folder per part of the app, numbered in the order they were taken
 $script:dir = $Out
@@ -281,8 +283,8 @@ if (Wanted '01') {
 if (Wanted '02') {
     Section '02 main screen'
     Launch
-    # The planner opened once first, so the Tonight card has the place and tonight to show.
-    if (Tap 'Tonight planner*') { WaitFor 'Show me the sky' 40 | Out-Null; Launch; WaitFor 'Bortle' 15 | Out-Null }
+    # The planner opened once first, so tonight's card has the place and tonight to show.
+    if (Planner) { WaitFor 'Show me the sky' 40 | Out-Null; Launch; WaitFor 'Bortle' 15 | Out-Null }
     Tap 'Stars' | Out-Null
     if (Tap 'Session length*') { Tap 'Balanced*' | Out-Null }
     foreach ($m in @(@('Stars', 'stars'), @('Star trails', 'star trails'), @('Meteor', 'meteor watch'), @('Manual', 'manual'))) {
@@ -481,7 +483,8 @@ if (Wanted '05') {
 if (Wanted '06') {
     Section '06 tonight'
     Launch
-    if (Tap 'Tonight planner*') {
+    if (Tap 'Tonight*') { Shot 'tonight, the card'; Back }
+    if (Planner) {
         WaitFor 'Show me the sky' 40 | Out-Null
         Start-Sleep -Seconds 2
         Page 'tonight' 8
@@ -511,7 +514,7 @@ if (Wanted '06') {
         }
     }
     Launch
-    if ((Tap 'Tonight planner*') -and (WaitFor 'Show me the sky' 40) -and (Tap 'Show me the sky*')) {
+    if ((Planner) -and (WaitFor 'Show me the sky' 40) -and (Tap 'Show me the sky*')) {
         WaitFor 'The sky (now|at)' 20 | Out-Null
         Start-Sleep -Seconds 2
         Shot 'the sky view from the planner'
@@ -619,7 +622,7 @@ if (Wanted '09') {
             Shot 'settings'
             Back
         }
-        if (Tap 'Tonight planner*') { WaitFor 'Show me the sky' 40 | Out-Null; Start-Sleep -Seconds 2; Shot 'tonight'; Back }
+        if (Planner) { WaitFor 'Show me the sky' 40 | Out-Null; Start-Sleep -Seconds 2; Shot 'tonight'; Back }
         if (Tap 'Sessions gallery') {
             Start-Sleep -Seconds 2
             Shot 'gallery'

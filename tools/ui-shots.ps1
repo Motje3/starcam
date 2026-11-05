@@ -67,6 +67,8 @@ function Tool([string]$like, [switch]$Switch) {
     if ($Switch -or -not $ok) { Back }
     $ok
 }
+# The planner: the moon on the top row opens tonight's card, whose button opens it.
+function Planner { (Tap 'Tonight*') -and ((Tap 'Plan tonight') -or (Tap 'Set your place')) }
 function Shot([string]$name) {
     Start-Sleep -Seconds 1
     A shell screencap -p /data/local/tmp/shot.png 2>&1 | Out-Null
@@ -109,9 +111,9 @@ Demo @('-e', 'command', 'network', '-e', 'mobile', 'show', '-e', 'datatype', 'no
 Demo @('-e', 'command', 'notifications', '-e', 'visible', 'false')
 
 # 1, 2: the viewfinder, then a session running, finished early. The planner is opened once first,
-# so its place (the emulator's geo fix) is known and the Tonight card has tonight to show.
+# so its place (the emulator's geo fix) is known and tonight's card has tonight to show.
 Launch
-if (Tap 'Tonight planner*') {
+if (Planner) {
     WaitFor 'Show me the sky' 40 | Out-Null
     Launch
     WaitFor 'Bortle' 15 | Out-Null
@@ -154,7 +156,7 @@ if ($tile) {
 
 # 5, 6: the Tonight planner; the gallery with that photo.
 Launch
-if (Tap 'Tonight planner*') {
+if (Planner) {
     WaitFor 'Show me the sky' 40 | Out-Null
     Shot '5-tonight'
 }
@@ -175,7 +177,7 @@ if (Tap 'Find in the sky*') {
 }
 # The sky calendar, at the planner's end.
 Launch
-if (Tap 'Tonight planner*') {
+if (Planner) {
     WaitFor 'Show me the sky' 40 | Out-Null
     for ($k = 0; $k -lt 8; $k++) { A shell input swipe 636 2200 636 1000 300; Start-Sleep -Milliseconds 700 }
     if ((Tap 'Sky calendar') -and (WaitFor 'New moon' 40)) { Shot 'extra\calendar' }

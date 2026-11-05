@@ -89,8 +89,8 @@ match it. Built in 0.6.0; `design/STYLE.md` is the style, PROGRESS.md says what 
       (5 Nov 2026): the cover-the-lens step with the owner's picture, the session's header and
       step circles, the Adjust sheet, the hold-still step, the light map with its panel; then
       every other screen made simple first, more behind a tap (settings, the photo page, the
-      result, Tonight, the intro); then the capture screen's Quick tools, the one-line Tonight
-      bar and the session-length pill.
+      result, Tonight, the intro); then the capture screen's Quick tools, tonight behind a moon
+      on the top row and the session-length pill.
 - [x] On the phone: 0.6.1's debug build installed over wireless adb on 5 Nov 2026 (a new app
       beside the old StarCam; this PC's debug key, so `tools\build.ps1` updates it, sessions kept).
 - [ ] Under a real sky.

@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -42,6 +43,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -70,7 +72,9 @@ import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
@@ -85,7 +89,6 @@ import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
@@ -145,8 +148,8 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
- * The capture screen, as the owner's design (Nov 2026) has it: the light map, Find and Quick tools
- * (Find, night vision, the sky view, Settings) along the top, tonight in one line, the viewfinder
+ * The capture screen, as the owner's design (Nov 2026) has it: the light map, tonight (a moon),
+ * Find and Quick tools (Find, night vision, the sky view, Settings) along the top, the viewfinder
  * across the whole width with a small compass, the session length and the lenses over its foot,
  * the modes as tabs, and the gallery, the shutter and Adjust at the bottom.
  *
@@ -181,16 +184,22 @@ fun CaptureScreen(
 
     var showPro by rememberSaveable { mutableStateOf(false) }
     var framingBoost by remember { mutableStateOf(false) }
-    // Quick tools: the card the square at the top right opens.
+    // The cards the top row opens: tonight's, from the moon, and Quick tools, from the square.
+    var tonightOpen by remember { mutableStateOf(false) }
     var toolsOpen by remember { mutableStateOf(false) }
+    // Where the moon's middle is, for the tail of tonight's card (px, from the root's left).
+    var tonightX by remember { mutableFloatStateOf(0f) }
     // A session restarts the viewfinder without the boost; the toggle must not keep claiming it.
-    // Nor do Quick tools stay open over it.
+    // Nor do the cards stay open over it.
     LaunchedEffect(state is CaptureState.Idle) {
         if (state !is CaptureState.Idle) {
             framingBoost = false
+            tonightOpen = false
             toolsOpen = false
         }
     }
+    // Worked out again when the sky view closes too: a place may have been set from it.
+    val tonight = rememberTonightSummary(state is CaptureState.Idle, refresh = sky == null)
 
     // Screen shield: pure black over a running burst (battery, dark adaptation). Pure UI - the
     // session runs on underneath - and disarmed outside the capture phases, so the next session
@@ -205,7 +214,9 @@ fun CaptureScreen(
             vm = vm,
             settings = settings,
             idle = state is CaptureState.Idle,
+            tonight = tonight,
             framingBoost = framingBoost,
+            tonightOpen = tonightOpen,
             toolsOpen = toolsOpen,
             onBoostChange = {
                 framingBoost = it
@@ -214,8 +225,9 @@ fun CaptureScreen(
             onOpenPro = { showPro = true },
             onOpenSessions = onOpenSessions,
             onOpenSession = onOpenSession,
-            onOpenTonight = onOpenTonight,
             onOpenDarkSky = onOpenDarkSky,
+            onTonight = { tonightOpen = !tonightOpen },
+            onTonightPlaced = { tonightX = it },
             onTools = { toolsOpen = !toolsOpen },
         )
 
@@ -258,8 +270,19 @@ fun CaptureScreen(
             }
         }
 
-        // ---- Quick tools: over the camera card too, which on a phone without a RAW camera never
-        // goes away, so that Settings stays within reach.
+        // ---- The top row's cards: over the camera card too, which on a phone without a RAW camera
+        // never goes away, so that Settings stays within reach.
+        if (tonightOpen && state is CaptureState.Idle) {
+            TonightCard(
+                t = tonight,
+                anchorX = tonightX,
+                onPlan = {
+                    tonightOpen = false
+                    onOpenTonight()
+                },
+                onClose = { tonightOpen = false },
+            )
+        }
         if (toolsOpen && state is CaptureState.Idle) {
             QuickTools(
                 nightMode = settings.nightMode,
@@ -311,14 +334,17 @@ private fun IdleLayout(
     vm: StarCamViewModel,
     settings: AppSettings,
     idle: Boolean,
+    tonight: TonightSummary?,
     framingBoost: Boolean,
+    tonightOpen: Boolean,
     toolsOpen: Boolean,
     onBoostChange: (Boolean) -> Unit,
     onOpenPro: () -> Unit,
     onOpenSessions: () -> Unit,
     onOpenSession: (File) -> Unit,
-    onOpenTonight: () -> Unit,
     onOpenDarkSky: () -> Unit,
+    onTonight: () -> Unit,
+    onTonightPlaced: (Float) -> Unit,
     onTools: () -> Unit,
 ) {
     val camInfo by vm.camInfo.collectAsState()
@@ -329,8 +355,6 @@ private fun IdleLayout(
     val restacking = restack?.running == true
     val plan = remember(settings, camInfo) { planFor(settings, camInfo) }
     val lengths = remember(settings, plan, camInfo) { lengthsFor(vm, settings, plan, camInfo) }
-    // Worked out again when the sky view closes too: a place may have been set from it.
-    val tonight = rememberTonightSummary(idle, refresh = sky == null)
     // The session lengths, opened from the pill over the viewfinder's foot. The menu stands on
     // the pill, so the height of what is under the viewfinder is kept.
     var lengthsOpen by remember { mutableStateOf(false) }
@@ -341,8 +365,12 @@ private fun IdleLayout(
     Box(Modifier.fillMaxSize().scBackground().windowInsetsPadding(WindowInsets.safeDrawing)) {
         Column(Modifier.fillMaxSize()) {
             TopRow(
+                tonight = tonight,
+                tonightOpen = tonightOpen,
                 toolsOpen = toolsOpen,
                 onLightMap = onOpenDarkSky,
+                onTonight = onTonight,
+                onTonightPlaced = onTonightPlaced,
                 onFind = { vm.skyView.value = SkyViewRequest(pick = true) },
                 onTools = onTools,
             )
@@ -352,8 +380,6 @@ private fun IdleLayout(
                 camInfo = camInfo,
                 idle = idle,
                 tonight = tonight,
-                // Quick tools' tail takes the chevron's place, as in the design.
-                tonightChevron = !toolsOpen,
                 lengths = lengths,
                 lengthsOpen = lengthsOpen,
                 onLengths = { if (lengths.options.isEmpty()) onOpenPro() else lengthsOpen = !lengthsOpen },
@@ -361,7 +387,6 @@ private fun IdleLayout(
                 restacking = restacking,
                 onBoostOff = { onBoostChange(false) },
                 onOpenSession = onOpenSession,
-                onOpenTonight = onOpenTonight,
                 modifier = Modifier.weight(1f),
             )
             Column(Modifier.onSizeChanged { footHeight = with(density) { it.height.toDp() } }) {
@@ -395,13 +420,22 @@ private fun IdleLayout(
 // ------------------------------------------------------------------------------- top row
 
 /**
- * The top row, as the owner's design has it: the light map (how dark the sky is here, and where
- * it is darker) on the left; Find (the sky view's list of galaxies, planets and stars to be led
- * to) and the square that opens Quick tools on the right. On a narrow phone the pills lose their
- * words.
+ * The top row: the light map (how dark the sky is here, and where it is darker) and tonight (the
+ * Moon, the dark hours, the best thing to shoot) on the left; Find (the sky view's list of
+ * galaxies, planets and stars to be led to) and the square that opens Quick tools on the right.
+ * On a narrow phone the pills lose their words.
  */
 @Composable
-private fun TopRow(toolsOpen: Boolean, onLightMap: () -> Unit, onFind: () -> Unit, onTools: () -> Unit) {
+private fun TopRow(
+    tonight: TonightSummary?,
+    tonightOpen: Boolean,
+    toolsOpen: Boolean,
+    onLightMap: () -> Unit,
+    onTonight: () -> Unit,
+    onTonightPlaced: (Float) -> Unit,
+    onFind: () -> Unit,
+    onTools: () -> Unit,
+) {
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
     BoxWithConstraints(
@@ -411,12 +445,24 @@ private fun TopRow(toolsOpen: Boolean, onLightMap: () -> Unit, onFind: () -> Uni
         // The words go in only where they fit, whatever the phone's width and font size: first
         // the light map's (its icon says less), then Find's.
         fun wordWidth(s: String) = with(density) { measurer.measure(s, PillText).size.width.toDp() } + 10.dp
-        val bare = 44.dp * 3 + 8.dp + 10.dp
+        val bare = 44.dp * 4 + 8.dp + 8.dp + 10.dp
         val lightWords = bare + wordWidth("Light map") <= maxWidth
         val findWords = lightWords && bare + wordWidth("Light map") + wordWidth("Find") <= maxWidth
+        // What tonight's card says, for those who hear the screen rather than see it.
+        val tonightWords = when {
+            tonight == null -> null
+            !tonight.hasPlace -> "set your place"
+            else -> listOfNotNull(tonight.bortle?.let { "Bortle $it" }, tonight.darkText).joinToString(" · ").ifEmpty { null }
+        }
         Row(Modifier.fillMaxWidth().height(44.dp), verticalAlignment = Alignment.CenterVertically) {
             TopPill(ScDuo.LightMap, if (lightWords) "Light map" else null,
                 "Light map: how dark the sky is around you", onLightMap)
+            Spacer(Modifier.width(8.dp))
+            TopPill(
+                ScDuo.Tonight, null, "Tonight" + (tonightWords?.let { ": $it" } ?: ""), onTonight,
+                Modifier.onGloballyPositioned { onTonightPlaced(it.positionInRoot().x + it.size.width / 2f) },
+                lit = tonightOpen,
+            )
             Spacer(Modifier.weight(1f))
             Spacer(Modifier.width(8.dp))
             TopPill(ScDuo.Find, if (findWords) "Find" else null,
@@ -431,24 +477,34 @@ private fun TopRow(toolsOpen: Boolean, onLightMap: () -> Unit, onFind: () -> Uni
 private val PillText = ScType.button.copy(fontSize = 14.sp)
 
 /**
- * The design keeps the top row, the Tonight bar and the row over the viewfinder's foot slim, so
- * the sky gets the room. The top row is its 44 dp buttons and 8 dp above and below them; Quick
- * tools hang from these heights.
+ * The design keeps the top row and the row over the viewfinder's foot slim, so the sky gets the
+ * room. The top row is its 44 dp buttons and 8 dp above and below them; the cards it opens hang
+ * from it, their tails' tips [CardTop] down, just under the buttons.
  */
 private val TopRowHeight = 60.dp
-private val TonightBarHeight = 44.dp
 private val FootRowHeight = 42.dp
+private val CardTop = TopRowHeight - 5.dp
 
-/** A glowing pill: a two-tone icon and, room permitting, its name. */
+/** A glowing pill: a two-tone icon and, room permitting, its name; lit while its card is open. */
 @Composable
-private fun TopPill(icon: DuoIcon, text: String?, description: String, onClick: () -> Unit) {
+private fun TopPill(
+    icon: DuoIcon,
+    text: String?,
+    description: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    lit: Boolean = false,
+) {
     val c = Sc.colors
     Row(
-        Modifier.fillMaxHeight()
-            .scGlow(c.accentGlow.copy(alpha = c.accentGlow.alpha * 0.35f), radius = 10.dp)
+        modifier.fillMaxHeight()
+            .scGlow(c.accentGlow.copy(alpha = c.accentGlow.alpha * (if (lit) 0.6f else 0.35f)), radius = 10.dp)
             .clip(CircleShape)
-            .background(Brush.verticalGradient(listOf(c.raised, c.buttonSecondary)))
-            .border(1.dp, c.selectedBorder.copy(alpha = 0.75f), CircleShape)
+            .background(
+                if (lit) Brush.verticalGradient(listOf(c.selectedFill, c.selectedFill))
+                else Brush.verticalGradient(listOf(c.raised, c.buttonSecondary))
+            )
+            .border(1.dp, if (lit) c.selectedBorder else c.selectedBorder.copy(alpha = 0.75f), CircleShape)
             .clickable(role = Role.Button, onClick = onClick)
             .semantics { contentDescription = description }
             .padding(start = 10.dp, end = if (text != null) 14.dp else 10.dp),
@@ -484,47 +540,7 @@ private fun ToolsButton(open: Boolean, onClick: () -> Unit) {
     }
 }
 
-// ------------------------------------------------------------------------------ tonight bar
-
-/**
- * Tonight in one line, as the owner's design has it: the Moon as it is tonight, the sky's Bortle
- * class and how long it stays dark. Opens the planner, which has the rest (the best thing to
- * shoot, the Moon's hours); without a place it asks for one.
- */
-@Composable
-private fun TonightBar(t: TonightSummary?, chevron: Boolean, onOpen: () -> Unit) {
-    val c = Sc.colors
-    val rest = when {
-        t == null -> null
-        !t.hasPlace -> "Set your place"
-        else -> listOfNotNull(t.bortle?.let { "Bortle $it" }, t.darkText).joinToString(" · ").ifEmpty { null }
-    }
-    Row(
-        Modifier.fillMaxWidth().height(TonightBarHeight).clip(CircleShape)
-            .background(c.surface.copy(alpha = 0.94f))
-            // A clearer lavender edge than a card's, as the design draws it.
-            .border(1.dp, c.hairline.copy(alpha = if (c.night) 0.45f else 0.72f), CircleShape)
-            .clickable(role = Role.Button, onClick = onOpen)
-            .semantics { contentDescription = "Tonight planner" + (rest?.let { ": $it" } ?: "") }
-            .padding(start = 18.dp, end = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        MoonGlyph(t?.moon, t?.southern == true, Modifier.size(22.dp))
-        Spacer(Modifier.width(16.dp))
-        Text(
-            buildAnnotatedString {
-                withStyle(SpanStyle(color = c.text, fontWeight = FontWeight.Medium)) { append("Tonight") }
-                if (rest != null) append(" · $rest")
-            },
-            style = PillText.copy(fontWeight = FontWeight.Normal), color = c.text2,
-            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
-        )
-        Spacer(Modifier.width(8.dp))
-        Box(Modifier.size(20.dp)) {
-            if (chevron) Icon(ScIcons.ChevronDown, null, Modifier.matchParentSize(), tint = c.text)
-        }
-    }
-}
+// ------------------------------------------------------------------------------ the Moon
 
 /**
  * The Moon as it is: the lit part drawn with its terminator, waxing lit on the right (on the left
@@ -615,8 +631,8 @@ private fun LensSwitch(lenses: List<CamInfo>, current: CamInfo?, onSwitch: (Stri
 
 /**
  * The viewfinder across the whole width (or height, on a short phone), its edges fading into the
- * screen; the Tonight bar over its top, the compass at its side, the session length and the lenses
- * over its foot. The corner brackets mark the part of the frame those leave in view.
+ * screen; the compass at its side, the session length and the lenses over its foot. The corner
+ * brackets mark the part of the frame the foot leaves in view.
  */
 @Composable
 private fun Viewfinder(
@@ -625,7 +641,6 @@ private fun Viewfinder(
     camInfo: CamInfo?,
     idle: Boolean,
     tonight: TonightSummary?,
-    tonightChevron: Boolean,
     lengths: Lengths,
     lengthsOpen: Boolean,
     onLengths: () -> Unit,
@@ -633,7 +648,6 @@ private fun Viewfinder(
     restacking: Boolean,
     onBoostOff: () -> Unit,
     onOpenSession: (File) -> Unit,
-    onOpenTonight: () -> Unit,
     modifier: Modifier,
 ) {
     val c = Sc.colors
@@ -650,9 +664,8 @@ private fun Viewfinder(
         val pw = if (fullWidth) maxWidth else maxHeight * aspect
         val ph = if (fullWidth) maxWidth / aspect else maxHeight
         val previewTop = (maxHeight - ph) / 2
-        // How far the Tonight bar reaches into the preview from its top, and the row over its foot
-        // from its foot (the preview is centred, so the gap is the same at both ends).
-        val cardFoot = 4.dp + TonightBarHeight + 10.dp - previewTop
+        // How far the row over the foot reaches into the preview from its foot (the preview is
+        // centred, so the gap is the same at both ends).
         val selectorHead = 10.dp + FootRowHeight + 6.dp - previewTop
 
         Box(Modifier.align(Alignment.Center).size(pw, ph)) {
@@ -674,18 +687,13 @@ private fun Viewfinder(
                     // A new time keeps what is being found.
                     onTime = { vm.skyView.value = vm.skyView.value?.copy(atMs = it) ?: SkyViewRequest(it) },
                     onClose = { vm.skyView.value = null },
-                    topInset = cardFoot.coerceAtLeast(0.dp),
+                    topInset = 0.dp,
                     // A Canvas does not clip: the constellations ran over the top row and tabs.
                     modifier = Modifier.fillMaxSize().clipToBounds(),
                 )
             }
             if (sky == null) {
-                ViewfinderGuides(
-                    Modifier.fillMaxSize().padding(
-                        top = cardFoot.coerceAtLeast(0.dp),
-                        bottom = selectorHead.coerceAtLeast(0.dp),
-                    ),
-                )
+                ViewfinderGuides(Modifier.fillMaxSize().padding(bottom = selectorHead.coerceAtLeast(0.dp)))
             }
             if (settings.showLevel) {
                 val roll by vm.motion.rollDeg.collectAsState()
@@ -693,12 +701,11 @@ private fun Viewfinder(
             }
         }
 
-        // ---- over the top: tonight, then whatever needs saying
+        // ---- over the top: whatever needs saying
         Column(
             Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 4.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            TonightBar(tonight, tonightChevron, onOpenTonight)
             PowerWarning(vm, Modifier.align(Alignment.End))
             // After a crash or a kill the app used to come back to a plain viewfinder, with
             // the cut-off session's frames sitting unannounced in Sessions.
@@ -1234,38 +1241,45 @@ private fun BarItem(label: String?, content: @Composable () -> Unit) {
     }
 }
 
-// ------------------------------------------------------------------------------- quick tools
+// ------------------------------------------------------------------------------- the top row's cards
 
-/** Quick tools' card is as wide as two tiles need; its tail rises this far above it. */
-private val QuickToolsWidth = 288.dp
+/** The cards are as wide as Quick tools' two tiles need; their tails rise this far above them. */
+private val TopCardWidth = 288.dp
 private val TailHeight = 12.dp
 
 /**
- * Quick tools (the owner's design, 5 Nov 2026): Find, night vision, the sky view and Settings, as
- * four tiles on a card that hangs under the Tonight bar, its tail pointing up at the square that
- * opens it. The switches leave it open; a touch anywhere else, the cross or Back closes it.
+ * A card the top row opens, hanging just under it: violet glass with a lavender edge, its tail
+ * pointing up at the button, its name and a cross. At the screen's end under the Quick tools
+ * square; at its start when [anchorX] (the button's middle, in px from the root's left) is given.
+ * A touch anywhere else, the cross or Back closes it.
  */
 @Composable
-private fun QuickTools(
-    nightMode: Boolean,
-    skyOn: Boolean,
-    onFind: () -> Unit,
-    onNight: () -> Unit,
-    onSky: () -> Unit,
-    onSettings: () -> Unit,
+private fun TopCard(
+    title: String,
     onClose: () -> Unit,
+    anchorX: Float? = null,
+    content: @Composable ColumnScope.() -> Unit,
 ) {
     val c = Sc.colors
+    val density = LocalDensity.current
+    var left by remember { mutableFloatStateOf(0f) }
     BackHandler(onBack = onClose)
-    BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+    BoxWithConstraints(
+        Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)
+            .onGloballyPositioned { left = it.positionInRoot().x },
+    ) {
         DismissLayer(onClose)
-        // The tail's tip under the square's middle: 12 dp margin plus half its 44 dp.
-        val shape = remember { PopoverShape(corner = 14.dp, tail = TailHeight, tailWidth = 16.dp, tailFromEnd = 22.dp) }
+        // The tail's tip under the button: [anchorX] less the card's 12 dp margin, or the square's
+        // middle, its 44 dp halved and the same margin in from the end.
+        val fromStart = anchorX?.let { with(density) { (it - left).toDp() } - 12.dp }
+        val shape = remember(fromStart) {
+            PopoverShape(corner = 14.dp, tail = TailHeight, tailWidth = 16.dp,
+                tipFromStart = fromStart, tipFromEnd = if (fromStart == null) 22.dp else null)
+        }
         Box(
-            Modifier.align(Alignment.TopEnd)
-                // Under the Tonight bar, the tail's tip just touching it.
-                .padding(top = TopRowHeight + 4.dp + TonightBarHeight + 10.dp - TailHeight, end = 12.dp)
-                .width((maxWidth - 24.dp).coerceAtMost(QuickToolsWidth)),
+            Modifier.align(if (fromStart != null) Alignment.TopStart else Alignment.TopEnd)
+                .padding(top = CardTop, start = 12.dp, end = 12.dp)
+                .width((maxWidth - 24.dp).coerceAtMost(TopCardWidth)),
         ) {
             // The glow, round the card but not its tail.
             Box(
@@ -1279,35 +1293,101 @@ private fun QuickTools(
             ) {
                 Row(Modifier.fillMaxWidth().height(46.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        "Quick tools",
+                        title,
                         style = ScType.headline.copy(fontSize = 18.sp, lineHeight = 24.sp, fontWeight = FontWeight.Medium),
                         color = c.text, modifier = Modifier.weight(1f).padding(start = 6.dp),
                     )
                     Box(
                         Modifier.size(40.dp).clip(CircleShape)
                             .clickable(role = Role.Button, onClick = onClose)
-                            .semantics { contentDescription = "Close quick tools" },
+                            .semantics { contentDescription = "Close ${title.lowercase()}" },
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(ScIcons.Close, null, Modifier.size(20.dp), tint = c.text)
                     }
                 }
-                Spacer(Modifier.height(2.dp))
-                Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    val tile = Modifier.weight(1f).fillMaxHeight()
-                    ToolTile(ScDuo.Find, "Find", "Find in the sky: a galaxy, a planet, a star", tile, opens = true,
-                        onClick = onFind)
-                    ToolTile(ScDuo.Eye, "Night vision", if (nightMode) "Night vision on" else "Night vision off", tile,
-                        checked = nightMode, onClick = onNight)
-                }
-                Spacer(Modifier.height(8.dp))
-                Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    val tile = Modifier.weight(1f).fillMaxHeight()
-                    ToolTile(ScDuo.SkyView, "Sky view", if (skyOn) "Sky view on" else "Sky view", tile,
-                        checked = skyOn, onClick = onSky)
-                    ToolTile(ScDuo.Gear, "Settings", "Settings", tile, onClick = onSettings)
+                content()
+            }
+        }
+    }
+}
+
+/**
+ * Quick tools (the owner's design, 5 Nov 2026): Find, night vision, the sky view and Settings, as
+ * four tiles on a card hanging from the square that opens it. The switches leave it open.
+ */
+@Composable
+private fun QuickTools(
+    nightMode: Boolean,
+    skyOn: Boolean,
+    onFind: () -> Unit,
+    onNight: () -> Unit,
+    onSky: () -> Unit,
+    onSettings: () -> Unit,
+    onClose: () -> Unit,
+) {
+    TopCard("Quick tools", onClose) {
+        Spacer(Modifier.height(2.dp))
+        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            val tile = Modifier.weight(1f).fillMaxHeight()
+            ToolTile(ScDuo.Find, "Find", "Find in the sky: a galaxy, a planet, a star", tile, opens = true,
+                onClick = onFind)
+            ToolTile(ScDuo.Eye, "Night vision", if (nightMode) "Night vision on" else "Night vision off", tile,
+                checked = nightMode, onClick = onNight)
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            val tile = Modifier.weight(1f).fillMaxHeight()
+            ToolTile(ScDuo.SkyView, "Sky view", if (skyOn) "Sky view on" else "Sky view", tile,
+                checked = skyOn, onClick = onSky)
+            ToolTile(ScDuo.Gear, "Settings", "Settings", tile, onClick = onSettings)
+        }
+    }
+}
+
+/**
+ * Tonight, from the moon on the top row (the owner's idea, 5 Nov 2026, in place of the bar over
+ * the viewfinder): the Moon, how long it stays dark, the sky's Bortle class and the best thing to
+ * shoot, a line each, and the planner a tap further. Without a place it asks for one.
+ */
+@Composable
+private fun TonightCard(t: TonightSummary?, anchorX: Float, onPlan: () -> Unit, onClose: () -> Unit) {
+    val c = Sc.colors
+    TopCard("Tonight", onClose, anchorX) {
+        Column(Modifier.padding(horizontal = 6.dp)) {
+            if (t != null) {
+                TonightLine({ MoonGlyph(t.moon, t.southern, Modifier.size(20.dp)) },
+                    "Moon ${(t.moon.illuminated * 100).roundToInt()}% lit")
+                if (t.hasPlace) {
+                    t.darkText?.let { TonightLine({ Icon(ScIcons.Clock, null, Modifier.size(19.dp), tint = c.accent) }, it) }
+                    t.bortle?.let { TonightLine({ Icon(ScIcons.Map, null, Modifier.size(19.dp), tint = c.accent) }, "Your sky: Bortle $it") }
+                    t.bestName?.let { name ->
+                        TonightLine({ Icon(ScIcons.Sparkles, null, Modifier.size(19.dp), tint = c.accent) },
+                            name, t.bestAtText?.let { "best at $it" })
+                    }
                 }
             }
+        }
+        ScButton(
+            if (t?.hasPlace == false) "Set your place" else "Plan tonight", onPlan,
+            Modifier.fillMaxWidth().padding(top = 8.dp), kind = ScButtonKind.Primary,
+        )
+    }
+}
+
+/** One of tonight's lines: an icon, a few words, and under them [sub] when there is one. */
+@Composable
+private fun TonightLine(icon: @Composable () -> Unit, text: String, sub: String? = null) {
+    val c = Sc.colors
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 38.dp).padding(vertical = if (sub != null) 4.dp else 0.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(22.dp), contentAlignment = Alignment.Center) { icon() }
+        Spacer(Modifier.width(12.dp))
+        Column {
+            Text(text, style = ScType.body, color = c.text, maxLines = 2)
+            if (sub != null) Text(sub, style = ScType.bodySmall, color = c.text2, maxLines = 1)
         }
     }
 }
@@ -1363,22 +1443,26 @@ private fun ToolTile(
 }
 
 /**
- * A card with a small tail rising from its top edge, [tailFromEnd] in from the right, its sides
- * curving in to the tip as the design draws Quick tools'. The card itself starts [tail] down.
+ * A card with a small tail rising from its top edge, its tip [tipFromStart] in from the left (or
+ * [tipFromEnd] from the right), its sides curving in to the tip as the design draws Quick tools'.
+ * The card itself starts [tail] down.
  */
 private class PopoverShape(
     private val corner: Dp,
     private val tail: Dp,
     private val tailWidth: Dp,
-    private val tailFromEnd: Dp,
+    private val tipFromStart: Dp?,
+    private val tipFromEnd: Dp?,
 ) : Shape {
     override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
         val r = with(density) { corner.toPx() }
         val t = with(density) { tail.toPx() }
         val half = with(density) { tailWidth.toPx() } / 2f
-        val tip = size.width - with(density) { tailFromEnd.toPx() }
         val w = size.width
         val h = size.height
+        // Kept off the rounded corners.
+        val tip = with(density) { tipFromStart?.toPx() ?: (w - (tipFromEnd ?: 0.dp).toPx()) }
+            .coerceIn(r + half, maxOf(r + half, w - r - half))
         val path = Path().apply {
             moveTo(r, t)
             lineTo(tip - half, t)

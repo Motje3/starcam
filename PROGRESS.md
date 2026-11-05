@@ -1,28 +1,35 @@
 # StarCam build progress (PLAN.md §10)
 
-## The owner's fourth round: Quick tools (2026-11-05)
+## The owner's fourth round: Quick tools, tonight behind a moon (2026-11-05)
 
 Two more images from the owner's image AI, of the capture screen, built to match (measured from
-the images; no screenshots, at the owner's request):
-- **The top row**: the Light map pill on the left; Find and a lit square of four rings on the
-  right. Night vision, the sky view and Settings moved off the top row into **Quick tools**, the
-  card the square opens: it hangs under the Tonight bar, its tail pointing up at the square, with
-  four tiles: Find (Open), Night vision and Sky view (switches, which leave it open) and Settings.
-  A touch anywhere else, its cross or Back closes it. The design's names were "Galaxy finder",
-  "Night preview" and "Sky overlay"; the tiles keep the app's own (Find, Night vision, Sky view).
-  It is drawn over the camera card too, so Settings stays in reach on a phone without RAW.
-- **Tonight** in one line, a pill: the Moon, "Tonight · Bortle 6 · Dark till 05:49" and a chevron;
-  it opens the planner, which has the best target that the old card's title showed.
+the images; no screenshots, at the owner's request), then the owner's next step:
+- **The top row**: the Light map pill and a round **moon** (a crescent with a star) on the left;
+  Find and a lit square of four rings on the right. Nothing over the viewfinder's top any more:
+  the sky gets the room.
+- **Quick tools**, the card the square opens: night vision, the sky view and Settings moved off the
+  top row into it. It hangs from the square, its tail pointing up at it, with four tiles: Find
+  (Open), Night vision and Sky view (switches, which leave it open) and Settings. A touch anywhere
+  else, its cross or Back closes it. The design's names were "Galaxy finder", "Night preview" and
+  "Sky overlay"; the tiles keep the app's own (Find, Night vision, Sky view). It is drawn over the
+  camera card too, so Settings stays in reach on a phone without RAW.
+- **Tonight**: the design's one-line bar over the viewfinder ("Tonight · Bortle 6 · Dark till
+  05:49") went behind the moon at the owner's word ("maybe just one icon"): a card like Quick
+  tools' with the Moon, the dark hours, your sky's Bortle class and the best thing to shoot (with
+  its time), and Plan tonight, which opens the planner (Set your place without a place). The
+  moon's description says the Bortle class and the dark hours to TalkBack.
 - **The session length** is a pill on the left of the viewfinder's foot (a clock, "20 min", a
   chevron), the lenses on the right of the same row; tapped, the lengths stand on it in a small
   card (Quick, Balanced and Deep with their minutes in Stars). With numbers of one's own (Manual)
   it says how long the session takes and opens Adjust.
-- `tools\screen-tour.ps1`, `emulator-test.ps1` and `ui-shots.ps1` open Quick tools for night
-  vision, the sky view and Settings, and the tour shoots Quick tools and the lengths' card.
+- The tools (`screen-tour`, `emulator-test`, `ui-shots`, `store-shots`) open Quick tools for night
+  vision, the sky view and Settings, and the planner through the moon's card; the tour shoots
+  Quick tools, tonight's card and the lengths' card.
 
-Checked on the emulator from its layout (no screenshots): the tiles and their switches, Back, the
-cross and a touch outside closing the card, Settings and Find from it; the lengths in Stars and
-Star trails picked, Manual's pill opening Adjust. No crashes.
+Checked on the emulator from its layout (no screenshots): both cards where their tails point at
+their buttons, the tiles and their switches, Back, the cross and a touch outside closing them,
+Settings, Find and the planner from them; the lengths in Stars and Star trails picked, Manual's
+pill opening Adjust; the scripts' helpers run against the emulator. No crashes.
 
 ## Simple first, more behind a tap: every other screen (2026-11-05)
 

@@ -158,6 +158,8 @@ data class TonightSummary(
     val bortle: Int?,
     val moon: MoonPhase,
     val southern: Boolean,
+    /** [bestAtMs] as the place's clock reads it, "21:40". */
+    val bestAtText: String? = null,
 )
 
 /** Works out [TonightSummary] for the place last used in the planner (no location request). */
@@ -197,7 +199,8 @@ fun tonightSummary(context: android.content.Context, nowMs: Long): TonightSummar
             com.wm.starcam.darksky.SkyQuality.sqm(com.wm.starcam.darksky.DarkSkyData.glow(context).alr(loc.latDeg, loc.lonDeg))
         )
     }.getOrNull()
-    return TonightSummary(true, best?.target?.name, best?.atMs, darkText, bortle, moon, loc.latDeg < 0)
+    return TonightSummary(true, best?.target?.name, best?.atMs, darkText, bortle, moon, loc.latDeg < 0,
+        bestAtText = best?.atMs?.let { hm(it, z) })
 }
 
 /**

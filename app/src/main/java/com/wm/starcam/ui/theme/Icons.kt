@@ -276,6 +276,11 @@ object ScDuo {
             fill(sparkle(18.4f, 16.6f, 2.3f, 0.2f))
         }
     }
+    /** A crescent and a star in its bite: tonight, on the capture screen's top row. */
+    val Tonight by duo {
+        base { path("M19.05 13.27A7.65 7.65 0 1 1 10.73 4.95 5.95 5.95 0 0 0 19.05 13.27z") }
+        accent { fill(sparkle(17.2f, 6.8f, 3f, 0.3f)) }
+    }
     /** Four rings: the capture screen's Quick tools. */
     val Tools by duo {
         base {

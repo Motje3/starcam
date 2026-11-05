@@ -36,6 +36,8 @@ function Tap([string]$like) {
     Start-Sleep -Milliseconds 900
     $true
 }
+# The planner: the moon on the top row opens tonight's card, whose button opens it.
+function Planner { (Tap 'Tonight*') -and ((Tap 'Plan tonight') -or (Tap 'Set your place')) }
 function WaitFor([string]$pattern, [int]$seconds) {
     $deadline = (Get-Date).AddSeconds($seconds)
     while ((Get-Date) -lt $deadline) {
@@ -79,7 +81,7 @@ A shell pm grant com.wm.stelli android.permission.ACCESS_COARSE_LOCATION 2>&1 | 
 Launch
 
 # The planner, and its list of what is worth a shot tonight.
-if (Tap 'Tonight planner*') {
+if (Planner) {
     WaitFor 'Show me the sky' 40 | Out-Null
     Shot 'tonight'
     ScrollTo 'best at \d\d:\d\d'
