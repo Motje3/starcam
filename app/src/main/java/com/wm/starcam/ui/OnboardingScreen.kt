@@ -58,31 +58,26 @@ private class IntroPage(
 )
 
 private val IntroPages = listOf(
+    // A line or two each: the rest is learnt by doing, and explained where it happens.
     IntroPage(
         ScIcons.Tripod, "Use a tripod",
-        "Long exposures need the phone perfectly still. Any tripod works — even a steady rock or a " +
-            "bag of rice. Stelli waits until the phone is still before it starts.",
+        "Long exposures need the phone perfectly still. Any tripod works, even a steady rock.",
         ScIcons.Tripod, "A phone clamp costs less than a pizza.",
     ),
     IntroPage(
         ScIcons.Astro, "Press once, step back",
-        "One button does it all: it reads the sky, focuses on the stars and shoots. Touching the " +
-            "phone shakes it, so let it work and glance at the big numbers from a distance.",
-        ScIcons.Timer, "An astro photo takes a few minutes; trails and meteor watches run longer.",
+        "One button reads the sky, focuses on the stars and shoots. Let it work.",
+        ScIcons.Timer, "A photo takes a few minutes.",
     ),
     IntroPage(
         ScIcons.DarkFrame, "Cover the lens when asked",
-        "At the end, Stelli asks for a few frames with the lens covered. They find and remove hot " +
-            "pixels. A lens cap or a dark cloth works best. If you miss it, it skips after 60 seconds.",
-        ScIcons.Night, "Night vision turns the whole app red, to keep your eyes dark-adapted.",
+        "A few frames with the lens covered remove hot pixels. A cap or a dark cloth works best.",
+        ScIcons.Night, "Night vision turns the app red, for dark-adapted eyes.",
     ),
     IntroPage(
         ScIcons.Moon, "Plan the night, finish the photo",
-        "The Tonight card over the viewfinder tells you what is worth a shot and when it gets " +
-            "properly dark; the planner behind it, where the Moon and the Milky Way are. Afterwards, " +
-            "Edit brightens the sky, the landscape or the colours of any photo - the original stays.",
-        ScIcons.Compare, "\"1 frame vs stacked\" shows what the stacking did, and \"Make video\" " +
-            "lets you watch the photo build up. Share those.",
+        "Tonight says what is worth a shot and when it gets dark. Edit finishes the photo.",
+        ScIcons.Compare, "Share \"1 frame vs stacked\": it shows what stacking does.",
     ),
 )
 
@@ -147,8 +142,7 @@ fun PermissionScreen(deniedForever: Boolean, onAllow: () -> Unit, onOpenSettings
         Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Allow camera access", style = ScType.title.copy(fontSize = ScType.title.fontSize * 1.15f), color = c.text)
             Text(
-                "Stelli needs the camera to take long exposures of the sky. Your photos stay on " +
-                    "your phone — nothing is uploaded.",
+                "For long exposures of the sky. Your photos stay on your phone.",
                 style = ScType.body, color = c.text2,
             )
             if (deniedForever) {

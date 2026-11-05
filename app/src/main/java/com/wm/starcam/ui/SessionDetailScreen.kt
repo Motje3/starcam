@@ -35,6 +35,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,6 +71,7 @@ import com.wm.starcam.ui.components.ScCard
 import com.wm.starcam.ui.components.ScConfirmDialog
 import com.wm.starcam.ui.components.ScGlass
 import com.wm.starcam.ui.components.ScLabel
+import com.wm.starcam.ui.components.ScMoreRow
 import com.wm.starcam.ui.components.ScNotice
 import com.wm.starcam.ui.components.ScScreen
 import com.wm.starcam.ui.components.ScSegmented
@@ -266,6 +268,9 @@ fun SessionDetailScreen(
 
     var showDeleteDialog by remember { mutableStateOf(false) }
     var comparing by remember { mutableStateOf(false) }
+    // The folded parts of the page. Re-process: null until tapped, then as the tap left it.
+    var reprocessOpen by rememberSaveable { mutableStateOf<Boolean?>(null) }
+    var detailsOpen by rememberSaveable { mutableStateOf(false) }
     val scroll = rememberScrollState()
     var scrollUpOnLoad by remember { mutableStateOf(false) }
 
@@ -454,7 +459,7 @@ fun SessionDetailScreen(
                 // ---- The meteors it caught, each cut out of its frame
                 if (d.meteors > 0) MeteorCard(dir, d.meteors)
 
-                // ---- What went into it, at a glance
+                // ---- What went into it, at a glance; the finer numbers wait under Details
                 val st = d.stats
                 val totalSec = Math.round((st?.framesUsed ?: d.frameCount) * (d.exposureNs / 1e9))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -466,16 +471,6 @@ fun SessionDetailScreen(
                     StatTile(ScIcons.Camera, if (d.exposureNs > 0) exposureText(d.exposureNs) else "-",
                         if (d.iso > 0) "ISO ${d.iso}" else "per frame", Modifier.weight(1f))
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    StatTile(ScIcons.Focus,
-                        if (st != null && st.fwhmStack > 0f) String.format(Locale.US, "%.1f px", st.fwhmStack) else "-",
-                        "star size", Modifier.weight(1f))
-                    StatTile(ScIcons.Close,
-                        if (st != null) String.format(Locale.US, "%.1f%%", st.rejectionPct) else "-",
-                        "rejected", Modifier.weight(1f))
-                    StatTile(ScIcons.Tripod, "${d.bumpedCount}", "bumped", Modifier.weight(1f))
-                }
-                if (d.autopilot.isNotEmpty()) AutopilotReport(d.autopilot)
                 if (st == null) {
                     ScNotice("Not stacked yet: the session did not finish, or stacking on the phone was off.",
                         tone = Tone.Normal, icon = ScIcons.Info)
@@ -494,79 +489,103 @@ fun SessionDetailScreen(
                         onPlay = onPlayVideo)
                 }
 
-                // ---- Re-process
-                ScCard(Modifier.fillMaxWidth()) {
-                    CardHead(ScIcons.Refresh,
-                        if (st != null || d.cacheCount == 0) "Re-process" else "Stack this session")
-                    if (d.cacheCount == 0) {
-                        Text(
-                            "The working files were not kept, so it cannot be re-stacked here. Its DNGs " +
-                                "(if saved) stack fine on a computer.",
-                            style = ScType.bodySmall, color = c.text2, modifier = Modifier.padding(top = 6.dp),
-                        )
-                    } else {
-                        Text(
-                            if (st != null) "From the ${d.cacheCount} kept frames, with other settings. The new photo replaces this one."
-                            else "The ${d.cacheCount} kept frames into a photo, here and in the gallery.",
-                            style = ScType.bodySmall, color = c.text2, modifier = Modifier.padding(top = 6.dp),
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        OptionRow("Stretch", StretchLabels, stretchIndex, !restacking) { stretchIndex = it }
-                        OptionRow("Style", StyleLabels, styleIndex, !restacking) { styleIndex = it }
-                        OptionRow("Saturation", SaturationLabels, satIndex, !restacking) { satIndex = it }
-                        OptionRow("Rejection", RejectionLabels, rejectionIndex, !restacking) { rejectionIndex = it }
-                        SwitchRow("Remove light pollution gradient", gradientRemoval, !restacking) { gradientRemoval = it }
-                        SwitchRow("Sharpen stars", starSharpen, !restacking) { starSharpen = it }
-                        Spacer(Modifier.height(10.dp))
-                        if (mine != null && restacking) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                ScSpinner(size = 20.dp)
-                                Spacer(Modifier.width(10.dp))
-                                Text("${mine.stage.replaceFirstChar { it.uppercase() }} · ${mine.percent}%",
-                                    style = ScType.bodySmall, color = c.text2, modifier = Modifier.weight(1f))
-                            }
-                            Box(Modifier.fillMaxWidth().padding(top = 8.dp).height(6.dp).clip(CircleShape).background(c.raised)) {
-                                Box(Modifier.fillMaxWidth((mine.percent / 100f).coerceIn(0f, 1f)).height(6.dp)
-                                    .clip(CircleShape).background(c.accent))
-                            }
-                            Text("Carries on if you leave this screen.", style = ScType.caption, color = c.text3,
-                                modifier = Modifier.padding(top = 6.dp))
+                // ---- Re-process: folded until wanted, open from the start on a session not yet
+                // stacked (it is then the one thing to do) and while a re-stack runs.
+                val reprocessShown = reprocessOpen ?: (st == null && d.cacheCount > 0)
+                ScMoreRow(
+                    ScIcons.Refresh,
+                    if (st != null || d.cacheCount == 0) "Re-process" else "Stack this session",
+                    when {
+                        d.cacheCount == 0 -> "The working files were not kept"
+                        st != null -> "New settings, from the ${d.cacheCount} kept frames"
+                        else -> "A photo from the ${d.cacheCount} kept frames"
+                    },
+                    open = reprocessShown || restacking,
+                    onToggle = { reprocessOpen = !reprocessShown },
+                ) {
+                    ScCard(Modifier.fillMaxWidth()) {
+                        if (d.cacheCount == 0) {
+                            Text(
+                                "So it cannot be re-stacked here. Its DNGs (if saved) stack fine on a computer.",
+                                style = ScType.bodySmall, color = c.text2,
+                            )
                         } else {
-                            ScButton(if (st != null) "Re-stack" else "Stack", ::runRestack, Modifier.fillMaxWidth(),
-                                kind = ScButtonKind.Primary, icon = ScIcons.Refresh, enabled = !busyElsewhere,
-                                height = 52.dp)
-                            if (busyElsewhere) {
-                                Text("Another session is being re-stacked; this one can start when it is done.",
-                                    style = ScType.caption, color = c.text3, modifier = Modifier.padding(top = 6.dp))
+                            if (st != null) {
+                                Text("The new photo replaces this one.", style = ScType.bodySmall, color = c.text2,
+                                    modifier = Modifier.padding(bottom = 4.dp))
                             }
-                        }
-                        if (refused && !restacking) {
-                            Text("Not now: the camera is busy with a capture or a test.",
-                                style = ScType.bodySmall, color = c.warning, modifier = Modifier.padding(top = 8.dp))
-                        }
-                        mine?.error?.let {
-                            Text("${if (st != null) "Re-stack" else "Stacking"} failed: $it",
-                                style = ScType.bodySmall, color = c.error, modifier = Modifier.padding(top = 8.dp))
+                            OptionRow("Stretch", StretchLabels, stretchIndex, !restacking) { stretchIndex = it }
+                            OptionRow("Style", StyleLabels, styleIndex, !restacking) { styleIndex = it }
+                            OptionRow("Saturation", SaturationLabels, satIndex, !restacking) { satIndex = it }
+                            OptionRow("Rejection", RejectionLabels, rejectionIndex, !restacking) { rejectionIndex = it }
+                            SwitchRow("Remove light pollution gradient", gradientRemoval, !restacking) { gradientRemoval = it }
+                            SwitchRow("Sharpen stars", starSharpen, !restacking) { starSharpen = it }
+                            Spacer(Modifier.height(10.dp))
+                            if (mine != null && restacking) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    ScSpinner(size = 20.dp)
+                                    Spacer(Modifier.width(10.dp))
+                                    Text("${mine.stage.replaceFirstChar { it.uppercase() }} · ${mine.percent}%",
+                                        style = ScType.bodySmall, color = c.text2, modifier = Modifier.weight(1f))
+                                }
+                                Box(Modifier.fillMaxWidth().padding(top = 8.dp).height(6.dp).clip(CircleShape).background(c.raised)) {
+                                    Box(Modifier.fillMaxWidth((mine.percent / 100f).coerceIn(0f, 1f)).height(6.dp)
+                                        .clip(CircleShape).background(c.accent))
+                                }
+                                Text("Carries on if you leave this screen.", style = ScType.caption, color = c.text3,
+                                    modifier = Modifier.padding(top = 6.dp))
+                            } else {
+                                ScButton(if (st != null) "Re-stack" else "Stack", ::runRestack, Modifier.fillMaxWidth(),
+                                    kind = ScButtonKind.Primary, icon = ScIcons.Refresh, enabled = !busyElsewhere,
+                                    height = 52.dp)
+                                if (busyElsewhere) {
+                                    Text("Another session is being re-stacked; this one can start when it is done.",
+                                        style = ScType.caption, color = c.text3, modifier = Modifier.padding(top = 6.dp))
+                                }
+                            }
+                            if (refused && !restacking) {
+                                Text("Not now: the camera is busy with a capture or a test.",
+                                    style = ScType.bodySmall, color = c.warning, modifier = Modifier.padding(top = 8.dp))
+                            }
+                            mine?.error?.let {
+                                Text("${if (st != null) "Re-stack" else "Stacking"} failed: $it",
+                                    style = ScType.bodySmall, color = c.error, modifier = Modifier.padding(top = 8.dp))
+                            }
                         }
                     }
                 }
 
-                // ---- Files
-                ScCard(Modifier.fillMaxWidth()) {
-                    CardHead(ScIcons.Log, "Files")
-                    Spacer(Modifier.height(6.dp))
-                    d.jpgFile?.let { FileRow(ScIcons.Photo, "Photo · JPEG", bytesText(it.length())) }
-                    if (d.dngCount > 0) FileRow(ScIcons.Camera, "RAW · ${d.dngCount} DNG", bytesText(d.dngBytes))
-                    if (d.cacheCount > 0) FileRow(ScIcons.Stack, "Working files · ${d.cacheCount}", bytesText(d.cacheBytes))
-                    if (d.replayFrames > 0) FileRow(ScIcons.Play, "Replay pictures · ${d.replayFrames}", bytesText(d.replayBytes))
-                    Text(
-                        dir.absolutePath.substringAfter("/0/"),
-                        style = ScType.data, color = c.text3, modifier = Modifier.padding(top = 8.dp),
-                    )
-                    Text(
-                        "Copy this folder to a computer over USB; the DNGs are in lights/.",
-                        style = ScType.caption, color = c.text3, modifier = Modifier.padding(top = 4.dp),
-                    )
+                // ---- Details: the finer numbers, what the autopilot did, the files
+                ScMoreRow(
+                    ScIcons.Info, "Details", "Star size, rejected frames, files",
+                    open = detailsOpen, onToggle = { detailsOpen = !detailsOpen },
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        StatTile(ScIcons.Focus,
+                            if (st != null && st.fwhmStack > 0f) String.format(Locale.US, "%.1f px", st.fwhmStack) else "-",
+                            "star size", Modifier.weight(1f))
+                        StatTile(ScIcons.Close,
+                            if (st != null) String.format(Locale.US, "%.1f%%", st.rejectionPct) else "-",
+                            "rejected", Modifier.weight(1f))
+                        StatTile(ScIcons.Tripod, "${d.bumpedCount}", "bumped", Modifier.weight(1f))
+                    }
+                    if (d.autopilot.isNotEmpty()) AutopilotReport(d.autopilot)
+                    ScCard(Modifier.fillMaxWidth()) {
+                        CardHead(ScIcons.Log, "Files")
+                        Spacer(Modifier.height(6.dp))
+                        d.jpgFile?.let { FileRow(ScIcons.Photo, "Photo · JPEG", bytesText(it.length())) }
+                        if (d.dngCount > 0) FileRow(ScIcons.Camera, "RAW · ${d.dngCount} DNG", bytesText(d.dngBytes))
+                        if (d.cacheCount > 0) FileRow(ScIcons.Stack, "Working files · ${d.cacheCount}", bytesText(d.cacheBytes))
+                        if (d.replayFrames > 0) FileRow(ScIcons.Play, "Replay pictures · ${d.replayFrames}", bytesText(d.replayBytes))
+                        Text(
+                            dir.absolutePath.substringAfter("/0/"),
+                            style = ScType.data, color = c.text3, modifier = Modifier.padding(top = 8.dp),
+                        )
+                        Text(
+                            "Copy this folder to a computer over USB; the DNGs are in lights/.",
+                            style = ScType.caption, color = c.text3, modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
                 }
 
                 ScButton("Delete session", { showDeleteDialog = true }, Modifier.fillMaxWidth(),
@@ -579,8 +598,7 @@ fun SessionDetailScreen(
     if (showDeleteDialog) {
         ScConfirmDialog(
             title = "Delete this session?",
-            text = "This permanently removes ${dir.name}: its RAW frames, working files and the " +
-                "session's copy of the photo. The copy in your gallery stays.",
+            text = "Its RAW frames and working files go for good. The photo in your gallery stays.",
             confirmText = "Delete",
             danger = true,
             onConfirm = {

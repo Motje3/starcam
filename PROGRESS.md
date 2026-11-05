@@ -1,5 +1,34 @@
 # StarCam build progress (PLAN.md §10)
 
+## Simple first, more behind a tap: every other screen (2026-11-05)
+
+The owner asked for the rest of the app to go the way of the light map: simple options and little
+text, the rest and the details one tap away (design/STYLE.md, "Simple first"). From the review of
+every screen (all screens 5 Nov):
+- **Settings**: each tab shows its few main settings; the rest are under More options at its foot
+  (Advanced: Troubleshooting, with the camera switches, the probe and the self-test), naming what is
+  inside. The line under a setting only where the control does not say it: no more "On · ..." beside
+  a switch, nor a value a segment strip shows. Tab blurbs of a few words; the Autopilot note moved
+  into the Autopilot's (i). The search still finds everything.
+- **The photo page**: Edit, Share, Open; What's in this photo as one row with Find out (the answer
+  shows its first three names, Show all for the rest); three numbers instead of six; the replay video
+  and the timelapse as one row each (Make, then Play, with Share and Make again under it);
+  Re-process and Details (star size, rejected, bumped, the autopilot, the files) folded. Open from
+  the start only for a session not yet stacked, and while a re-stack runs.
+- **The result after a session**: Share and Edit, Open and Re-process behind the ⋮; the star size
+  and stacking line, and what the autopilot did, under Details.
+- **Session steps**: star focus's paragraph behind an (i); the dark frames and stacking lines
+  shortened; the error screen's advice folded under What now?
+- **Tonight**: the verdict and its hours up front, where to look and why behind an (i); the place
+  dialog in one line. **The intro cards**: a sentence or two each. **The stop, delete and reset
+  questions**: one line each.
+- `ScOptionRow` (the Adjust sheet's tile row, now shared), `ScMoreRow` and `ScChevron` in the
+  components; `tools\screen-tour.ps1` opens the folded parts too.
+
+Checked on the emulator from its layout (no screenshots): every tab, its More options and the
+search; the photo page folded and opened, a replay video made and played; a session's result with
+its ⋮ and Details; Tonight's (i). No crashes.
+
 ## The owner's third round: hold still, the light map (2026-11-05)
 
 Two more designs from the owner's image AI, built to match (measured from the images; no

@@ -50,6 +50,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -552,6 +553,73 @@ fun ScInfoButton(
     ) {
         Icon(ScIcons.Info, null, Modifier.size(20.dp),
             tint = tint ?: if (expanded) Sc.colors.accent else Sc.colors.text3)
+    }
+}
+
+/** The chevron of a row that opens: down when closed, up when open. */
+@Composable
+fun ScChevron(open: Boolean, modifier: Modifier = Modifier, tint: Color = Sc.colors.text2) {
+    Icon(ScIcons.ChevronDown, null, modifier.size(22.dp).rotate(if (open) 180f else 0f), tint = tint)
+}
+
+/**
+ * A tile row: an icon, a thin divider, the name over a short line, and what trails it (a switch,
+ * a button, a chevron). The Adjust sheet's rows (the owner's design, 5 Nov 2026); the rows that
+ * open more on every other screen are built from it.
+ */
+@Composable
+fun ScOptionRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String?,
+    modifier: Modifier = Modifier,
+    role: Role = Role.Button,
+    onClick: (() -> Unit)? = null,
+    iconTint: Color? = null,
+    trailing: @Composable RowScope.() -> Unit = {},
+) {
+    val c = Sc.colors
+    Row(
+        modifier.fillMaxWidth().heightIn(min = 60.dp).clip(ScShapes.tile).background(c.tile)
+            .border(1.dp, c.hairline, ScShapes.tile)
+            .then(if (onClick != null) Modifier.clickable(role = role, onClick = onClick) else Modifier)
+            .padding(start = 18.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, Modifier.size(22.dp), tint = iconTint ?: c.accent)
+        Spacer(Modifier.width(16.dp))
+        Box(Modifier.width(1.dp).height(28.dp).background(c.hairlineStrong))
+        Spacer(Modifier.width(16.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, style = ScType.headline.copy(fontWeight = FontWeight.Medium), color = c.text)
+            if (subtitle != null) {
+                Text(subtitle, style = ScType.bodySmall, color = c.text2, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        trailing()
+    }
+}
+
+/**
+ * [ScOptionRow] that opens [content] under it when tapped: "More options", "Details". What is
+ * under it stays out of sight, and out of the way, until it is wanted.
+ */
+@Composable
+fun ScMoreRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String?,
+    open: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        ScOptionRow(icon, title, subtitle, onClick = onToggle) {
+            ScChevron(open)
+            Spacer(Modifier.width(8.dp))
+        }
+        if (open) content()
     }
 }
 

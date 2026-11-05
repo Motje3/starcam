@@ -87,7 +87,9 @@ match it. Built in 0.6.0; `design/STYLE.md` is the style, PROGRESS.md says what 
       the same way. Every screen and setting of 0.6.1 is in Desktop › Stelli screens › all screens
       5 Nov (open `all screens.html`); `tools\screen-tour.ps1` takes them again. Built so far
       (5 Nov 2026): the cover-the-lens step with the owner's picture, the session's header and
-      step circles, the Adjust sheet, the hold-still step, the light map with its panel.
+      step circles, the Adjust sheet, the hold-still step, the light map with its panel; then
+      every other screen made simple first, more behind a tap (settings, the photo page, the
+      result, Tonight, the intro).
 - [x] On the phone: 0.6.1's debug build installed over wireless adb on 5 Nov 2026 (a new app
       beside the old StarCam; this PC's debug key, so `tools\build.ps1` updates it, sessions kept).
 - [ ] Under a real sky.

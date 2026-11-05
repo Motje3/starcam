@@ -102,6 +102,7 @@ import com.wm.starcam.ui.components.ScHelpText
 import com.wm.starcam.ui.components.ScIconButton
 import com.wm.starcam.ui.components.ScInfoButton
 import com.wm.starcam.ui.components.ScLabel
+import com.wm.starcam.ui.components.ScMoreRow
 import com.wm.starcam.ui.components.ScNotice
 import com.wm.starcam.ui.components.ScPipeline
 import com.wm.starcam.ui.components.ScRing
@@ -219,17 +220,11 @@ fun SessionFlow(
         ScConfirmDialog(
             title = if (state is CaptureState.Stacking) "Stop stacking?" else "Stop this capture?",
             text = when (state) {
-                is CaptureState.Stacking ->
-                    "The frames stay saved in Sessions. If working files are kept (the default), " +
-                        "you can stack them there later."
+                is CaptureState.Stacking -> "The frames stay in Sessions, to stack later."
                 is CaptureState.AwaitingDarkCover ->
-                    "The light frames stay saved in Sessions, but no photo is made now. To get the " +
-                        "photo without dark frames, use Skip dark frames instead."
-                is CaptureState.CapturingDarks ->
-                    "The light frames stay saved in Sessions, but no photo is made now."
-                else ->
-                    "Frames already taken stay saved in Sessions, but no photo is made now. To get " +
-                        "a photo from them, use Finish & stack now instead."
+                    "No photo is made; the frames stay in Sessions. Skip dark frames makes the photo instead."
+                is CaptureState.CapturingDarks -> "No photo is made; the frames stay in Sessions."
+                else -> "No photo is made; the frames stay in Sessions. Finish & stack now makes the photo instead."
             },
             confirmText = "Stop",
             dismissText = "Keep going",
@@ -662,11 +657,6 @@ private fun StarFocusStep(st: CaptureState.Focusing, busy: Busy?, pending: StopR
                 }
             }
         }
-        Text(
-            "Sweeping the lens and measuring how small the stars are. Smaller stars mean sharper focus. " +
-                "About half a minute, once per night per lens.",
-            style = ScType.body, color = c.text2,
-        )
         SweepCard(st)
         BusyLine(busy)
     }
@@ -683,7 +673,8 @@ private fun SweepCard(st: CaptureState.Focusing) {
     val fine = parts.firstOrNull() == "fine"
     val dpt = parts.getOrNull(1)?.toFloatOrNull()
     val coarseDone = if (fine) 7 else (st.step - 1).coerceIn(0, 7)
-    ScCard(Modifier.fillMaxWidth()) {
+    var help by remember { mutableStateOf(false) }
+    ScCard(Modifier.fillMaxWidth(), padding = PaddingValues(start = 16.dp, top = 6.dp, end = 4.dp, bottom = 16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             ScLabel("Lens position")
             Spacer(Modifier.weight(1f))
@@ -692,11 +683,19 @@ private fun SweepCard(st: CaptureState.Focusing) {
                     (dpt?.let { String.format(Locale.US, " · %.3f dpt", it) } ?: ""),
                 style = ScType.data, color = c.accentText,
             )
+            ScInfoButton(help, { help = !help }, "What is star focus?")
+        }
+        if (help) {
+            ScHelpText(
+                "Stelli sweeps the lens and measures how small the stars are: smaller stars, sharper " +
+                    "focus. About half a minute, once a night for each lens.",
+                Modifier.padding(end = 12.dp, bottom = 4.dp),
+            )
         }
         val accent = c.accent
         val track = c.raised
         val pending = c.hairlineStrong
-        Canvas(Modifier.fillMaxWidth().height(44.dp).padding(top = 14.dp)) {
+        Canvas(Modifier.fillMaxWidth().padding(end = 12.dp).height(44.dp).padding(top = 14.dp)) {
             val maxD = 0.32f
             fun x(d: Float) = 8.dp.toPx() + (size.width - 16.dp.toPx()) * (d / maxD).coerceIn(0f, 1f)
             val y = size.height / 2f
@@ -711,7 +710,7 @@ private fun SweepCard(st: CaptureState.Focusing) {
                 drawCircle(accent, 7.dp.toPx(), Offset(x(dpt), y), style = Stroke(2.dp.toPx()))
             }
         }
-        Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
+        Row(Modifier.fillMaxWidth().padding(top = 4.dp, end = 12.dp)) {
             Text("∞ infinity", style = ScType.caption, color = c.text3)
             Spacer(Modifier.weight(1f))
             Text("nearer", style = ScType.caption, color = c.text3)
@@ -1155,7 +1154,7 @@ private fun DarksStep(
                 }
             }
         }
-        StepTitle("Keep the lens covered", "Dark frames map the sensor's hot pixels so they can be removed.", centered = true)
+        StepTitle("Keep the lens covered", "So hot pixels can be removed.", centered = true)
         BusyLine(busy)
     }
 }
@@ -1215,7 +1214,7 @@ private fun StackingStep(
                     trailing = if (rowState == RowState.Active) "${st.percent}%" else null)
             }
         }
-        ScNotice("Capture is done — you can pick up the phone now.", tone = Tone.Accent, icon = ScIcons.CheckCircle)
+        ScNotice("You can pick up the phone now.", tone = Tone.Accent, icon = ScIcons.CheckCircle)
         BusyLine(busy)
     }
 }
@@ -1253,6 +1252,8 @@ private fun DoneStep(
     var identifying by remember(st.jpegFile) { mutableStateOf(false) }
     var showLabels by remember(st.jpegFile) { mutableStateOf(true) }
     var whatsInNote by remember(st.jpegFile) { mutableStateOf<String?>(null) }
+    var detailsOpen by remember(st.jpegFile) { mutableStateOf(false) }
+    var moreActions by remember(st.jpegFile) { mutableStateOf(false) }
     LaunchedEffect(st.jpegFile) {
         val file = st.jpegFile
         val (saved, bitmap) = withContext(Dispatchers.IO) {
@@ -1344,7 +1345,6 @@ private fun DoneStep(
                         icon = ScIcons.Warning)
                 }
                 st.warning?.let { ScNotice(it, tone = Tone.Warning, icon = ScIcons.Warning) }
-                if (st.autopilot.isNotEmpty()) AutopilotReport(st.autopilot)
                 val jpg = st.jpegFile
                 val mode = header?.optString("mode")
                 if (result != null && jpegSaved == true && jpg != null && catalog != null && mode != null && mode != "TRAILS") {
@@ -1422,21 +1422,31 @@ private fun DoneStep(
                         ScStatTile(durationShort(st.elapsedMs / 1000L), "took", Modifier.weight(1f))
                     }
                 }
-                if (result != null) {
-                    val lines = buildList {
-                        add(String.format(Locale.US, "Star size %.1f → %.1f px · %.1f%% rejected · stacked in %s",
-                            result.fwhmRef, result.fwhmStack, result.rejectionPct, durationText(result.elapsedMs / 1000L)))
-                        if (result.meteorCount > 0) {
-                            add("${result.meteorCount} meteor candidate${if (result.meteorCount == 1) "" else "s"} — frames ${result.meteorFrames}")
-                        }
-                        if (result.foreground.isNotEmpty()) add("Foreground blend: ${result.foreground}")
-                    }
-                    lines.forEach { Text(it, style = ScType.caption, color = c.text3) }
-                }
                 if (result != null && jpegSaved == true && replayFrames >= 2) {
                     ReplayCard(st.sessionDir, replayFrames,
                         compareCaption(result.framesUsed, decision?.exposureNs ?: 0L, decision?.iso ?: 0),
                         enabled = true)
+                }
+                // The finer numbers and what the autopilot did, folded.
+                if (result != null || st.autopilot.isNotEmpty()) {
+                    ScMoreRow(
+                        ScIcons.Info, "Details",
+                        if (st.autopilot.isNotEmpty()) "What the autopilot did, star size" else "Star size, rejected frames",
+                        open = detailsOpen, onToggle = { detailsOpen = !detailsOpen },
+                    ) {
+                        if (st.autopilot.isNotEmpty()) AutopilotReport(st.autopilot)
+                        if (result != null) {
+                            ScCard(Modifier.fillMaxWidth(), color = c.tile) {
+                                FactRow("Star size", String.format(Locale.US, "%.1f → %.1f px", result.fwhmRef, result.fwhmStack))
+                                FactRow("Rejected pixels", String.format(Locale.US, "%.1f%%", result.rejectionPct))
+                                FactRow("Stacked in", durationText(result.elapsedMs / 1000L))
+                                if (result.meteorCount > 0) {
+                                    FactRow("Meteor candidates", "${result.meteorCount} · frames ${result.meteorFrames}")
+                                }
+                                if (result.foreground.isNotEmpty()) FactRow("Foreground blend", result.foreground)
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1445,15 +1455,20 @@ private fun DoneStep(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (result != null && photo != null) {
+                // Share and Edit; opening it elsewhere and re-processing behind the ⋮.
+                if (moreActions) {
+                    ActionRow {
+                        ScButton("Open", { openPhoto(context, photo) }, Modifier.weight(1f), icon = ScIcons.Open)
+                        ScButton("Re-process", { onOpenSession(st.sessionDir) }, Modifier.weight(1f), icon = ScIcons.Refresh)
+                    }
+                }
                 ActionRow {
                     ScButton("Share", { sharePhoto(context, photo) }, Modifier.weight(1f),
                         kind = ScButtonKind.Primary, icon = ScIcons.Share, height = 52.dp)
                     ScButton("Edit", { onEdit(st.sessionDir) }, Modifier.weight(1f), icon = ScIcons.Edit,
                         enabled = hasMaster, height = 52.dp)
-                }
-                ActionRow {
-                    ScButton("Open", { openPhoto(context, photo) }, Modifier.weight(1f), icon = ScIcons.Open)
-                    ScButton("Re-process", { onOpenSession(st.sessionDir) }, Modifier.weight(1f), icon = ScIcons.Refresh)
+                    ScIconButton(ScIcons.MoreVert, "More: open, re-process", { moreActions = !moreActions },
+                        size = 52.dp, selected = moreActions)
                 }
             } else {
                 ActionRow {
@@ -1476,6 +1491,7 @@ private fun ErrorStep(
 ) {
     val c = Sc.colors
     val thermal by vm.thermal.status.collectAsState()
+    var whatNow by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = ScreenMargin, vertical = 20.dp),
@@ -1530,8 +1546,11 @@ private fun ErrorStep(
             } else if (dir != null) {
                 Text("Session folder: ${dir.name}", style = ScType.data, color = c.text3)
             }
-            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                ScLabel("What to do next")
+            // What to try, folded: the frames-are-safe card above is usually all that is needed.
+            ScMoreRow(
+                ScIcons.Info, "What now?", if (stackingFailed) "Why it failed, and what to try" else "What to try",
+                open = whatNow, onToggle = { whatNow = !whatNow },
+            ) {
                 if (stackingFailed) {
                     NextStep(1, "Stacking lines the frames up by their stars. Clouds, a bright sky or a " +
                         "covered lens leave too few to do that.")

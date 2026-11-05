@@ -48,8 +48,10 @@ import com.wm.starcam.session.Mode
 import com.wm.starcam.ui.components.NightWindow
 import com.wm.starcam.ui.components.ScButton
 import com.wm.starcam.ui.components.ScButtonKind
+import com.wm.starcam.ui.components.ScChevron
 import com.wm.starcam.ui.components.ScChip
 import com.wm.starcam.ui.components.ScIconButton
+import com.wm.starcam.ui.components.ScOptionRow
 import com.wm.starcam.ui.components.ScLabel
 import com.wm.starcam.ui.components.ScSegmented
 import com.wm.starcam.ui.components.ScSlider
@@ -245,10 +247,9 @@ fun ProSheet(
                     up { it.copy(saveDngs = !it.saveDngs) }
                 }
                 Spacer(Modifier.height(4.dp))
-                OptionRow(ScIcons.SunSmall, "More options", "Brighter preview · Spirit level", Role.Button,
-                    { more = !more }) {
-                    Icon(ScIcons.ChevronDown, null, Modifier.size(22.dp).rotate(if (more) 180f else 0f),
-                        tint = c.text2)
+                ScOptionRow(ScIcons.SunSmall, "More options", "Brighter preview · Spirit level",
+                    onClick = { more = !more }) {
+                    ScChevron(more)
                     Spacer(Modifier.width(8.dp))
                 }
                 if (more) {
@@ -312,37 +313,8 @@ private fun DialTile(
 /** A switch with its name and what it does, on a card of its own; the whole card flips it. */
 @Composable
 private fun SwitchRow(icon: ImageVector, title: String, subtitle: String, checked: Boolean, onToggle: () -> Unit) {
-    OptionRow(icon, title, subtitle, Role.Switch, onToggle) {
+    ScOptionRow(icon, title, subtitle, role = Role.Switch, onClick = onToggle) {
         ScSwitch(checked, null)
-    }
-}
-
-@Composable
-private fun OptionRow(
-    icon: ImageVector,
-    title: String,
-    subtitle: String,
-    role: Role,
-    onClick: () -> Unit,
-    trailing: @Composable () -> Unit,
-) {
-    val c = Sc.colors
-    Row(
-        Modifier.fillMaxWidth().heightIn(min = 60.dp).clip(ScShapes.tile).background(c.tile)
-            .border(1.dp, c.hairline, ScShapes.tile)
-            .clickable(role = role, onClick = onClick)
-            .padding(start = 18.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(icon, null, Modifier.size(22.dp), tint = c.accent)
-        Spacer(Modifier.width(16.dp))
-        Box(Modifier.width(1.dp).height(28.dp).background(c.hairlineStrong))
-        Spacer(Modifier.width(16.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title, style = ScType.headline.copy(fontWeight = FontWeight.Medium), color = c.text)
-            Text(subtitle, style = ScType.bodySmall, color = c.text2)
-        }
-        trailing()
     }
 }
 

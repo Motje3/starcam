@@ -74,8 +74,10 @@ import com.wm.starcam.ui.components.ScButton
 import com.wm.starcam.ui.components.ScButtonKind
 import com.wm.starcam.ui.components.ScCard
 import com.wm.starcam.ui.components.ScDialog
+import com.wm.starcam.ui.components.ScHelpText
 import com.wm.starcam.ui.components.ScIconBadge
 import com.wm.starcam.ui.components.ScIconButton
+import com.wm.starcam.ui.components.ScInfoButton
 import com.wm.starcam.ui.components.ScLabel
 import com.wm.starcam.ui.components.ScScreen
 import com.wm.starcam.ui.components.ScSpinner
@@ -564,6 +566,8 @@ private fun TonightAnswer(p: NightPlan, nowMs: Long?, zone: ZoneId, onShowSky: (
             "The core is highest in the dark at ${hm(darkPeak.epochMs, zone)}, with the Moon up ($moonLit); " +
                 "the dark hours without the Moon come when the core is down."
     }
+    // The verdict and its hours up front; where to look and why, behind the (i).
+    var why by remember(p) { mutableStateOf(false) }
     ScCard(Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.Top) {
             Text(verdict, style = ScType.title, color = c.text, modifier = Modifier.weight(1f))
@@ -571,12 +575,16 @@ private fun TonightAnswer(p: NightPlan, nowMs: Long?, zone: ZoneId, onShowSky: (
             // Tonight's Moon as it is: the phase the planner is talking about.
             MoonGlyph(p.moonPhase, p.location.latDeg < 0, Modifier.padding(top = 2.dp).size(44.dp))
         }
-        if (best != null) {
-            Text("${hm(best.startMs, zone)} – ${hm(best.endMs, zone)}", style = ScType.readout,
-                color = c.accentText, modifier = Modifier.padding(top = 6.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (best != null) {
+                Text("${hm(best.startMs, zone)} – ${hm(best.endMs, zone)}", style = ScType.readout,
+                    color = c.accentText)
+            }
+            Spacer(Modifier.weight(1f))
+            ScInfoButton(why, { why = !why }, if (best != null) "Where to look" else "Why")
         }
-        Text(advice, style = ScType.body, color = c.text2, modifier = Modifier.padding(top = 4.dp))
-        Spacer(Modifier.height(12.dp))
+        if (why) ScHelpText(advice)
+        Spacer(Modifier.height(8.dp))
         val dusk = p.astroDuskMs
         val dawn = p.astroDawnMs
         Fact(ScIcons.Night, "Dark",
@@ -925,8 +933,7 @@ private fun ManualPlaceDialog(initial: GeoLocation?, onDismiss: () -> Unit, onSa
         ) {
             Text("Enter a place", style = ScType.headline, color = c.text)
             Text(
-                "Decimal degrees, as a map app shows them: north and east positive, south and west " +
-                    "negative. Two decimals (about a kilometre) is plenty.",
+                "As a map app shows them; south and west are negative.",
                 style = ScType.bodySmall, color = c.text2, modifier = Modifier.padding(top = 4.dp),
             )
             CoordinateField("Latitude", "52.37", lat, { lat = it }, latV != null || lat.isEmpty())

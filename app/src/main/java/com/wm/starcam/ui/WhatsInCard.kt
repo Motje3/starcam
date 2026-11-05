@@ -3,6 +3,7 @@ package com.wm.starcam.ui
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -12,7 +13,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -26,10 +30,8 @@ import com.wm.starcam.sky.SkyLabels
 import com.wm.starcam.ui.components.ScButton
 import com.wm.starcam.ui.components.ScButtonKind
 import com.wm.starcam.ui.components.ScCard
-import com.wm.starcam.ui.components.ScNotice
 import com.wm.starcam.ui.components.ScSpinner
 import com.wm.starcam.ui.components.ScSwitch
-import com.wm.starcam.ui.components.Tone
 import com.wm.starcam.ui.theme.Sc
 import com.wm.starcam.ui.theme.ScIcons
 import com.wm.starcam.ui.theme.ScType
@@ -39,9 +41,9 @@ import java.time.ZoneId
 import kotlin.math.roundToInt
 
 /**
- * "What's in this photo": a button until it has been asked, then the answer - the constellations,
- * the named stars and how far they are, the planets that night, the nebulae and galaxies, and how
- * old the oldest light in the photo is - with the labels switch and the labelled copy.
+ * "What's in this photo": one row with a button until it has been asked, then the answer - the
+ * constellations, the first few things named in it (Show all: the rest, the star count and how old
+ * the oldest light in the photo is) - with the labels switch and the labelled copy.
  */
 @Composable
 fun WhatsInCard(
@@ -57,37 +59,40 @@ fun WhatsInCard(
     modifier: Modifier = Modifier,
 ) {
     val c = Sc.colors
-    ScCard(modifier.fillMaxWidth()) {
+    val labels = found?.labels
+    ScCard(modifier.fillMaxWidth(), padding = PaddingValues(14.dp)) {
+        // One row until there is an answer: what it is, and the button that finds out.
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(ScIcons.Constellation, null, Modifier.size(20.dp), tint = c.accentText)
-            Spacer(Modifier.width(8.dp))
-            Text("What's in this photo", style = ScType.headline, color = c.text)
+            Icon(ScIcons.Constellation, null, Modifier.size(24.dp), tint = c.accentText)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text("What's in this photo", style = ScType.headline, color = c.text)
+                if (labels == null) {
+                    Text(
+                        when {
+                            working -> "Recognising the stars…"
+                            found == null -> "Stars, constellations, planets"
+                            else -> "No sky recognised"
+                        },
+                        style = ScType.bodySmall, color = c.text2,
+                    )
+                }
+            }
+            if (labels == null) {
+                Spacer(Modifier.width(8.dp))
+                when {
+                    working -> ScSpinner(size = 22.dp)
+                    found == null -> ScButton("Find out", onFind, kind = ScButtonKind.Primary, height = 42.dp)
+                    else -> ScButton("Try again", onFind, height = 42.dp)
+                }
+            }
         }
-        val labels = found?.labels
         when {
-            working -> Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                ScSpinner(size = 20.dp)
-                Spacer(Modifier.width(10.dp))
-                Text("Recognising the stars…", style = ScType.bodySmall, color = c.text2)
-            }
-            found == null -> {
-                Text(
-                    "The constellations, stars, planets, nebulae and galaxies in your photo, named - " +
-                        "worked out from the stars themselves, on the phone.",
-                    style = ScType.bodySmall, color = c.text2, modifier = Modifier.padding(top = 4.dp),
-                )
-                ScButton("Find out", onFind, Modifier.fillMaxWidth().padding(top = 10.dp),
-                    kind = ScButtonKind.Primary, icon = ScIcons.Astro, height = 52.dp)
-            }
-            labels == null -> {
-                ScNotice(
-                    "No sky recognised in this photo. It needs a dozen stars or more; cloud, a bright " +
-                        "moon or a lot of foreground can hide them.",
-                    tone = Tone.Normal, icon = ScIcons.Info, modifier = Modifier.padding(top = 10.dp),
-                )
-                ScButton("Try again", onFind, Modifier.fillMaxWidth().padding(top = 10.dp), icon = ScIcons.Refresh)
-            }
-            else -> Answer(labels, takenAtMs, showLabels, onShowLabels, onSave, onShare, note)
+            labels != null -> Answer(labels, takenAtMs, showLabels, onShowLabels, onSave, onShare, note)
+            found != null && !working -> Text(
+                "It needs a dozen stars or more: cloud, a bright moon or a lot of foreground can hide them.",
+                style = ScType.caption, color = c.text3, modifier = Modifier.padding(top = 8.dp),
+            )
         }
     }
 }
@@ -105,30 +110,39 @@ private fun Answer(
     val c = Sc.colors
     Text(
         joinNames(labels.constellations.take(3)).ifEmpty { "A patch of sky" },
-        style = ScType.titleSmall, color = c.text, modifier = Modifier.padding(top = 8.dp),
+        style = ScType.titleSmall, color = c.text, modifier = Modifier.padding(top = 10.dp),
     )
-    Text(
-        "${labels.matched} stars recognised · ${labels.fovAcrossDeg.roundToInt()}° × " +
-            "${labels.fovUpDeg.roundToInt()}° of sky",
-        style = ScType.bodySmall, color = c.text2, modifier = Modifier.padding(top = 2.dp),
-    )
-    Column(Modifier.padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+    // What is named in it, the first three in sight; the rest, and its numbers, behind Show all.
+    val facts = buildList<Pair<ImageVector, String>> {
         if (labels.planets.isNotEmpty()) {
-            Fact(ScIcons.Planet, "${joinNames(labels.planets)}, where ${if (labels.planets.size == 1) "it was" else "they were"} that night")
+            add(ScIcons.Planet to "${joinNames(labels.planets)}, where ${if (labels.planets.size == 1) "it was" else "they were"} that night")
         }
-        if (labels.hasCore) Fact(ScIcons.Astro, "The centre of the Milky Way · 26,000 light years")
+        if (labels.hasCore) add(ScIcons.Astro to "The centre of the Milky Way · 26,000 light years")
         for (o in labels.deepSky.take(3)) {
-            Fact(ScIcons.Astro, o.name + (o.distanceLy?.let { " · " + SkyLabels.lightYears(it) } ?: " · ${o.kind}"))
+            add(ScIcons.Astro to o.name + (o.distanceLy?.let { " · " + SkyLabels.lightYears(it) } ?: " · ${o.kind}"))
         }
         for (s in labels.stars.filter { it.distanceLy != null }.take(3)) {
-            Fact(ScIcons.Astro, "${s.name} · ${SkyLabels.lightYears(s.distanceLy!!)}")
+            add(ScIcons.Astro to "${s.name} · ${SkyLabels.lightYears(s.distanceLy!!)}")
         }
     }
-    labels.farthest()?.let { (name, ly) ->
-        Text(oldestLight(name, ly, takenAtMs), style = ScType.bodySmall, color = c.accentText,
-            modifier = Modifier.padding(top = 10.dp))
+    val oldest = labels.farthest()
+    var all by remember(labels) { mutableStateOf(false) }
+    Column(Modifier.padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        (if (all) facts else facts.take(3)).forEach { (icon, text) -> Fact(icon, text) }
     }
-    Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+    if (all) {
+        oldest?.let { (name, ly) ->
+            Text(oldestLight(name, ly, takenAtMs), style = ScType.bodySmall, color = c.accentText,
+                modifier = Modifier.padding(top = 10.dp))
+        }
+        Text(
+            "${labels.matched} stars recognised · ${labels.fovAcrossDeg.roundToInt()}° × " +
+                "${labels.fovUpDeg.roundToInt()}° of sky",
+            style = ScType.caption, color = c.text3, modifier = Modifier.padding(top = 6.dp),
+        )
+    }
+    ScButton(if (all) "Show less" else "Show all", { all = !all }, kind = ScButtonKind.Text, height = 38.dp)
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text("Labels on the photo", style = ScType.body, color = c.text, modifier = Modifier.weight(1f))
         ScSwitch(showLabels, onShowLabels)
     }

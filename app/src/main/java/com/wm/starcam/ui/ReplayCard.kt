@@ -6,9 +6,15 @@ import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -16,6 +22,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.wm.starcam.ui.components.ScButton
@@ -37,52 +44,74 @@ import kotlin.math.roundToInt
  */
 @Composable
 fun ReplayCard(dir: File, frames: Int, caption: String, enabled: Boolean, onPlay: ((File) -> Unit)? = null) {
-    val c = Sc.colors
     val context = LocalContext.current
     val video = remember(dir) { File(dir, "out/${StackReplay.VIDEO}") }
     val making by StackReplay.making.collectAsState()
     val state = making[dir.absolutePath]
-    val progress = state?.progress
     val made = remember(dir, state) { video.isFile }
+    VideoCard(
+        icon = ScIcons.Play,
+        title = "Watch it build up",
+        line = "A video of the stack growing",
+        progressText = state?.progress?.let { "Making the video… ${(it * 100).roundToInt()}%" },
+        made = made,
+        canMake = enabled && frames >= 2,
+        onMake = { StackReplay.make(context, dir, caption) },
+        onPlay = onPlay?.let { play -> { play(video) } },
+        onShare = { photoUri(context, video)?.let { shareVideo(context, it) } },
+        message = state?.message,
+        good = state?.good == true,
+    )
+}
 
-    ScCard(Modifier.fillMaxWidth()) {
-        Text("Watch it build up", style = ScType.headline, color = c.text)
-        Text(
-            "A short video of the stack growing frame by frame, from the first noisy shot to the " +
-                "finished photo. Made on the phone; nothing is uploaded.",
-            style = ScType.bodySmall, color = c.text2, modifier = Modifier.padding(top = 4.dp),
-        )
-        if (progress != null) {
-            Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                ScSpinner(size = 18.dp)
-                Text("Making the video… ${(progress * 100).roundToInt()}%", style = ScType.bodySmall,
-                    color = c.text2, modifier = Modifier.padding(start = 10.dp))
+/**
+ * A video made on the phone from a session, in one row: what it is, and its one button - Make, or
+ * Play once it is made - with Share and Make again under it then. Nothing is uploaded.
+ */
+@Composable
+internal fun VideoCard(
+    icon: ImageVector,
+    title: String,
+    /** What it is, until it has been made. */
+    line: String,
+    progressText: String?,
+    made: Boolean,
+    canMake: Boolean,
+    onMake: () -> Unit,
+    /** Null where there is no player (the result screen): sharing is then the video's button. */
+    onPlay: (() -> Unit)?,
+    onShare: () -> Unit,
+    message: String?,
+    good: Boolean,
+) {
+    val c = Sc.colors
+    val busy = progressText != null
+    ScCard(Modifier.fillMaxWidth(), padding = PaddingValues(14.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, null, Modifier.size(24.dp), tint = c.accent)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, style = ScType.headline, color = c.text)
+                Text(
+                    progressText ?: message ?: if (made) "Saved in Movies › Stelli" else line,
+                    style = ScType.bodySmall,
+                    color = if (message != null && !good && !busy) c.warning else c.text2,
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+            when {
+                busy -> ScSpinner(size = 22.dp)
+                made && onPlay != null -> ScButton("Play", onPlay, kind = ScButtonKind.Primary, icon = ScIcons.Play,
+                    height = 42.dp)
+                made -> ScButton("Share", onShare, icon = ScIcons.Share, height = 42.dp)
+                else -> ScButton("Make", onMake, kind = ScButtonKind.Primary, enabled = canMake, height = 42.dp)
             }
         }
-        Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (made && onPlay != null) {
-                ScButton("Play", { onPlay(video) }, Modifier.weight(1f), kind = ScButtonKind.Primary,
-                    icon = ScIcons.Play, enabled = progress == null)
-            } else {
-                ScButton(if (made) "Make again" else "Make video", { StackReplay.make(context, dir, caption) },
-                    Modifier.weight(1f), kind = if (made) ScButtonKind.Secondary else ScButtonKind.Primary,
-                    icon = ScIcons.Play, enabled = enabled && progress == null && frames >= 2)
+        if (made && !busy) {
+            Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.End) {
+                if (onPlay != null) ScButton("Share", onShare, kind = ScButtonKind.Text, height = 38.dp)
+                ScButton("Make again", onMake, kind = ScButtonKind.Text, enabled = canMake, height = 38.dp)
             }
-            if (made) {
-                ScButton("Share video", {
-                    photoUri(context, video)?.let { shareVideo(context, it) }
-                }, Modifier.weight(1f), icon = ScIcons.Share, enabled = progress == null)
-            }
-        }
-        // With Play in front, making it again (after a re-stack changed the photo) is the quiet option.
-        if (made && onPlay != null) {
-            ScButton("Make again", { StackReplay.make(context, dir, caption) },
-                Modifier.fillMaxWidth().padding(top = 4.dp), kind = ScButtonKind.Text, height = 40.dp,
-                enabled = enabled && progress == null && frames >= 2)
-        }
-        state?.message?.let { text ->
-            Text(text, style = ScType.bodySmall, color = if (state.good) c.accentText else c.warning,
-                modifier = Modifier.padding(top = 6.dp))
         }
     }
 }

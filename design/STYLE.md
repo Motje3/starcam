@@ -13,6 +13,20 @@ explanations behind an (i). Dark only: the brightest thing on screen is the shut
 disk, because a bright glance undoes 20 minutes of dark adaptation. Night vision turns everything
 red on black.
 
+## Simple first, more behind a tap
+
+The owner's rule (5 Nov 2026): a screen shows the few things most people use, with a word or two
+each; the rest waits one tap away.
+- **A line under a setting only when its control cannot say it** ("30 s at most on this lens",
+  "Needs dark frames"), never "On · ..." beside a switch or a value a segment strip already shows.
+- **More options** at the bottom of each settings tab (Advanced: Troubleshooting), naming what is
+  inside; the search still finds everything.
+- **A row that opens** (`ScMoreRow`: an icon, the name over one line, a chevron) for the parts of
+  a page few people need: Re-process, Details, What now?
+- **One row with one button** for a thing to do (What's in this photo: Find out; a video: Make,
+  then Play), never a paragraph above a full-width button.
+- **Why and how behind the (i)**, as before.
+
 ## Colours
 
 | Token | Normal | Night vision | Use |

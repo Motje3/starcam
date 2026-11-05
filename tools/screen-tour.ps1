@@ -398,12 +398,14 @@ if (Wanted '04') {
             Top
             if (Tap '1 frame vs stacked') { Start-Sleep -Seconds 2; Shot '1 frame vs stacked'; Tap 'Photo' | Out-Null }
             if ((ScrollTo 'Find out') -and (Tap 'Find out')) {
-                WaitFor 'stars recognised' 90 | Out-Null
+                WaitFor 'Show all' 90 | Out-Null
                 Shot "what's in this photo"
+                if (Tap 'Show all') { Shot "what's in this photo, all of it" }
                 Top
                 Shot "what's in this photo, the labels"
             }
-            if ((ScrollTo 'Make video') -and (Tap 'Make video')) {
+            # Two rows have a Make button: the replay video's comes first, then the timelapse's.
+            if ((ScrollTo 'Make') -and (Tap 'Make')) {
                 WaitFor 'Saved to the gallery \(Movies' 240 | Out-Null
                 Shot 'replay video made'
                 if (Tap 'Play') {
@@ -413,7 +415,7 @@ if (Wanted '04') {
                     Back
                 }
             }
-            if ((ScrollTo 'Make timelapse') -and (Tap 'Make timelapse')) {
+            if ((ScrollTo 'Make') -and (Tap 'Make')) {
                 $deadline = (Get-Date).AddSeconds(300)
                 while ((Get-Date) -lt $deadline -and -not ((A shell ls "$sessions/$($orion.name)/out/") -match '^timelapse\.mp4$')) { Start-Sleep -Seconds 3 }
                 Start-Sleep -Seconds 4
@@ -421,6 +423,9 @@ if (Wanted '04') {
             }
             Top
             Page 'with its videos and labels' 8
+            # The folded parts, opened.
+            if ((ScrollTo 'Re-process') -and (Tap 'Re-process')) { Page 're-process' 2 }
+            if ((ScrollTo 'Details') -and (Tap 'Details')) { Page 'details' 2 }
             Top
             if ((ScrollTo 'Edit') -and (Tap 'Edit')) {
                 WaitFor 'HOLD TO COMPARE' 90 | Out-Null
@@ -539,7 +544,13 @@ if (Wanted '08') {
     if (Tap 'Settings') {
         WaitFor 'Search settings' 10 | Out-Null
         foreach ($t in $tabs) {
-            if (TapTab $t) { Top; Page $t.ToLower() 5 }
+            if (TapTab $t) {
+                Top
+                Page $t.ToLower() 5
+                # Then with its More options (Advanced: Troubleshooting) open.
+                $more = if ($t -eq 'Advanced') { 'Troubleshooting' } else { 'More options' }
+                if ((ScrollTo $more) -and (Tap $more)) { Page "$($t.ToLower()), more" 5 }
+            }
         }
         if (TapTab 'Exposure') {
             Top
@@ -562,10 +573,12 @@ if (Wanted '08') {
                 if ((ScrollTo $d[0]) -and (Tap $d[0])) { Start-Sleep -Seconds 1; Page $d[1] 4; Back }
             }
             if ((ScrollTo 'Reset all settings') -and (Tap 'Reset all settings')) { Shot 'reset all settings'; Back }
-            foreach ($d in @(@('Diagnostics', 'diagnostics'), @('Capability probe', 'capability probe'))) {
-                if ((ScrollTo $d[0]) -and (Tap $d[0])) { Start-Sleep -Seconds 2; Page $d[1] 2; Back }
-            }
-            if ((ScrollTo 'Engine self-test') -and (Tap 'Engine self-test')) {
+            if ((ScrollTo 'Diagnostics') -and (Tap 'Diagnostics')) { Start-Sleep -Seconds 2; Page 'diagnostics' 2; Back }
+            # The probe and the self-test are under Troubleshooting, closed again after each visit.
+            if ((ScrollTo 'Troubleshooting') -and (Tap 'Troubleshooting') -and (ScrollTo 'Capability probe') -and
+                (Tap 'Capability probe')) { Start-Sleep -Seconds 2; Page 'capability probe' 2; Back }
+            if ((ScrollTo 'Troubleshooting') -and (Tap 'Troubleshooting') -and (ScrollTo 'Engine self-test') -and
+                (Tap 'Engine self-test')) {
                 Start-Sleep -Seconds 1
                 Shot 'engine self-test'
                 if (Tap 'Run self-test') {
