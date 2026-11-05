@@ -43,30 +43,59 @@ constexpr double kLineX0 = 150.0, kLineY0 = 250.0, kLineX1 = 1900.0, kLineY1 = 1
 struct SynthStar { double x = 0, y = 0, flux = 0; };
 struct HotPix { int x = 0, y = 0; uint16_t v = 0; };
 
-// Ground truth: maps reference (frame 0) RAW coords -> frame i RAW coords.
-// Rotation theta_i = 0.01*i deg about the image center, then translation (0.8*i, 0.5*i).
+// Ground truth: maps reference (frame 0) RAW coords -> frame i RAW coords. The view turns a
+// little further each frame, as it does when the sky turns or the phone settles on its mount:
+// 0.8*i px across and 0.5*i px down at the centre, and 0.01*i deg about it, through a lens of
+// 1600 px focal length (65 degrees across the frame, as wide as a phone's). A turned view is the
+// homography K R K^-1; toward the edges it bends away from any shift-and-rotation, by about
+// 2.5 luma px in the last frame, which a similarity cannot fit.
 Transform truth_raw(int i) {
-    const double cx = (kW - 1) * 0.5, cy = (kH - 1) * 0.5;
-    const double th = 0.01 * i * M_PI / 180.0;
-    const double a = std::cos(th), b = std::sin(th);
-    Transform t;
-    t.a = a;
-    t.b = b;
-    t.tx = cx - (a * cx - b * cy) + 0.8 * i;
-    t.ty = cy - (b * cx + a * cy) + 0.5 * i;
-    return t;
+    const double f = 1600.0, cx = (kW - 1) * 0.5, cy = (kH - 1) * 0.5;
+    const double pan = std::atan(0.8 * i / f), tilt = std::atan(0.5 * i / f);
+    const double roll = 0.01 * i * M_PI / 180.0;
+    // R = Rz(roll) * Ry(pan) * Rx(tilt): pan carries the centre toward +x, tilt toward +y, roll
+    // turns the picture about it.
+    const double cp = std::cos(pan), sp = std::sin(pan);
+    const double ct = std::cos(tilt), st = std::sin(tilt);
+    const double cr = std::cos(roll), sr = std::sin(roll);
+    Transform ry, rx, rz, k, kInv;
+    ry.m[0] = cp;
+    ry.m[2] = sp;
+    ry.m[6] = -sp;
+    ry.m[8] = cp;
+    rx.m[4] = ct;
+    rx.m[5] = st;
+    rx.m[7] = -st;
+    rx.m[8] = ct;
+    rz.m[0] = cr;
+    rz.m[1] = -sr;
+    rz.m[3] = sr;
+    rz.m[4] = cr;
+    k.m[0] = f;
+    k.m[2] = cx;
+    k.m[4] = f;
+    k.m[5] = cy;
+    kInv.m[0] = 1.0 / f;
+    kInv.m[2] = -cx / f;
+    kInv.m[4] = 1.0 / f;
+    kInv.m[5] = -cy / f;
+    return k.compose(rz.compose(ry.compose(rx.compose(kInv))));
 }
 
 // Convert a RAW-coords truth transform to LUMA coords. Superpixel (x,y) covers raw pixels
-// 2x..2x+1 / 2y..2y+1, centroid at raw (2x+0.5, 2y+0.5)  =>  l = (raw - 0.5) / 2.
-// T_luma = S o T_raw o S^-1 : same rotation, translation = (A*[0.5,0.5] + t - [0.5,0.5]) / 2.
+// 2x..2x+1 / 2y..2y+1, centroid at raw (2x+0.5, 2y+0.5), so with S: raw = 2*l + 0.5,
+// T_luma = S^-1 o T_raw o S (the inverse of Transform::lumaToRaw).
 Transform raw_truth_to_luma(const Transform& t) {
-    Transform r;
-    r.a = t.a;
-    r.b = t.b;
-    r.tx = 0.5 * (t.a * 0.5 - t.b * 0.5 + t.tx - 0.5);
-    r.ty = 0.5 * (t.b * 0.5 + t.a * 0.5 + t.ty - 0.5);
-    return r;
+    Transform s, sInv;
+    s.m[0] = 2.0;
+    s.m[2] = 0.5;
+    s.m[4] = 2.0;
+    s.m[5] = 0.5;
+    sInv.m[0] = 0.5;
+    sInv.m[2] = -0.25;
+    sInv.m[4] = 0.5;
+    sInv.m[5] = -0.25;
+    return sInv.compose(t.compose(s));
 }
 
 double dist_pt_seg(double px, double py, double ax, double ay, double bx, double by) {
@@ -382,8 +411,7 @@ std::string run_impl(const std::string& tmpDir, std::vector<std::string>& paths)
     Transform prev;  // identity
     int alignedCnt = 1;
     for (int i = 1; i < kFrames; ++i) {
-        AlignResult ar = align_stars(refStars, frames[i].stars, prev, ap);
-        if (!ar.ok) ar = align_bootstrap(refStars, frames[i].stars, ap);
+        const AlignResult ar = align_frame(refStars, frames[i].stars, prev, ap);
         if (ar.ok) {
             frames[i].T = ar.T;
             frames[i].aligned = true;

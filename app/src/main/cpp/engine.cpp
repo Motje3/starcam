@@ -183,35 +183,84 @@ std::vector<uint32_t> find_hot_pixels(const Image16& dark) {
     return hot;
 }
 
-// Re-detect stars on the (linear) stack: half-res luma via 2x2 mean of channel means,
-// then median FWHM of the top 30 by flux.
-float measure_stack_fwhm(const ImageF& rgb) {
-    if (rgb.empty() || rgb.ch != 3 || rgb.w < 4 || rgb.h < 4) return 0.0f;
+// A star's width from how much of its light sits in its brightest pixel: for a Gaussian,
+// peak = flux / (2 pi sigma^2), so FWHM = 2.355 sqrt(flux / (2 pi peak)). It reads a star the
+// same in one frame and in a stack of many. A width from the pixels above the noise does not:
+// the stack's lower noise lets more of each star's wings in, and by it the phone's stacks of
+// 2026-10-31 read twice as wide as their frames (1.7 -> 3.3 px) however well aligned.
+// (x, y) in luma coords; 0 when the star is too near the edge or not a star.
+float effective_fwhm(const ImageF& luma, float x, float y) {
+    const int R = 9;
+    const int x0 = (int)std::lround(x), y0 = (int)std::lround(y);
+    if (x0 - R < 0 || y0 - R < 0 || x0 + R >= luma.w || y0 + R >= luma.h) return 0.0f;
+    std::vector<float> ring;
+    ring.reserve(256);
+    for (int py = y0 - R; py <= y0 + R; ++py) {
+        for (int px = x0 - R; px <= x0 + R; ++px) {
+            const float d = std::hypot((float)px - x, (float)py - y);
+            if (d >= 6.0f && d <= 9.0f) ring.push_back(luma.d[(size_t)py * luma.w + px]);
+        }
+    }
+    const float bg = median_of(ring);
+    float peak = 0.0f, flux = 0.0f;
+    for (int py = y0 - 5; py <= y0 + 5; ++py) {
+        for (int px = x0 - 5; px <= x0 + 5; ++px) {
+            const float d = std::hypot((float)px - x, (float)py - y);
+            if (d > 5.0f) continue;
+            const float v = luma.d[(size_t)py * luma.w + px] - bg;
+            flux += v;
+            if (d <= 1.5f) peak = std::max(peak, v);
+        }
+    }
+    if (!(peak > 0.0f) || !(flux > peak)) return 0.0f;
+    return 2.355f * std::sqrt(flux / (2.0f * (float)M_PI * peak));
+}
+
+// The reference frame's star width and the stack's, measured alike (effective_fwhm) at the
+// reference's 30 brightest stars that are not blown out: the stack is in the reference's
+// geometry, so what the stacking did to them - misalignment widens them - is the difference.
+void measure_star_widths(const ImageF& stackRGB, const FrameRecord& ref, const SensorInfo& si,
+                         float* fwhmRef, float* fwhmStack) {
+    *fwhmRef = *fwhmStack = 0.0f;
+    if (stackRGB.empty() || stackRGB.ch != 3 || stackRGB.w < 4 || stackRGB.h < 4) return;
+    SrawReader r;
+    if (!r.open(ref.srawPath)) return;
+    const SrawHeader& h = r.header();
+    SensorInfo siR = si;
+    for (int b = 0; b < 4; ++b) siR.blackLevel[b] = h.blackLevel[b];
+    ImageF lumaRef;
+    superpixel_luma(r.data(), (int)h.width, (int)h.height, (int)h.width, siR, h.wbGain, &lumaRef);
+
+    // The stack's luma at the same half resolution: each superpixel's 2 x 2 block.
     ImageF luma;
-    luma.init(rgb.w / 2, rgb.h / 2, 1);
+    luma.init(stackRGB.w / 2, stackRGB.h / 2, 1);
     const int lw = luma.w, lh = luma.h;
-    const int rw = rgb.w, rh = rgb.h;
     parallel_for(0, lh, [&](int y) {
         for (int x = 0; x < lw; ++x) {
-            int x0 = 2 * x, y0 = 2 * y;
-            int x1 = std::min(x0 + 1, rw - 1), y1 = std::min(y0 + 1, rh - 1);
-            const float* p00 = rgb.px(x0, y0);
-            const float* p10 = rgb.px(x1, y0);
-            const float* p01 = rgb.px(x0, y1);
-            const float* p11 = rgb.px(x1, y1);
             float s = 0.0f;
-            for (int c = 0; c < 3; ++c) s += p00[c] + p10[c] + p01[c] + p11[c];
+            for (int dy = 0; dy < 2; ++dy) {
+                for (int dx = 0; dx < 2; ++dx) {
+                    const float* p = stackRGB.px(2 * x + dx, 2 * y + dy);
+                    s += p[0] + p[1] + p[2];
+                }
+            }
             luma.d[(size_t)y * lw + x] = s * (1.0f / 12.0f);
         }
     });
-    std::vector<Star> stars;
-    SkyStats st;
-    detect_stars(luma, DetectParams(), &stars, &st);
-    if (stars.empty()) return 0.0f;
-    const size_t n = std::min<size_t>(30, stars.size());  // sorted by flux desc already
-    std::vector<float> f(n);
-    for (size_t i = 0; i < n; ++i) f[i] = stars[i].fwhm;
-    return median_of(f);
+    if (lumaRef.w != luma.w || lumaRef.h != luma.h) return;
+
+    std::vector<float> a, b;
+    for (const Star& s : ref.stars) {  // brightest first
+        if (a.size() >= 30) break;
+        if (s.area >= 60) continue;  // blown out: its width says nothing
+        const float fa = effective_fwhm(lumaRef, s.x, s.y), fb = effective_fwhm(luma, s.x, s.y);
+        if (fa <= 0.0f || fb <= 0.0f) continue;
+        a.push_back(fa);
+        b.push_back(fb);
+    }
+    if (a.empty()) return;
+    *fwhmRef = median_of(a);
+    *fwhmStack = median_of(b);
 }
 
 // Warp-accumulate one frame's half-res RGB into the running live-preview mean.
@@ -422,8 +471,8 @@ std::string frame_stats_json(int index, bool saved, int starCount, float medianF
         .add("starCount", starCount)
         .add("medianFwhm", (double)medianFwhm)
         .add("bgFrac", (double)bgFrac)
-        .add("dx", T.tx)
-        .add("dy", T.ty)
+        .add("dx", T.shiftX())
+        .add("dy", T.shiftY())
         .add("rotDeg", T.rotationDeg())
         .add("inliers", inliers)
         .add("residual", (double)residual)
@@ -537,8 +586,7 @@ std::string EngineSession::addFrame(const uint16_t* bayer, int w, int h, int str
             // else: pre-reference frame, stays unaligned with identity T.
         } else {
             AlignParams ap;
-            AlignResult ar = align_stars(refStars_, rec.stars, prevT_, ap);
-            if (!ar.ok) ar = align_bootstrap(refStars_, rec.stars, ap);
+            const AlignResult ar = align_frame(refStars_, rec.stars, prevT_, ap);
             if (ar.ok) {
                 rec.T = ar.T;
                 rec.aligned = true;
@@ -600,8 +648,7 @@ std::string EngineSession::checkFrame(const uint16_t* bayer, int w, int h, int s
         bool aligned = false;
         if (refIndex_ >= 0 && !refStars_.empty()) {
             AlignParams ap;
-            AlignResult ar = align_stars(refStars_, stars, prevT_, ap);
-            if (!ar.ok) ar = align_bootstrap(refStars_, stars, ap);
+            const AlignResult ar = align_frame(refStars_, stars, prevT_, ap);
             if (ar.ok) {
                 aligned = true;
                 inliers = ar.inliers;
@@ -882,7 +929,7 @@ std::string EngineSession::finalizeStack(const std::string& optionsJson,
                 if (abort_.load()) return error_json("aborted");
                 FrameRecord& fr = frames[i];
                 if (i != refPos && !fr.rejected && !fr.stars.empty()) {
-                    AlignResult r = align_stars(refStars, fr.stars, fr.T, ap);
+                    const AlignResult r = align_frame(refStars, fr.stars, fr.T, ap);
                     if (r.ok) {
                         fr.T = r.T;
                         fr.aligned = true;
@@ -996,7 +1043,7 @@ std::string EngineSession::finalizeStack(const std::string& optionsJson,
         // ---- stack (15-70) ----
         ImageF stackRGB;
         float rejPct = 0.0f;
-        float fwhmStack = 0.0f;
+        float fwhmRef = 0.0f, fwhmStack = 0.0f;  // measured alike: see measure_star_widths
         int meteorCount = 0;
         std::vector<int> meteorFrameIdx;  // frameIndex of each composited meteor candidate
 
@@ -1059,7 +1106,7 @@ std::string EngineSession::finalizeStack(const std::string& optionsJson,
                 return error_json(abort_.load() ? "aborted" : "stack failed");
             }
             if (stackRGB.empty()) return error_json("empty stack");
-            fwhmStack = measure_stack_fwhm(stackRGB);
+            measure_star_widths(stackRGB, frames[refPos], cfg_.sensor, &fwhmRef, &fwhmStack);
             if (mode == SessionMode::METEOR) {
                 meteorCount = blend_meteors(streaks, frames, refPos, cfg_.sensor, masterDark,
                                             darkPedPtr, darkBlackPtr, hotIdx, sp.hotPixelFix,
@@ -1225,8 +1272,8 @@ std::string EngineSession::finalizeStack(const std::string& optionsJson,
                 .add("fwhm", (double)fr.medianFwhm)
                 .add("inliers", fr.inliers)
                 .add("residual", (double)fr.residual)
-                .add("dx", fr.T.tx)
-                .add("dy", fr.T.ty)
+                .add("dx", fr.T.shiftX())
+                .add("dy", fr.T.shiftY())
                 .add("rotDeg", fr.T.rotationDeg());
             if (i) framesArr += ",";
             framesArr += fb.build();
@@ -1252,8 +1299,9 @@ std::string EngineSession::finalizeStack(const std::string& optionsJson,
             if (i) meteorFramesStr += ",";
             meteorFramesStr += std::to_string(meteorFrameIdx[i]);
         }
-        const float fwhmRef =
-            (refPos >= 0 && refPos < (int)frames.size()) ? frames[refPos].medianFwhm : 0.0f;
+        // Trails stack nothing to measure: the reference's own width, as before.
+        if (fwhmRef <= 0.0f && refPos >= 0 && refPos < (int)frames.size())
+            fwhmRef = frames[refPos].medianFwhm;
         const int64_t elapsedMs = (int64_t)std::chrono::duration_cast<std::chrono::milliseconds>(
                                       std::chrono::steady_clock::now() - t0)
                                       .count();

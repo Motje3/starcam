@@ -1,6 +1,7 @@
 # Stelli: to do before Google Play
 
-Updated 2026-11-05 on 0.6.0 (versionCode 11, the owner's new design). Everything that needed no
+Updated 2026-11-05 on 0.6.1 (versionCode 12: the owner's new design, and the star alignment the
+phone's own sessions showed to be wrong, see PROGRESS.md). Everything that needed no
 decision is done: the upload key and the signed AAB, the privacy policy and terms of use (on the
 web and in the app), the reworded card for phones without RAW, the release build checked on the
 emulator, and the store listing texts and graphics (`store/`). What is left happens on GitHub, in
@@ -30,8 +31,8 @@ Easy: every answer is written down. In this order, as each Play Console step nee
       access without restrictions, the content rating questionnaire, target audience 13+, data
       safety: no data collected or shared, advertising ID no; news, government, financial and
       health apps: no. Trader status: confirm it and give the terms link.
-- [ ] **Upload the bundle**: `app/build/outputs/bundle/release/app-release.aab` (0.6.0,
-      versionCode 11, the new look) to Internal testing, with Play App Signing (Google's key). Then download the APK Play makes from it (App
+- [ ] **Upload the bundle**: `app/build/outputs/bundle/release/app-release.aab` (0.6.1,
+      versionCode 12) to Internal testing, with Play App Signing (Google's key). Then download the APK Play makes from it (App
       bundle explorer › Downloads › signed universal APK) and check it has no INTERNET permission
       (automatic protection, PLAY_STORE.md).
 
@@ -46,9 +47,9 @@ features are Pro is decided after the testing.
       recorded on the phone (the steps are there too), as an unlisted YouTube link.
 - [ ] **The Play build on the phone.** First copy `Android/media/com.wm.stelli/Stelli` to the PC:
       a Play build can't update the debug build, and uninstalling deletes every session. The old
-      StarCam build stays on the phone beside Stelli until it is uninstalled: copy its
-      `Android/media/com.wm.starcam/StarCam` first. Then uninstall the debug build, roll out the
-      internal release and install Stelli from Play.
+      StarCam build (0.5.0) may go: its sessions were copied to
+      `field-logs\phone-20261105\backup` on 5 Nov 2026. Then uninstall the debug build, roll out
+      the internal release and install Stelli from Play.
 - [ ] **Five friends test it.** Internal testing › Testers: an email list with their Google
       accounts, then send them the join link. Before the public launch: finished sessions on 5+
       phones from 3+ brands (a Pixel and a Samsung among them), the screen-off capture and the
@@ -82,12 +83,28 @@ features are Pro is decided after the testing.
 The owner had an image AI redesign the main screen (4-5 Nov 2026) and asked for the whole app to
 match it. Built in 0.6.0; `design/STYLE.md` is the style, PROGRESS.md says what changed.
 - [x] Build it in Compose, every screen, the red night-vision variant included (5 Nov 2026).
-- [ ] The owner looks at the new screens (Desktop › Stelli screens › new design) and has the AI
-      improve whatever they do not like; built the same way.
-- [ ] See it on the phone, under a real sky: `tools\build.ps1` with the phone plugged in installs
-      the debug build over the one there (same key, the sessions stay).
+- [ ] The owner looks at the new screens and has the AI improve whatever they do not like; built
+      the same way. Every screen and setting of 0.6.1 is in Desktop › Stelli screens › all screens
+      5 Nov (open `all screens.html`); `tools\screen-tour.ps1` takes them again.
+- [x] On the phone: 0.6.1's debug build installed over wireless adb on 5 Nov 2026 (a new app
+      beside the old StarCam; this PC's debug key, so `tools\build.ps1` updates it, sessions kept).
+- [ ] Under a real sky.
 - [ ] Store screenshots from the new screens (`tools\ui-shots.ps1`): the owner's AI designs the
       frames around the real screens. The ones in `store/screenshots` still show the old look.
+
+## From the phone's own sessions (5 Nov 2026)
+
+What the sessions of 31 Oct showed (PROGRESS.md, 0.6.1).
+- [x] The star alignment: a homography, fitted to every star, the sky over the lights below it
+      (stacks sharp to the edges; the Deep session's "cloud" was clear sky).
+- [ ] A Deep session under a clear sky with 0.6.1: no waiting for cloud that is not there.
+- [ ] A faster star focus: 65 s before the first frame, 10 steps each waiting 4.1 s for a 0.2 s
+      "settle" frame.
+- [ ] Lights below the sky can hide cloud from the autopilot: under cloud the alignment may take
+      them for the sky. And when the phone moves, they blur in a stack aligned on the stars
+      (they are nearer); the foreground blend is off by default.
+- [ ] The darks: the Quick session waited a minute for the lens to be covered, then went on
+      without.
 
 ## Worth doing
 

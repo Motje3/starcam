@@ -64,6 +64,33 @@ class AutopilotTest {
     }
 
     @Test
+    fun lightsBelowTheSkyNoLongerMatchingIsNotCloud() {
+        // 2026-10-31: until the stars moved off the lit houses below them, the lights there
+        // matched too (230); from then on only the stars did (77, 80), under the same clear sky.
+        val p = pilot()
+        p.onFrame(0, 300, -1, 1.8f, 0.013f, 0L)
+        p.onFrame(1, 300, 230, 1.8f, 0.013f, 23_000L)
+        p.onFrame(2, 300, 228, 1.8f, 0.013f, 46_000L)
+        // A sharper drop than that night's: the first two frames of it look like cloud...
+        assertEquals(Autopilot.Action.Replace(Autopilot.Reason.CLOUD, true), p.onFrame(3, 300, 60, 1.8f, 0.013f, 69_000L))
+        assertTrue(p.onFrame(4, 300, 61, 1.8f, 0.013f, 92_000L) is Autopilot.Action.Wait)
+        // ...but the count holds still, as cloud would not: the first check is the sky's new level.
+        assertEquals(Autopilot.Check.CLEAR, p.onCheck(300, 59, 0.013f, 115_000L))
+        for (f in 5..9) assertEquals(Autopilot.Action.Keep, p.onFrame(f, 300, 60 + f % 3, 1.8f, 0.013f, f * 23_000L))
+    }
+
+    @Test
+    fun aFewStarsHoldingStillAreStillCloud() {
+        val p = pilot()
+        p.clear(0); p.clear(1); p.clear(2)
+        p.onFrame(3, 300, 30, 2.0f, 0.04f, 60_000L)
+        assertTrue(p.onFrame(4, 300, 30, 2.0f, 0.04f, 80_000L) is Autopilot.Action.Wait)
+        // Steady, but a fifth of what the clear sky matched: cloud with a gap in it.
+        assertEquals(Autopilot.Check.CLOUDY, p.onCheck(300, 30, 0.04f, 100_000L))
+        assertEquals(Autopilot.Check.CLOUDY, p.onCheck(300, 31, 0.04f, 120_000L))
+    }
+
+    @Test
     fun cloudThatStaysEndsTheSessionAfterTheWait() {
         val p = pilot(config = Autopilot.Config(maxWaitMs = 10 * minute))
         p.clear(0); p.clear(1); p.clear(2)

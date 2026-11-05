@@ -25,8 +25,8 @@ android {
         targetSdk = 36
         // Bump on every build that goes to the phone: logs and debug bundles name the version,
         // which is how a field log is matched to the code that produced it.
-        versionCode = 11
-        versionName = "0.6.0"
+        versionCode = 12
+        versionName = "0.6.1"
 
         ndk {
             abiFilters += "arm64-v8a"

@@ -33,8 +33,11 @@ class SkySim(val scenario: Scenario, private val cam: CamInfo, width: Int, heigh
         val driftAt: Int? = null,
         val driftDpt: Float = 0f,
         val dawnAt: Int? = null,
-        /** Answers the "cover the lens" question itself (true), or skips the darks (false). */
-        val autoDarks: Boolean = true,
+        /**
+         * The "cover the lens" question answered at once: yes (true) or skip the darks (false);
+         * null leaves it to the person, as under a real sky.
+         */
+        val autoDarks: Boolean? = true,
     )
 
     enum class Kind { PROBE, FOCUS, LIGHT, DARK }
@@ -88,7 +91,7 @@ class SkySim(val scenario: Scenario, private val cam: CamInfo, width: Int, heigh
         /** Armed by the adb hook, taken by the next session. */
         @Volatile var armed: Scenario? = null
 
-        /** "frames=12;exp=300;clouds=5-8,14;drift=12:0.06;dawn=20;darks=auto" (all optional). */
+        /** "frames=12;exp=300;clouds=5-8,14;drift=12:0.06;dawn=20;darks=auto|skip|ask" (all optional). */
         fun parse(spec: String): Scenario {
             var s = Scenario()
             for (part in spec.split(';').map { it.trim() }.filter { it.isNotEmpty() }) {
@@ -107,7 +110,7 @@ class SkySim(val scenario: Scenario, private val cam: CamInfo, width: Int, heigh
                         driftDpt = value.substringAfter(':', "0").toFloatOrNull() ?: 0f,
                     )
                     "dawn" -> s.copy(dawnAt = value.toIntOrNull())
-                    "darks" -> s.copy(autoDarks = value != "skip")
+                    "darks" -> s.copy(autoDarks = when (value) { "skip" -> false; "ask" -> null; else -> true })
                     else -> s
                 }
             }

@@ -690,7 +690,7 @@ private val Defs: List<Def> = listOf(
         get = { it.haptics },
         set = { s, v -> s.copy(haptics = v) },
     ),
-    Link(SettingsTab.Interface, "Show the intro again", null, "The three first-launch cards", SettingsAction.Intro),
+    Link(SettingsTab.Interface, "Show the intro again", null, "The first-launch cards", SettingsAction.Intro),
 
     // ---------------------------------------------------------------- Advanced
     Note(

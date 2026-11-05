@@ -1,5 +1,6 @@
 package com.wm.starcam.camera
 
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
@@ -67,6 +68,9 @@ class Autopilot(planned: Int, private val config: Config) {
      */
     private val refMatched = ArrayList<Int>()
 
+    /** The last [STEADY_EXPOSURES] match counts, frames and checks alike (see [refMatchedOrZero]). */
+    private val recentMatched = ArrayDeque<Int>()
+
     /** The first good frames set the bar every later frame is judged against. */
     val hasReference: Boolean get() = refStars.size >= REFERENCE_FRAMES
 
@@ -123,7 +127,27 @@ class Autopilot(planned: Int, private val config: Config) {
         replaced[reason] = (replaced[reason] ?: 0) + 1
     }
 
-    private fun refMatchedOrZero(): Float = if (refMatched.isEmpty()) 0f else median(refMatched.map { it.toFloat() })
+    private fun noteMatched(matched: Int) {
+        if (matched < 0) return
+        recentMatched.addLast(matched)
+        if (recentMatched.size > STEADY_EXPOSURES) recentMatched.removeFirst()
+    }
+
+    /**
+     * The match count a clear sky gives: the first clear frames', or, lower, the level the last
+     * [STEADY_EXPOSURES] exposures agree on. Until the stars have moved off the ground (or the
+     * phone, settling, has moved the two apart), lights below the sky match along with them; then
+     * the count drops for good under a sky as clear as before - 230, then 77 and 80 on the phone
+     * on 2026-10-31 - and held to the first frames, every frame after it would look like cloud.
+     */
+    private fun refMatchedOrZero(): Float {
+        val first = if (refMatched.isEmpty()) 0f else median(refMatched.map { it.toFloat() })
+        if (recentMatched.size < STEADY_EXPOSURES) return first
+        val recent = recentMatched.map { it.toFloat() }
+        val level = median(recent)
+        val steady = recent.all { abs(it - level) <= STEADY_SPREAD * level }
+        return if (steady && level >= MIN_STEADY_MATCHED && level >= STEADY_FLOOR * first && level < first) level else first
+    }
 
     /** Fewer stars, or fewer of the reference's stars matched, than cloud-free sky gives. */
     private fun cloudy(stars: Int, matched: Int, share: Float): Boolean {
@@ -137,6 +161,7 @@ class Autopilot(planned: Int, private val config: Config) {
      * frame); [elapsedMs] the time since the burst started.
      */
     fun onFrame(frame: Int, stars: Int, matched: Int, fwhm: Float, bg: Float, elapsedMs: Long): Action {
+        noteMatched(matched)
         if (!hasReference) {
             // Until the bar is set every frame counts; the stacker judges these itself.
             if (stars >= MIN_REFERENCE_STARS) {
@@ -248,6 +273,7 @@ class Autopilot(planned: Int, private val config: Config) {
     /** While [waiting]: an exposure measured but not kept. CLEAR: stack this very frame. */
     fun onCheck(stars: Int, matched: Int, bg: Float, elapsedMs: Long): Check {
         checks++
+        noteMatched(matched)
         brightRun = if (isBright(bg)) brightRun + 1 else 0
         if (brightRun >= BRIGHT_FRAMES && config.finishWhenBright) {
             // Waiting for cloud to pass while dawn comes up: the stars are not coming back.
@@ -338,6 +364,16 @@ class Autopilot(planned: Int, private val config: Config) {
         const val MIN_BRIGHT_STEP = 0.01f
         /** It never ends a burst with fewer good frames than this. */
         const val MIN_GOOD_TO_FINISH = 3
+        /**
+         * This many exposures in a row matching about as many stars (each within [STEADY_SPREAD]
+         * of their median), at least [MIN_STEADY_MATCHED] and [STEADY_FLOOR] of the first frames'
+         * count, are the clear sky's new level. Overcast never gets there: it matches next to
+         * nothing, and passing cloud does not hold still.
+         */
+        const val STEADY_EXPOSURES = 3
+        const val STEADY_SPREAD = 0.25f
+        const val MIN_STEADY_MATCHED = 25
+        const val STEADY_FLOOR = 0.25f
 
         fun minutesText(ms: Long): String {
             val min = (ms / 60_000.0).roundToInt()

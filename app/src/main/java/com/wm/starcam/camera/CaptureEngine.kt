@@ -1114,8 +1114,9 @@ class CaptureEngine(
                 _busy.value = null
                 val gate = CompletableDeferred<Boolean>()
                 darkGate = gate
-                // A simulated sky answers for the photographer (its lens is "covered" at once).
-                if (skySim != null) gate.complete(skySim.scenario.autoDarks)
+                // A simulated sky answers for the photographer (its lens is "covered" at once),
+                // unless its scenario leaves the question to the person ("darks=ask").
+                skySim?.scenario?.autoDarks?.let { gate.complete(it) }
                 val doDarks = run {
                     var confirmed: Boolean? = null
                     for (sec in 60 downTo 1) {

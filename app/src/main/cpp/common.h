@@ -94,45 +94,100 @@ struct Image16 {
 
 // ---------- Geometry ----------
 
-// Similarity transform mapping reference coords -> this frame's coords (or as documented per use):
-//   x' = a*x - b*y + tx
-//   y' = b*x + a*y + ty
+// Projective transform (homography) mapping reference coords -> this frame's coords (or as
+// documented per use): a 3x3 matrix m, row-major, acting on (x, y, 1), kept with m[8] = 1:
+//   w  = m[6]*x + m[7]*y + m[8]
+//   x' = (m[0]*x + m[1]*y + m[2]) / w
+//   y' = (m[3]*x + m[4]*y + m[5]) / w
+// Two frames of the sky through a fixed lens differ by a turn of the view - the sky turning, or
+// the phone settling on its mount - and a turned view is exactly a homography. A similarity
+// (shift and rotation, m[6] = m[7] = 0) fits one only near the middle: on the field sessions of
+// 2026-10-31 it was pixels off toward the edges of the wide phone lens within two minutes.
 struct Transform {
-    double a = 1.0, b = 0.0, tx = 0.0, ty = 0.0;
+    double m[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+
+    // x' = a*x - b*y + tx, y' = b*x + a*y + ty: rotation and scale by (a, b), then the shift.
+    static Transform similarity(double a, double b, double tx, double ty) {
+        Transform t;
+        t.m[0] = a;
+        t.m[1] = -b;
+        t.m[2] = tx;
+        t.m[3] = b;
+        t.m[4] = a;
+        t.m[5] = ty;
+        return t;
+    }
 
     void apply(double x, double y, double* ox, double* oy) const {
-        *ox = a * x - b * y + tx;
-        *oy = b * x + a * y + ty;
+        const double iw = 1.0 / (m[6] * x + m[7] * y + m[8]);
+        *ox = (m[0] * x + m[1] * y + m[2]) * iw;
+        *oy = (m[3] * x + m[4] * y + m[5]) * iw;
     }
     Transform inverse() const {
-        double d2 = a * a + b * b;
+        const double c00 = m[4] * m[8] - m[5] * m[7], c01 = m[2] * m[7] - m[1] * m[8],
+                     c02 = m[1] * m[5] - m[2] * m[4];
+        const double c10 = m[5] * m[6] - m[3] * m[8], c11 = m[0] * m[8] - m[2] * m[6],
+                     c12 = m[2] * m[3] - m[0] * m[5];
+        const double c20 = m[3] * m[7] - m[4] * m[6], c21 = m[1] * m[6] - m[0] * m[7],
+                     c22 = m[0] * m[4] - m[1] * m[3];
+        const double det = m[0] * c00 + m[1] * c10 + m[2] * c20;
         // A degenerate transform has no inverse; identity keeps every caller's math finite.
-        if (!(d2 > 1e-12) || !std::isfinite(d2)) return Transform{};
+        if (!(std::fabs(det) > 1e-12) || !std::isfinite(det)) return Transform{};
         Transform r;
-        r.a = a / d2;
-        r.b = -b / d2;
-        r.tx = -(r.a * tx - r.b * ty);
-        r.ty = -(r.b * tx + r.a * ty);
-        return r;
+        const double q[9] = {c00, c01, c02, c10, c11, c12, c20, c21, c22};
+        for (int i = 0; i < 9; ++i) r.m[i] = q[i] / det;
+        return r.normalized();
     }
     // The same mapping in RAW coordinates, for a transform between luma (2x2 superpixel) coords.
-    // Superpixel u covers RAW 2u..2u+1 and is centred on RAW 2u + 0.5, so u' = A u + t becomes
-    // x' = A x + 2t + (I - A) c with c = (0.5, 0.5). Doubling t alone left rotated frames off by
-    // (I - A) c: about 0.37 RAW px at 30 degrees, nothing for a pure shift.
+    // Superpixel u covers RAW 2u..2u+1 and is centred on RAW 2u + 0.5, so with S: x = 2u + 0.5
+    // the RAW transform is S T S^-1. Doubling the shift alone left rotated frames off by
+    // (I - A) (0.5, 0.5): about 0.37 RAW px at 30 degrees, nothing for a pure shift.
     Transform lumaToRaw() const {
-        return Transform{a, b, 2.0 * tx + 0.5 * (1.0 - a + b), 2.0 * ty + 0.5 * (1.0 - a - b)};
+        Transform s, sInv;
+        s.m[0] = 2.0;
+        s.m[2] = 0.5;
+        s.m[4] = 2.0;
+        s.m[5] = 0.5;
+        sInv.m[0] = 0.5;
+        sInv.m[2] = -0.25;
+        sInv.m[4] = 0.5;
+        sInv.m[5] = -0.25;
+        return s.compose(compose(sInv));
     }
     // Composition: result applies `first`, then `this`.
     Transform compose(const Transform& first) const {
         Transform r;
-        r.a = a * first.a - b * first.b;
-        r.b = b * first.a + a * first.b;
-        r.tx = a * first.tx - b * first.ty + tx;
-        r.ty = b * first.tx + a * first.ty + ty;
+        for (int i = 0; i < 3; ++i) {
+            for (int j = 0; j < 3; ++j) {
+                r.m[i * 3 + j] = m[i * 3] * first.m[j] + m[i * 3 + 1] * first.m[3 + j] +
+                                 m[i * 3 + 2] * first.m[6 + j];
+            }
+        }
+        return r.normalized();
+    }
+    // Where the origin goes: the shift, for a similarity.
+    double shiftX() const { return m[2] / m[8]; }
+    double shiftY() const { return m[5] / m[8]; }
+    // The turn of the linear part at the origin (the whole frame's turn, for a similarity).
+    double rotationDeg() const {
+        const double j00 = m[0] - m[2] * m[6], j01 = m[1] - m[2] * m[7];
+        const double j10 = m[3] - m[5] * m[6], j11 = m[4] - m[5] * m[7];
+        return std::atan2(j10 - j01, j00 + j11) * 180.0 / M_PI;
+    }
+    bool isIdentity() const {
+        static const double id[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+        for (int i = 0; i < 9; ++i)
+            if (m[i] != id[i]) return false;
+        return true;
+    }
+
+private:
+    Transform normalized() const {
+        Transform r = *this;
+        if (std::fabs(m[8]) > 1e-12 && std::isfinite(m[8]))
+            for (double& v : r.m) v /= m[8];
         return r;
     }
-    double rotationDeg() const { return std::atan2(b, a) * 180.0 / M_PI; }
-    bool isIdentity() const { return a == 1.0 && b == 0.0 && tx == 0.0 && ty == 0.0; }
 };
 
 // ---------- Stars / frames ----------

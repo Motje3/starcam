@@ -374,9 +374,14 @@ bool stack_frames_impl(const std::vector<FrameRecord>& frames, const SensorInfo&
             float* smp = &samples[(size_t)k * tilePixels * 3];
             uint8_t* vld = &valid[(size_t)k * tilePixels];
             for (int oy = 0; oy < th; ++oy) {
-                double sx, sy;
-                T.apply((double)ox0, (double)(oy0 + oy), &sx, &sy);
-                for (int ox = 0; ox < tw; ++ox, sx += T.a, sy += T.b) {
+                // The source position in homogeneous coordinates, stepped along the row: one
+                // division per pixel.
+                const double rowY = (double)(oy0 + oy);
+                double hx = T.m[0] * ox0 + T.m[1] * rowY + T.m[2];
+                double hy = T.m[3] * ox0 + T.m[4] * rowY + T.m[5];
+                double hw = T.m[6] * ox0 + T.m[7] * rowY + T.m[8];
+                for (int ox = 0; ox < tw; ++ox, hx += T.m[0], hy += T.m[3], hw += T.m[6]) {
+                    const double sx = hx / hw, sy = hy / hw;
                     // Written as "inside" tests so a NaN coordinate counts as outside.
                     if (!(sx >= 0.0 && sy >= 0.0 && sx <= (double)(fw - 1) && sy <= (double)(fh - 1))) {
                         continue;  // outside frame -> invalid sample

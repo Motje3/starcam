@@ -30,8 +30,9 @@ public:
     // Bayer buffer from ImageReader (strideElems = rowStrideBytes/2). Copies/persists everything it
     // needs before returning; the caller may recycle the buffer immediately.
     // Does: write cache/frame_NNNN.sraw, superpixel luma, detect stars, align vs reference
-    // (incremental, previous frame's T as guess; bootstrap fallback), update live preview & mode
-    // accumulators. First frame becomes the provisional reference (refined in finalize).
+    // (align_frame: the previous frame's T as the guess, and the guess-free start), update live
+    // preview & mode accumulators. First frame becomes the provisional reference (refined in
+    // finalize).
     // Returns per-frame stats JSON:
     // {"index":i,"saved":bool,"starCount":n,"medianFwhm":f,"bgFrac":f,"dx":f,"dy":f,"rotDeg":f,
     //  "inliers":n,"residual":f,"aligned":bool,"streaks":n}

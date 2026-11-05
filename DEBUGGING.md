@@ -38,6 +38,13 @@ app processes ended (`exit-info.txt`).
 Start with the newest `logs\app_*.log`, or the session's `meta\session.log`, and search for
 ` E/` (errors) or `FAILED`.
 
+**Without the cable**: Developer options → **Wireless debugging**, on the same Wi-Fi as the PC.
+The first time, "Pair device with pairing code" and `adb pair <ip>:<port> <code>` with what the
+phone shows; after that `adb mdns services` finds the phone and `adb connect <ip>:<port>`
+(the port on the Wireless debugging screen, which changes when it is switched off and on)
+connects it. The owner's phone was paired this way on 21 Oct 2026. With the emulator running as
+well, adb needs `-s <ip>:<port>`; `tools\pull-logs.ps1` expects only the phone.
+
 ## Reproducing camera problems without a night sky
 
 **Settings → Advanced → Diagnostics → Camera test** shoots N frames exactly the way a session does: the same requests,
@@ -149,8 +156,19 @@ Every frame of that session (probe, star focus, lights, darks) is replaced by a 
 field before the engine sees it: `frames`/`exp` override the plan, `clouds` lists light attempts
 under cloud (checks included), `drift=N:D` moves the lens's sharpest focus by D dioptres from
 attempt N, `dawn=N` brightens the sky 60% a frame from attempt N, `darks=auto|skip` answers the
-cover-the-lens question. The emulator suite's `autopilot` check uses it; the session log says
-"SIMULATED SKY" at the top.
+cover-the-lens question (`ask` leaves it to a tap). The emulator suite's `autopilot` check uses
+it; the session log says "SIMULATED SKY" at the top.
+
+**Every screen as pictures**, for a design review: `tools\screen-tour.ps1 -Clean -Out <folder>`
+walks a debug build on the emulator through each screen and state (each mode, a session's steps
+under a simulated sky, a stacked photo of Orion with all its cards, the studio, the planner and the
+calendar, every Settings tab and dialog, night vision), long pages in parts, into numbered folders
+with `all screens.html` to look through them. About 40 minutes; `-Only 04,08` shoots those folders
+again. `tools\ui-shots.ps1` takes only the main screens.
+
+The AVD's storage is small (6 GB). When it fills up (stacklab's outputs in `/data/local/tmp`, old
+sessions), the emulator can stop answering adb altogether, as on 5 Nov 2026: `adb shell df -h
+/data` shows it; restart the emulator and clear space.
 
 The **dark-sky map's data** (`app/src/main/assets/darksky/`) is made by the Java programs in
 `tools\darksky\` (run with the JDK in `%LOCALAPPDATA%\Android\jdk17`, `java -Xmx12g <file>.java ...`):
@@ -208,6 +226,30 @@ left; measured turned back, so its numbers should match the upright scene's), a 
 until 0.4) and post parameters (`sky=0.14 gap=0.2 ground=0.05 gs=0.9 nr=0.8 starc=0.6 style=1
 sharpen=1 detail=0.5 smaller=0.5 warm=0.3 tint=-0.1 down=0`). `-NoBuild` reruns the last build. `-Tiff <session>\out\master_linear16.tiff` develops a real session's master
 instead: the way to judge a change on real sky data.
+
+## Replaying a session through the engine: tools\stacklab
+
+`tools\stacklab\run.ps1 -Session <a session folder from the phone>` builds the whole engine as a
+command-line tool for the x86_64 emulator, pushes the session's kept frames (`cache\frame_*.sraw`)
+there and runs them through it, the way the phone would with this code:
+
+- **align** (`align.txt`): every frame against the first as the capture aligns them: stars,
+  inliers / coverage, residual, the shift and turn, and how many stars sit on the very pixel they
+  sat on in the first frame (lights on the ground do, while the phone holds still). Under each
+  frame the two starts on their own, from the guess and guess-free. Per frame, `align_NN.csv`
+  has every reference star, where the transform puts it and where the nearest star is (residual
+  maps by region), and `stars_NN.csv` the detections with the brightness around each.
+- **stack** (`stack.txt`, `final.png`): the whole re-stack with the session's own options, then
+  the reference frame stacked onto itself as the baseline, and per region how much of a star's
+  light is left in its peak, stack against frame (1 is a perfect stack; misalignment smears the
+  peak away). With the session's `out\master_linear16.tiff` there, the phone's own stack is
+  measured the same way beside it. `sheet.png`: the brightest star of each region, frame left,
+  stack right.
+
+`-Mode align|stack|both`, `-NoBuild`, `-NoPush` (the frames are already on the emulator). The
+sessions the phone had on 5 Nov 2026 are in `field-logs\phone-20261105\backup\StarCam\sessions`
+(the two of 31 Oct are the real night sky: `20261031_234936_astro`, Deep, and
+`20261031_235942_astro`, Quick).
 
 ## Reading a log line
 

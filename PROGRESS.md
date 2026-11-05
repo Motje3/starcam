@@ -1,5 +1,70 @@
 # StarCam build progress (PLAN.md §10)
 
+## What the phone's sessions showed: the star alignment, 0.6.1 (2026-11-05)
+
+The owner's phone (OnePlus CPH2769, Android 16) still held the 0.5.0 build's ten sessions. They
+were copied off over wireless adb (2.1 GB, `field-logs\phone-20261105\backup`) and run through the
+engine again with a new tool, `tools\stacklab` (DEBUGGING.md). The two real night sessions, of
+31 Oct, looked up past an open window over lit houses:
+- **The Deep session stopped at 4 frames for cloud that was not there.** Frames 3 and 4 matched
+  17 and 16 of 150 reference stars (frame 2: 125), so the autopilot left them out as cloud and
+  waited: 11 checks over 4 minutes, each with all 300 stars and the same sky brightness and each
+  "cloudy" (37-40 matched), until the owner pressed Finish. 2 of 4 frames stacked.
+- **The Quick session's stack was softer than its frames**, toward the edges most. All 8 frames
+  went in, each matching 16-53 of 150 stars with residuals of 0.6-1.0 px.
+- **The cause: the alignment's model.** Between frames the view turned - the phone settled on its
+  mount (half a degree between the first two frames, then nothing, then more), and the sky turns.
+  A turned view is a homography; the engine fitted a similarity (shift and rotation), which holds
+  over one part of a wide phone frame only. And the brightest "stars" were mostly lights on the
+  houses (101 of the 150 brightest), which, nearer than the stars, moved differently.
+
+The alignment now (align.cpp, and `Transform` is a 3 x 3 matrix everywhere it is used: the warp,
+the live preview, the meteors, the rebasing onto the best frame):
+- **A homography** (normalized DLT), **fitted to every reference star where the model puts it**,
+  three rounds with the radius shrinking (8, 3, 2 px), the first a RANSAC over homographies at
+  1 px, so of two groups moving apart one wins instead of a fit through both that suits neither.
+- **The sky over the lights**: of two such groups, the one spread over more of the frame (inliers
+  counted on an 8 x 8 grid, at most 2 a cell), which is the sky's even where the lights
+  outnumber the stars. The reference stars it starts from are spread over the frame, not the
+  brightest.
+- **A guess-free start that works**: the shift most star pairs agree on (a vote over every pair's
+  displacement), beside the triangle voting, which found these frames' match in 1 of 7 (its 25
+  brightest points were lights, ranked differently from frame to frame). Both starts run for
+  every frame; the guess-free one takes over when it holds over clearly more of the frame, as
+  after a nudge past the match radius.
+
+On the same frames (stacklab): 122-164 of 300 stars matched instead of 16-53 of 150, residuals
+0.22-0.26 px (one frame 0.6) instead of 0.6-1.0, and the share of a star's light left in its peak,
+stack against frame, 0.82-0.91 in the sky instead of 0.45-0.62 in the phone's stack. The Deep
+session's two "cloudy" frames match 77 and 80 sky stars and go into the stack.
+
+Also:
+- **The star size on the result is measured alike in the frame and the stack**
+  (`effective_fwhm`: from the share of a star's light in its brightest pixel, at the reference's
+  30 brightest stars). It compared all of a frame's stars with the stack's 30 brightest, measured
+  above the noise, whose lower noise in the stack lets in more of the wings: "1.7 → 3.3 px" for a
+  stack that was not that soft. The Quick session now reads 5.1 → 5.8 px: wider, as the whole
+  of a phone star's light is counted, and among its 30 brightest are the lights below the sky.
+- **The autopilot learns the clear sky's new level.** Until the stars have moved off the lights
+  below them, both match (230); then only the stars do (77, 80) under the same clear sky, which,
+  held to the first frames, looked like cloud. Three exposures in a row agreeing on a lower count
+  (at least 25, and a quarter of the first frames') set the level. Overcast never gets there.
+
+Seen in the sessions and left for later (TODO.md): the star focus takes 65 s, each step waiting
+4.1 s for a 0.2 s "settle" frame; lights below the sky can hide cloud from the autopilot; the Quick
+session waited a minute for the lens to be covered, then went on without darks.
+
+For the owner's design review, `tools\screen-tour.ps1` takes every screen and state the emulator
+can show (DEBUGGING.md): 0.6.1's are in Desktop › Stelli screens › all screens 5 Nov. What the
+pictures showed is fixed: the planner's "Enter a place" dialog had no card behind it, "Enter
+coordinates" was cut short beside "Use my location" (now "Enter by hand"), and Settings spoke of
+three first-launch cards where there are four. The simulated sky can now leave the cover-the-lens
+question to a tap (`darks=ask`), so that step can be seen.
+
+Checked (5 Nov 2026): the JVM unit tests; the emulator suite, 16 of 16 (the self-test now turns the
+view; the autopilot's cloud, focus drift and dawn under the simulated sky); both 31 Oct sessions
+through stacklab; 0.6.1's debug build on the phone over wireless adb.
+
 ## The new look: the owner's design, 0.6.0 (2026-11-05)
 
 The owner had an image AI redesign the capture screen and asked for the whole app to match it.

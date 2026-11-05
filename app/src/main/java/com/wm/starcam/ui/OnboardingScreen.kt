@@ -86,7 +86,7 @@ private val IntroPages = listOf(
     ),
 )
 
-/** Three first-launch cards. Skippable, and replayable from Settings › Interface. */
+/** The first-launch cards. Skippable, and replayable from Settings › Interface. */
 @Composable
 fun OnboardingScreen(onDone: () -> Unit) {
     val c = Sc.colors

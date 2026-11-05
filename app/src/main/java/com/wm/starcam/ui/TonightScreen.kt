@@ -393,7 +393,8 @@ fun TonightScreen(
                 Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ScButton(if (locating) "Locating…" else "Use my location", ::useMyLocation, Modifier.weight(1f),
                         enabled = !locating)
-                    ScButton("Enter coordinates", { showManual = true }, Modifier.weight(1f))
+                    // Beside "Use my location" the longer "Enter coordinates" was cut short.
+                    ScButton("Enter by hand", { showManual = true }, Modifier.weight(1f))
                 }
             }
             Spacer(Modifier.height(8.dp))
@@ -918,7 +919,10 @@ private fun ManualPlaceDialog(initial: GeoLocation?, onDismiss: () -> Unit, onSa
     val latV = lat.replace(',', '.').toDoubleOrNull()?.takeIf { it in -90.0..90.0 }
     val lonV = lon.replace(',', '.').toDoubleOrNull()?.takeIf { it in -180.0..180.0 }
     ScDialog(onDismissRequest = onDismiss) {
-        Column(Modifier.padding(20.dp)) {
+        Column(
+            Modifier.fillMaxWidth().background(c.surface)
+                .border(1.dp, c.hairline, ScShapes.card).padding(20.dp),
+        ) {
             Text("Enter a place", style = ScType.headline, color = c.text)
             Text(
                 "Decimal degrees, as a map app shows them: north and east positive, south and west " +
