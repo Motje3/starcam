@@ -23,6 +23,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredHeight
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
@@ -35,6 +37,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -45,6 +48,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -61,6 +65,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -69,6 +74,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.wm.starcam.R
 import com.wm.starcam.StarCamViewModel
 import com.wm.starcam.camera.AutoExposure
 import com.wm.starcam.camera.AutopilotStatus
@@ -85,7 +91,6 @@ import com.wm.starcam.ui.components.ScButtonKind
 import com.wm.starcam.ui.components.ScCard
 import com.wm.starcam.ui.components.ScConfirmDialog
 import com.wm.starcam.ui.components.ScGlass
-import com.wm.starcam.ui.components.ScIconBadge
 import com.wm.starcam.ui.components.ScIconButton
 import com.wm.starcam.ui.components.ScLabel
 import com.wm.starcam.ui.components.ScNotice
@@ -98,11 +103,14 @@ import com.wm.starcam.ui.components.SessionStep
 import com.wm.starcam.ui.components.TapeCell
 import com.wm.starcam.ui.components.Tone
 import com.wm.starcam.ui.theme.Sc
+import com.wm.starcam.ui.theme.ScDuo
+import com.wm.starcam.ui.theme.ScDuoIcon
 import com.wm.starcam.ui.theme.ScIcons
 import com.wm.starcam.ui.theme.ScShapes
 import com.wm.starcam.ui.theme.ScType
 import com.wm.starcam.ui.theme.ScreenMargin
 import com.wm.starcam.ui.theme.scBackground
+import com.wm.starcam.ui.theme.scGlow
 import com.wm.starcam.ui.theme.scImageFilter
 import com.wm.starcam.sky.StarCatalog
 import com.wm.starcam.util.ShareCard
@@ -163,6 +171,7 @@ fun SessionFlow(
                 onCovered = { engine?.confirmDarksReady() },
                 onSkip = { engine?.skipDarks() },
                 onCancel = askStop,
+                onShield = onShield,
             )
             is CaptureState.CapturingDarks -> DarksStep(state, busy, pending, onCancel = askStop, onShield = onShield)
             is CaptureState.Stacking -> StackingStep(vm, state, busy, settings, pending, onStop = askStop)
@@ -227,32 +236,39 @@ fun SessionFlow(
 
 // ------------------------------------------------------------------------------- scaffold
 
+/** The height a step's content has before it scrolls, for content that fits itself to it. */
+private val LocalStepArea = staticCompositionLocalOf { Dp.Unspecified }
+
 /**
- * Step header (the seven-stage strip), a content area that scrolls when a small screen needs it,
- * and the step's buttons pinned to the bottom. [centered] centres short content vertically.
+ * Step header (what the session is doing, the screen shield where it is offered, the seven-stage
+ * strip), a content area that scrolls when a small screen needs it, and the step's buttons pinned
+ * to the bottom. [centered] centres short content vertically.
  */
 @Composable
 private fun StepScaffold(
     step: SessionStep,
     progress: Float,
     centered: Boolean = false,
+    onShield: (() -> Unit)? = null,
     actions: @Composable ColumnScope.() -> Unit,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-        Spacer(Modifier.height(12.dp))
-        ScPipeline(step, progress)
+        StepHeader(if (step.ordinal >= SessionStep.Stack.ordinal) "Stacking" else "Capturing", onShield)
+        ScPipeline(step, progress, Modifier.padding(top = 6.dp))
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
             val minH = maxHeight
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-                Column(
-                    Modifier.fillMaxWidth().heightIn(min = minH)
-                        .padding(horizontal = ScreenMargin, vertical = 14.dp),
-                    verticalArrangement = if (centered) Arrangement.spacedBy(14.dp, Alignment.CenterVertically)
-                    else Arrangement.spacedBy(12.dp),
-                    horizontalAlignment = if (centered) Alignment.CenterHorizontally else Alignment.Start,
-                    content = content,
-                )
+                CompositionLocalProvider(LocalStepArea provides minH) {
+                    Column(
+                        Modifier.fillMaxWidth().heightIn(min = minH)
+                            .padding(horizontal = ScreenMargin, vertical = 14.dp),
+                        verticalArrangement = if (centered) Arrangement.spacedBy(14.dp, Alignment.CenterVertically)
+                        else Arrangement.spacedBy(12.dp),
+                        horizontalAlignment = if (centered) Alignment.CenterHorizontally else Alignment.Start,
+                        content = content,
+                    )
+                }
             }
         }
         Column(
@@ -260,6 +276,37 @@ private fun StepScaffold(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             content = actions,
         )
+    }
+}
+
+/** The session's head: the sparkles and what it is doing; the screen shield on the right. */
+@Composable
+private fun StepHeader(title: String, onShield: (() -> Unit)?) {
+    val c = Sc.colors
+    Row(
+        Modifier.fillMaxWidth().height(56.dp).padding(horizontal = ScreenMargin),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ScDuoIcon(ScDuo.Sparkles, Modifier.size(24.dp))
+        Spacer(Modifier.width(10.dp))
+        Text(title, style = ScType.screenTitle, color = c.text, maxLines = 1, modifier = Modifier.weight(1f))
+        if (onShield != null) {
+            Row(
+                Modifier.height(38.dp)
+                    .scGlow(c.accentGlow.copy(alpha = c.accentGlow.alpha * 0.35f), radius = 10.dp)
+                    .clip(CircleShape)
+                    .background(Brush.verticalGradient(listOf(c.raised, c.buttonSecondary)))
+                    .border(1.dp, c.selectedBorder.copy(alpha = 0.75f), CircleShape)
+                    .clickable(role = Role.Button, onClick = onShield)
+                    .semantics { contentDescription = "Screen shield: black screen until double-tap" }
+                    .padding(start = 12.dp, end = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(ScIcons.Shield, null, Modifier.size(18.dp), tint = c.iconBase)
+                Spacer(Modifier.width(7.dp))
+                Text("Shield", style = ScType.button.copy(fontSize = 14.sp), color = c.text, maxLines = 1)
+            }
+        }
     }
 }
 
@@ -665,10 +712,10 @@ private fun CapturingStep(
     }
 
     StepScaffold(
-        SessionStep.Capture, completed.toFloat() / st.total.coerceAtLeast(1),
+        SessionStep.Capture, completed.toFloat() / st.total.coerceAtLeast(1), onShield = onShield,
         actions = {
             // Two buttons only: with a large system font a third pushed "Finish & stack now" into
-            // an ellipsis. The shield sits on the live stack instead.
+            // an ellipsis. The shield sits in the header instead.
             ActionRow {
                 StopButton("Cancel", pending, onCancel, Modifier.weight(1f))
                 ScButton(
@@ -684,7 +731,6 @@ private fun CapturingStep(
             enabled = s.livePreview,
             chip = "$kept frame" + if (kept == 1) "" else "s",
             stats = st.lastStats,
-            onShield = onShield,
             // Room left for the frame count, the time left and the ring under it: on a tall
             // phone they used to be pushed below the buttons.
             maxHeight = (LocalConfiguration.current.screenHeightDp * 0.38f).dp,
@@ -921,7 +967,6 @@ private fun LiveStackCard(
     chip: String,
     stats: FrameStats?,
     placeholder: String = "The live stack appears after the first frame.",
-    onShield: (() -> Unit)? = null,
     /** At most this tall, narrower if need be: the numbers under it must fit the screen. */
     maxHeight: Dp = Dp.Infinity,
 ) {
@@ -973,16 +1018,6 @@ private fun LiveStackCard(
             Icon(ScIcons.Stack, null, Modifier.size(14.dp), tint = c.accent)
             Text(chip.uppercase(), style = ScType.label, color = c.text)
         }
-        if (onShield != null) {
-            ScGlass(
-                Modifier.align(Alignment.TopEnd).padding(6.dp).heightIn(min = 44.dp)
-                    .clip(ScShapes.pill).clickable(role = Role.Button, onClick = onShield)
-                    .semantics { contentDescription = "Screen shield: black screen until double-tap" },
-            ) {
-                Icon(ScIcons.Shield, null, Modifier.size(16.dp), tint = c.text)
-                Text("Shield", style = ScType.caption.copy(fontWeight = FontWeight.SemiBold), color = c.text)
-            }
-        }
         if (stats != null) {
             Row(
                 Modifier.align(Alignment.BottomCenter).fillMaxWidth()
@@ -1012,34 +1047,48 @@ private fun CoverLensStep(
     onCovered: () -> Unit,
     onSkip: () -> Unit,
     onCancel: () -> Unit,
+    onShield: () -> Unit,
 ) {
     val c = Sc.colors
+    val screenWidth = LocalConfiguration.current.screenWidthDp.dp
     StepScaffold(
-        SessionStep.Darks, 0.1f, centered = true,
+        SessionStep.Darks, 0.1f, centered = true, onShield = onShield,
         actions = {
+            // Slimmer than the other steps' buttons, as the design draws them, and still a finger's.
             ScButton("Lens covered", onCovered, Modifier.fillMaxWidth(), kind = ScButtonKind.Primary,
-                icon = ScIcons.Check, enabled = pending == null, height = 52.dp)
+                icon = ScIcons.Check, enabled = pending == null, height = 48.dp)
             ActionRow {
-                StopButton("Cancel", pending, onCancel, Modifier.weight(1f), height = 48.dp)
-                ScButton("Skip dark frames", onSkip, Modifier.weight(1.4f), enabled = pending == null, height = 48.dp)
+                StopButton("Cancel", pending, onCancel, Modifier.weight(1f), height = 44.dp)
+                ScButton("Skip dark frames", onSkip, Modifier.weight(1.4f), enabled = pending == null, height = 44.dp)
             }
         },
     ) {
-        ScIconBadge(ScIcons.DarkFrame, size = 72.dp)
+        // The picture gets what the words and the ring leave of the step's height. Drawn edge to
+        // edge and a little taller than its place: its edges fade out, into the space around it.
+        val area = LocalStepArea.current
+        val artHeight = if (area == Dp.Unspecified) 200.dp else (area - 280.dp).coerceIn(120.dp, 260.dp)
+        Box(Modifier.fillMaxWidth().height(artHeight), contentAlignment = Alignment.Center) {
+            Image(
+                painterResource(R.drawable.cover_lens_art), null,
+                Modifier.requiredWidth(screenWidth).requiredHeight(artHeight * 1.22f),
+                contentScale = ContentScale.Fit, colorFilter = scImageFilter,
+            )
+        }
         StepTitle(
             "Cover the lens",
-            "Put the lens cap on, or hold a dark cloth or your palm firmly over the camera. " +
-                "Stelli then takes ${s.darkCount} dark frames to find and remove hot pixels.",
+            "Use your palm or a dark cloth.\nStelli will capture ${s.darkCount} dark frames.",
             centered = true,
         )
         // Nobody pressing anything skips the dark frames: the photo is stacked without them.
-        ScRing(st.secondsLeft / 60f, Modifier.size(150.dp), strokeWidth = 6.dp) {
+        ScRing(st.secondsLeft / 60f, Modifier.size(124.dp), strokeWidth = 5.dp) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Row(verticalAlignment = Alignment.Bottom) {
-                    Text("${st.secondsLeft}", style = ScType.display, color = c.text)
-                    Text("s", style = ScType.stat, color = c.text3, modifier = Modifier.padding(bottom = 8.dp))
+                    Text("${st.secondsLeft}", style = ScType.display.copy(fontSize = 46.sp, lineHeight = 48.sp),
+                        color = c.text)
+                    Text("s", style = ScType.stat.copy(fontSize = 20.sp), color = c.text3,
+                        modifier = Modifier.padding(bottom = 6.dp))
                 }
-                Text("then skips", style = ScType.caption, color = c.text3)
+                Text("Auto-skip", style = ScType.caption.copy(fontSize = 13.sp), color = c.text2)
             }
         }
     }
@@ -1055,13 +1104,8 @@ private fun DarksStep(
 ) {
     val c = Sc.colors
     StepScaffold(
-        SessionStep.Darks, st.current.toFloat() / st.total.coerceAtLeast(1), centered = true,
-        actions = {
-            ActionRow {
-                StopButton("Cancel", pending, onCancel, Modifier.weight(1f))
-                ScIconButton(ScIcons.Shield, "Screen shield", onShield, size = 52.dp, iconSize = 22.dp)
-            }
-        },
+        SessionStep.Darks, st.current.toFloat() / st.total.coerceAtLeast(1), centered = true, onShield = onShield,
+        actions = { StopButton("Cancel", pending, onCancel, Modifier.fillMaxWidth()) },
     ) {
         BusyRing(busy, 180.dp) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {

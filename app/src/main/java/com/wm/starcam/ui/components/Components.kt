@@ -646,8 +646,9 @@ enum class SessionStep(val label: String) {
 }
 
 /**
- * The seven-step progress strip at the top of every session screen. Finished steps are solid,
- * the current one fills by [progressInStep] and glows, later ones are dim.
+ * The seven-step strip at the top of every session screen: a circle per step on one line. Done
+ * steps are green with a check; the current one is lit, numbered and ringed by how far it has got;
+ * later ones are dim and numbered. The line between them is green as far as the session has got.
  */
 @Composable
 fun ScPipeline(
@@ -657,27 +658,69 @@ fun ScPipeline(
 ) {
     val c = Sc.colors
     // The labels follow the system font size up to 115 %, then stop growing: past that seven of
-    // them no longer fit one row, and the step's own title says the same thing in full size.
+    // them no longer fit one row, and the step's own title says the same thing in full size. The
+    // numbers stay put, inside their circles.
     val fontScale = LocalDensity.current.fontScale
-    val labelSize = (11f * minOf(fontScale, 1.15f) / fontScale).sp
-    Row(modifier.fillMaxWidth().padding(horizontal = ScreenMargin),
-        horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+    val labelSize = (12f * minOf(fontScale, 1.15f) / fontScale).sp
+    val numberStyle = ScType.caption.copy(fontSize = (11.5f / fontScale).sp, lineHeight = (14f / fontScale).sp,
+        fontWeight = FontWeight.SemiBold)
+    val progress = progressInStep.coerceIn(0f, 1f)
+    val doneLine = c.success.copy(alpha = 0.55f)
+    Row(modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
         SessionStep.entries.forEach { step ->
             val done = step.ordinal < current.ordinal
             val isCurrent = step == current
-            Column(Modifier.weight(1f)) {
-                Box(Modifier.fillMaxWidth().height(4.dp).clip(CircleShape).background(c.raised)) {
-                    val frac = when {
-                        done -> 1f
-                        isCurrent -> progressInStep.coerceIn(0.08f, 1f)
-                        else -> 0f
+            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(Modifier.fillMaxWidth().height(32.dp), contentAlignment = Alignment.Center) {
+                    Canvas(Modifier.fillMaxSize()) {
+                        val y = size.height / 2f
+                        val sw = 2.dp.toPx()
+                        if (step.ordinal > 0) {
+                            drawLine(if (step.ordinal <= current.ordinal) doneLine else c.hairlineStrong,
+                                Offset(0f, y), Offset(size.width / 2f, y), sw)
+                        }
+                        if (step.ordinal < SessionStep.entries.lastIndex) {
+                            drawLine(if (done) doneLine else c.hairlineStrong,
+                                Offset(size.width / 2f, y), Offset(size.width, y), sw)
+                        }
                     }
-                    if (frac > 0f) {
-                        Box(Modifier.fillMaxWidth(frac).height(4.dp).clip(CircleShape)
-                            .background(
-                                if (done) Brush.horizontalGradient(listOf(c.accent.copy(alpha = 0.55f), c.accent.copy(alpha = 0.55f)))
-                                else Brush.horizontalGradient(listOf(c.switchTrackOn, c.accent2))
-                            ))
+                    when {
+                        done -> Box(
+                            Modifier.size(24.dp).clip(CircleShape).background(c.background)
+                                .background(c.successFill).border(1.5.dp, c.success, CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(ScIcons.Check, null, Modifier.size(15.dp), tint = c.success)
+                        }
+                        isCurrent -> Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
+                            Canvas(Modifier.fillMaxSize()) {
+                                val sw = 2.5.dp.toPx()
+                                val topLeft = Offset(sw / 2f, sw / 2f)
+                                val arc = Size(size.width - sw, size.height - sw)
+                                drawCircle(c.background)
+                                drawArc(c.hairlineStrong, 0f, 360f, false, topLeft, arc, style = Stroke(sw))
+                                if (progress > 0f) {
+                                    drawArc(c.accent2, -90f, 360f * progress, false, topLeft, arc,
+                                        style = Stroke(sw, cap = StrokeCap.Round))
+                                }
+                            }
+                            Box(
+                                Modifier.size(22.dp).scGlow(c.accentGlow, radius = 8.dp).clip(CircleShape)
+                                    .background(Brush.verticalGradient(c.primaryGradient))
+                                    .border(1.dp, c.primaryBorder, CircleShape),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text("${step.ordinal + 1}", style = numberStyle, color = c.primaryText)
+                            }
+                        }
+                        else -> Box(
+                            Modifier.size(22.dp).clip(CircleShape).background(c.background)
+                                .border(1.5.dp, c.hairlineStrong, CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text("${step.ordinal + 1}", style = numberStyle.copy(fontWeight = FontWeight.Medium),
+                                color = c.text3)
+                        }
                     }
                 }
                 Text(
@@ -686,10 +729,10 @@ fun ScPipeline(
                         fontSize = labelSize,
                         fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
                     ),
-                    color = if (isCurrent) c.accentText else if (done) c.text2 else c.text3,
+                    color = if (isCurrent) c.text else if (done) c.text2 else c.text3,
                     maxLines = 1,
                     softWrap = false,
-                    modifier = Modifier.padding(top = 6.dp),
+                    modifier = Modifier.padding(top = 4.dp),
                 )
             }
         }
@@ -868,35 +911,6 @@ fun ScStatTile(value: String, label: String, modifier: Modifier = Modifier) {
     ScCard(modifier, padding = PaddingValues(horizontal = 12.dp, vertical = 10.dp), color = Sc.colors.tile) {
         Text(value, style = ScType.stat, color = Sc.colors.text, maxLines = 1)
         Text(label, style = ScType.caption, color = Sc.colors.text3, maxLines = 1)
-    }
-}
-
-/** A settings tile with an icon, two lines of text and a switch (the Adjust sheet's 2 × 2 grid). */
-@Composable
-fun ScToggleTile(
-    icon: ImageVector,
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    onToggle: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val c = Sc.colors
-    ScCard(
-        modifier,
-        color = if (checked) c.raised else c.tile,
-        borderColor = if (checked) c.selectedBorder.copy(alpha = 0.55f) else c.hairline,
-        padding = PaddingValues(start = 14.dp, top = 8.dp, bottom = 12.dp, end = 4.dp),
-        onClick = onToggle,
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, null, Modifier.size(21.dp), tint = if (checked) c.accent else c.text2)
-            Spacer(Modifier.weight(1f))
-            ScSwitch(checked, null)
-        }
-        Text(title, style = ScType.headline.copy(fontWeight = FontWeight.Medium), color = c.text, maxLines = 1,
-            overflow = TextOverflow.Ellipsis)
-        Text(subtitle, style = ScType.caption, color = c.text3, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 

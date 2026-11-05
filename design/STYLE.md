@@ -30,6 +30,7 @@ red on black.
 | primary | gradient `#6B37C6` to `#45208A`, edge `#B993FF` | `#4A120B` to `#320A06` | the main button |
 | glow | `#9F5CFF` at 55 %, blurred 10-20 dp | half as strong | behind primary and chosen controls |
 | warning / error | `#FFC870` / `#FF7E96` | `#FF7B5C` / `#FF5544` | |
+| success | `#5FE0A4`, fill at 18 % | `#FF6A5A` (no green at night) | done: a finished step's check |
 | two-tone icons | lines `#E6D9FB`, detail `#C98DFF` | `#D9483A`, `#FF5544` | |
 
 ## Type
@@ -69,6 +70,19 @@ red on black.
 - **Cards**: violet glass with a hairline edge; a card's head is its icon in lavender and its name.
 - **Icon badge**: an icon on a softly lit disc (list rows, empty states, a settings page's head).
 - **Progress ring**: lavender, pink at its start, with a soft glow.
+- **A session's head** (every step of a capture, 5 Nov 2026, the owner's design of the
+  cover-the-lens step): the sparkles and what it is doing (Capturing, Stacking) at 22 sp, the
+  screen shield as a glowing pill on the right where it is offered. Under it the **step strip**:
+  seven circles on a line, the done ones green with a check, the current one lit and numbered
+  inside a ring of how far it has got, the later ones dim and numbered; the line green as far as
+  the session has got.
+- **Pictures** (the cover-the-lens step): the owner's illustrations, their edges faded into
+  transparency so they melt into the background, drawn edge to edge.
+- **The Adjust sheet** (the owner's design, 5 Nov 2026): Auto or Manual in one selector; the three
+  exposure numbers as tiles, a tapped one lit with its stepper under the row; focus and start
+  delay as segment strips; Dark frames and Save RAW as switch cards (an icon, a thin divider, the
+  name over what it does, the switch); the framing aids folded under More options. Section labels
+  in capitals between them. No summary line, no disabled switch, no second way to Settings.
 - **Sky label** (the sky view): a ring round a dot, a thin leader line, the name in capitals in a
   glass pill with a lavender edge.
 

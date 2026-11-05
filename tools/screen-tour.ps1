@@ -281,7 +281,19 @@ if (Wanted '02') {
         Tap $m[0] | Out-Null
         Start-Sleep -Seconds 1
         Shot $m[1]
-        if (Tap 'Adjust*') { Start-Sleep -Seconds 1; Page "$($m[1]), adjust" 4; Back }
+        if (Tap 'Adjust*') {
+            Start-Sleep -Seconds 1
+            Page "$($m[1]), adjust" 4
+            # In Manual, the folded options opened. (A swipe down at the sheet's top closes it, so
+            # it is opened again for the shutter.)
+            if ($m[0] -eq 'Manual' -and (Tap 'More options')) { Start-Sleep -Seconds 1; Page 'manual, adjust, more options' 2 }
+            Back
+            if ($m[0] -eq 'Manual' -and (Tap 'Adjust*') -and (Tap 'SHUTTER')) {
+                Start-Sleep -Seconds 1
+                Shot 'manual, adjust, the shutter'
+                Back
+            }
+        }
     }
     Tap 'Stars' | Out-Null
     if (Tap 'Sky view') {

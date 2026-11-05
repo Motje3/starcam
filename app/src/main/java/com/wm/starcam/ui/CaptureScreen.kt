@@ -247,10 +247,6 @@ fun CaptureScreen(
                 framingBoost = it
                 vm.setFramingBoost(it)
             },
-            onOpenSettings = {
-                showPro = false
-                onOpenSettings()
-            },
             onDismiss = { showPro = false },
         )
     }

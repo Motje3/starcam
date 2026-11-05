@@ -84,6 +84,9 @@ data class ScColors(
     val error: Color,
     val errorFill: Color,
     val errorBorder: Color,
+    /** Done: a finished step's check and circle in a session's step strip. */
+    val success: Color,
+    val successFill: Color,
     /** Translucent panel laid over imagery (viewfinder, photos). */
     val glass: Color,
     val shieldText: Color,
@@ -132,6 +135,8 @@ val DarkColors = ScColors(
     error = Color(0xFFFF7E96),
     errorFill = Color(0x24FF7E96),
     errorBorder = Color(0x6BFF7E96),
+    success = Color(0xFF5FE0A4),
+    successFill = Color(0x2E5FE0A4),     // 18 %
     glass = Color(0xC4130A28),           // dark violet, 77 %
     shieldText = Color(0xFF6F6690),
     shutterDisk = listOf(Color(0xFFF1E9FF), Color(0xFFD9C8FC), Color(0xFFB99CF0)),
@@ -178,6 +183,9 @@ val NightColors = ScColors(
     error = Color(0xFFFF5544),
     errorFill = Color(0x26FF5544),
     errorBorder = Color(0x73FF5544),
+    // No green in night vision: done is told by the check alone.
+    success = Color(0xFFFF6A5A),
+    successFill = Color(0x26FF5544),
     glass = Color(0xC7160505),
     shieldText = Color(0xFF6A1A12),
     shutterDisk = listOf(Color(0xFFC83C2C), Color(0xFF9A2A1C), Color(0xFF6A170E)),

@@ -1,5 +1,28 @@
 # StarCam build progress (PLAN.md §10)
 
+## The owner's second round: cover the lens, the step circles, Adjust (2026-11-05)
+
+From the owner's review of every screen (Desktop › Stelli screens › all screens 5 Nov), two new
+designs from their image AI, built and compared side by side with them:
+- **Cover the lens**: the owner's picture of a cloth over the phone's lenses (their PNG, its edge
+  faded into transparency so it melts into the background, `drawable-nodpi/cover_lens_art.webp`,
+  140 KB), drawn edge to edge at the height the words and the ring leave; two short lines ("Use
+  your palm or a dark cloth. Stelli will capture 4 dark frames."); a smaller ring with "Auto-skip";
+  slimmer buttons, as drawn.
+- **Every capture step's head**: the sparkles and "Capturing" (then "Stacking"), and the screen
+  shield as a glowing pill on the right where it is offered (shooting, the cover question, the
+  dark frames), instead of on the live stack and beside Cancel.
+- **The step strip as circles**, as the owner asked: done steps green with a check (red in night
+  vision, which has no green), the current one lit and numbered inside a ring of its progress,
+  later ones dim and numbered, the line between them green as far as the session got. A
+  `success` colour joined the theme.
+- **The Adjust sheet, simplified**: Auto or Manual in one selector (Auto from the Manual mode goes
+  to Stars, which decides); the three numbers as tiles, a tapped one lit with its stepper under
+  the row, none at first; focus and start delay as before; Dark frames and Save RAW as switch
+  cards; Brighter preview and Spirit level under More options. Gone: the disabled Auto exposure
+  switch, the gear (Settings is in the top bar above), the summary line and the star-limit line,
+  which now appears only when the shutter is past the lens's limit.
+
 ## What the phone's sessions showed: the star alignment, 0.6.1 (2026-11-05)
 
 The owner's phone (OnePlus CPH2769, Android 16) still held the 0.5.0 build's ten sessions. They
