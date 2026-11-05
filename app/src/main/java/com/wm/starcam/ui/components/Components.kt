@@ -222,7 +222,7 @@ fun ScButton(
     val fg: Color
     when (kind) {
         ScButtonKind.Primary -> { fill = Brush.verticalGradient(c.primaryGradient); border = c.primaryBorder; fg = c.primaryText }
-        ScButtonKind.Secondary -> { fill = Brush.verticalGradient(listOf(c.raised, c.buttonSecondary)); border = c.hairlineStrong; fg = c.text }
+        ScButtonKind.Secondary -> { fill = Brush.verticalGradient(listOf(c.raised, c.buttonSecondary)); border = c.buttonBorder; fg = c.text }
         ScButtonKind.Accent -> { fill = Brush.verticalGradient(listOf(c.selectedFill, c.selectedFill)); border = c.selectedBorder; fg = c.onSelected }
         ScButtonKind.Danger -> { fill = Brush.verticalGradient(listOf(c.errorFill, c.errorFill)); border = c.errorBorder; fg = c.error }
         ScButtonKind.Text -> { fill = Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent)); border = Color.Transparent; fg = c.accentText }
@@ -537,15 +537,21 @@ fun ScSlider(
 
 /** The (i) button: a 44 dp target that expands an explanation in place. */
 @Composable
-fun ScInfoButton(expanded: Boolean, onClick: () -> Unit, contentDescription: String) {
+fun ScInfoButton(
+    expanded: Boolean,
+    onClick: () -> Unit,
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+    tint: Color? = null,
+) {
     Box(
-        Modifier.size(44.dp).clip(CircleShape)
+        modifier.size(44.dp).clip(CircleShape)
             .clickable(onClick = onClick, role = Role.Button)
             .semantics { this.contentDescription = contentDescription },
         contentAlignment = Alignment.Center,
     ) {
         Icon(ScIcons.Info, null, Modifier.size(20.dp),
-            tint = if (expanded) Sc.colors.accent else Sc.colors.text3)
+            tint = tint ?: if (expanded) Sc.colors.accent else Sc.colors.text3)
     }
 }
 

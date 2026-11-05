@@ -4,6 +4,7 @@ import android.content.Context
 import java.io.InputStream
 import java.util.zip.InflaterInputStream
 import kotlin.math.log10
+import kotlin.math.pow
 
 /** Lines of one base-map layer: line k runs over points starts[k] until starts[k + 1]. */
 class Polylines(
@@ -197,4 +198,32 @@ object SkyQuality {
         6 -> "The Milky Way is barely there overhead; stacking pulls out a little."
         else -> "No Milky Way to the eye: the Moon, planets and star trails work here."
     }
+
+    /** [milkyWay] in a few words, for the light map's panel. */
+    fun milkyWayShort(bortle: Int): String = when (bortle) {
+        1, 2 -> "The Milky Way is full of detail."
+        3 -> "The Milky Way is clearly structured."
+        4 -> "The Milky Way is plain overhead."
+        5 -> "The Milky Way may be faint."
+        6 -> "The Milky Way is barely there."
+        else -> "No Milky Way to the eye."
+    }
+
+    /**
+     * A place's sky against yours, in a few words. Half a magnitude is 1.6 times darker; the
+     * steps are in magnitudes rather than Bortle classes, whose bounds are uneven.
+     */
+    fun compared(sqm: Double, hereSqm: Double): String {
+        val d = sqm - hereSqm
+        return when {
+            d >= 1.5 -> "Much darker than your sky."
+            d >= 0.75 -> "Clearly darker than your sky."
+            d > 0.25 -> "A little darker than your sky."
+            d >= -0.25 -> "About as dark as your sky."
+            else -> "Brighter than your sky."
+        }
+    }
+
+    /** How many times darker a sky of [sqm] is than one of [hereSqm]; below 1 when it is brighter. */
+    fun darkerBy(sqm: Double, hereSqm: Double): Double = 10.0.pow(0.4 * (sqm - hereSqm))
 }

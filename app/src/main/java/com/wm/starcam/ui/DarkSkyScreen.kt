@@ -6,43 +6,68 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
@@ -53,10 +78,15 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -66,8 +96,11 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.wm.starcam.darksky.DarkSkyData
@@ -89,15 +122,21 @@ import com.wm.starcam.ui.components.ScIconButton
 import com.wm.starcam.ui.components.ScLabel
 import com.wm.starcam.ui.components.ScScreen
 import com.wm.starcam.ui.components.ScSpinner
+import com.wm.starcam.ui.components.ScSwitch
 import com.wm.starcam.ui.components.ScTopBar
 import com.wm.starcam.ui.theme.NotoSans
 import com.wm.starcam.ui.theme.Sc
+import com.wm.starcam.ui.theme.ScColors
 import com.wm.starcam.ui.theme.ScIcons
 import com.wm.starcam.ui.theme.ScShapes
 import com.wm.starcam.ui.theme.ScType
 import com.wm.starcam.ui.theme.ScreenMargin
+import com.wm.starcam.ui.theme.scGlow
 import com.wm.starcam.util.AppLog
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
@@ -242,20 +281,193 @@ private fun bortleColor(bortle: Int, night: Boolean): Color {
     return Color(sqmColor(sqm, night))
 }
 
+/** The markers' colours: lavender by day, red in night vision (nothing white). */
+private class MapInk(
+    val mark: Color,
+    val ink: Color,
+    val chosen: List<Color>,
+    val chosenRim: Color,
+    val chosenText: Color,
+    val glow: Color,
+    val label: Color,
+    val site: Color,
+    val you: Color,
+    val youRim: Color,
+)
+
+private fun mapInk(c: ScColors): MapInk = if (c.night) MapInk(
+    mark = Color(0xFFFF5A44), ink = Color(0xFF160505), chosen = c.primaryGradient, chosenRim = Color(0xFFFF6A5A),
+    chosenText = Color(0xFFFF6A5A), glow = Color(0x40FF4433), label = Color(0xFFFF6A55), site = Color(0xFFFF8A60),
+    you = Color(0xFFFF3B30), youRim = Color(0xFF3A0E09),
+) else MapInk(
+    mark = Color(0xFFCDAAFF), ink = Color(0xFF140A28), chosen = c.primaryGradient, chosenRim = Color(0xFFF1E9FF),
+    chosenText = c.primaryText, glow = Color(0x809F5CFF), label = Color(0xEEFFFFFF), site = Color(0xFFFFE07A),
+    you = Color(0xFF9B5CF0), youRim = Color(0xFFF5F0FF),
+)
+
+/** What the layers menu has switched on. */
+private data class MapShow(val roads: Boolean, val rings: Boolean, val names: Boolean)
+
+// ------------------------------------------------------------------- the view and the panel
+
+/** What part of the map is on screen: its centre in the map's km and its scale in px per km. */
+@Stable
+private class MapView {
+    var panX by mutableFloatStateOf(0f)
+    var panY by mutableFloatStateOf(0f)
+    var scale by mutableFloatStateOf(0f)
+    /** The canvas, px: the whole screen, under the top bar and the panel. */
+    var size by mutableStateOf(IntSize.Zero)
+
+    fun toScreen(o: Offset) =
+        Offset(size.width / 2f + (o.x - panX) * scale, size.height / 2f + (o.y - panY) * scale)
+
+    /**
+     * You and every suggestion, at least 60 km around you, with you in the middle of the strip of
+     * map between [top] and [bottom] (px): what the top bar and the panel leave of it.
+     */
+    fun fit(layers: MapLayers, spots: List<DarkSpot>, top: Float, bottom: Float) {
+        if (size.width == 0 || size.height == 0) return
+        var reach = 60f
+        for (s in spots) {
+            val o = layers.km(s.lat, s.lon)
+            reach = max(reach, max(abs(o.x), abs(o.y)) * 1.15f)
+        }
+        val band = (bottom - top).coerceAtLeast(size.height * 0.25f)
+        scale = min(size.width.toFloat(), band) / 2f / reach
+        panX = 0f
+        panY = (size.height / 2f - (top + bottom) / 2f) / scale
+    }
+
+    /** Brings [s] into the strip between [top] and [bottom] when it is outside, you still in view. */
+    fun show(layers: MapLayers, s: DarkSpot, top: Float, bottom: Float, margin: Float) {
+        if (size.width == 0 || scale <= 0f) return
+        val o = layers.km(s.lat, s.lon)
+        val p = toScreen(o)
+        if (p.x > margin && p.x < size.width - margin && p.y > top + margin && p.y < bottom - margin) return
+        val band = (bottom - top).coerceAtLeast(size.height * 0.25f)
+        val reach = max(abs(o.x), abs(o.y)) / 2f * 1.3f + 8f
+        scale = min(scale, min(size.width.toFloat(), band) / 2f / reach)
+        panX = o.x / 2f
+        panY = o.y / 2f + (size.height / 2f - (top + bottom) / 2f) / scale
+    }
+
+    companion object {
+        val Saver = listSaver<MapView, Float>(
+            save = { listOf(it.panX, it.panY, it.scale) },
+            restore = { MapView().apply { panX = it[0]; panY = it[1]; scale = it[2] } },
+        )
+    }
+}
+
+private enum class Stop { Full, Half, Peek }
+
+/**
+ * The panel over the map: where its top edge is (px from the top of the screen) and the stop it
+ * rests at. The stops come from its content's measured height, so Half always ends just under
+ * your own sky and Peek under the place's name, however much text they take.
+ */
+@Stable
+private class Panel {
+    var top by mutableFloatStateOf(Float.NaN)
+    var stop by mutableStateOf(Stop.Half)
+    var fullAt by mutableFloatStateOf(0f)
+    var halfAt by mutableFloatStateOf(0f)
+    var peekAt by mutableFloatStateOf(0f)
+    private var moving: Job? = null
+
+    val ready: Boolean get() = peekAt > 0f
+
+    fun at(s: Stop): Float = when (s) {
+        Stop.Full -> fullAt
+        Stop.Half -> halfAt
+        Stop.Peek -> peekAt
+    }
+
+    /** Whether it sits at a stop rather than between two. */
+    val resting: Boolean get() = Stop.entries.any { abs(at(it) - top) < 1f }
+
+    /** Follows a finger by [dy] px, within the stops; returns how far it went. */
+    fun drag(dy: Float): Float {
+        if (!ready || top.isNaN()) return 0f
+        moving?.cancel()
+        val old = top
+        top = (top + dy).coerceIn(fullAt, peekAt)
+        return top - old
+    }
+
+    /** After a drag: on to the next stop the way it was flung, else back to the nearest. */
+    fun settle(scope: CoroutineScope, velocity: Float, flingPx: Float) {
+        if (!ready) return
+        val target = when {
+            velocity < -flingPx -> Stop.entries.lastOrNull { at(it) < top - 1f } ?: Stop.Full
+            velocity > flingPx -> Stop.entries.firstOrNull { at(it) > top + 1f } ?: Stop.Peek
+            else -> Stop.entries.minBy { abs(at(it) - top) }
+        }
+        go(scope, target, velocity)
+    }
+
+    fun go(scope: CoroutineScope, s: Stop, velocity: Float = 0f) {
+        stop = s
+        if (!ready || top.isNaN()) return
+        moving?.cancel()
+        val from = top
+        moving = scope.launch {
+            animate(from, at(s), velocity, spring(stiffness = Spring.StiffnessMediumLow)) { v, _ -> top = v }
+        }
+    }
+
+    /** The stops, measured again (another place, your sky opened): the panel keeps its stop. */
+    fun place(scope: CoroutineScope, full: Float, half: Float, peek: Float) {
+        val wasAt = if (ready) Stop.entries.firstOrNull { abs(at(it) - top) < 1f } else null
+        val animating = moving?.isActive == true
+        fullAt = full
+        peekAt = max(peek, full)
+        halfAt = half.coerceIn(full, peekAt)
+        when {
+            top.isNaN() -> top = at(stop)
+            animating -> go(scope, stop)
+            wasAt != null -> go(scope, wasAt)
+        }
+    }
+}
+
+/** Drags on the panel's content move the panel first (up) or last (down), as a bottom sheet does. */
+private class PanelScroll(
+    private val panel: Panel,
+    private val scope: CoroutineScope,
+    private val flingPx: Float,
+) : NestedScrollConnection {
+    override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset =
+        if (available.y < 0f && source == NestedScrollSource.UserInput) Offset(0f, panel.drag(available.y))
+        else Offset.Zero
+
+    override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset =
+        if (available.y > 0f && source == NestedScrollSource.UserInput) Offset(0f, panel.drag(available.y))
+        else Offset.Zero
+
+    override suspend fun onPreFling(available: Velocity): Velocity {
+        if (panel.resting) return Velocity.Zero
+        panel.settle(scope, available.y, flingPx)
+        return available
+    }
+}
+
 // -------------------------------------------------------------------------------- screen
 
 /** A tapped point on the map: its sky, as a spot of its own. */
-private fun probeSpot(data: DarkSkyData, layers: MapLayers, x: Float, y: Float, hereLat: Double, hereLon: Double): DarkSpot {
-    val (lat, lon) = layers.latLon(x, y)
-    return DarkSpot(
+private fun probeSpot(data: DarkSkyData, lat: Double, lon: Double, hereLat: Double, hereLon: Double): DarkSpot =
+    DarkSpot(
         lat, lon, data.glow.alr(lat, lon), SpotFinder.distanceKm(hereLat, hereLon, lat, lon),
         SpotFinder.bearingDeg(hereLat, hereLon, lat, lon), "This spot", SpotFinder.describe(data.towns, lat, lon),
     )
-}
 
 /**
- * Dark skies near you: how dark your own sky is, the darker places within reach on a map of light
- * pollution, and the way there (handed to the maps app: StarCam itself never goes online).
+ * Dark skies near you (the owner's design, 5 Nov 2026): the light-pollution map fills the screen,
+ * and one panel over its lower part says where the darker skies are and how dark yours is. The
+ * panel rests at three heights: the place's name alone (the map almost whole), the place with its
+ * way there and your own sky, and everything, with the numbers and the full list. The way there is
+ * handed to the maps app: Stelli itself never goes online.
  */
 @Composable
 fun DarkSkyScreen(onBack: () -> Unit, onPlanThere: (GeoLocation, String) -> Unit) {
@@ -268,7 +480,6 @@ fun DarkSkyScreen(onBack: () -> Unit, onPlanThere: (GeoLocation, String) -> Unit
     var data by remember { mutableStateOf<DarkSkyData?>(null) }
     var layers by remember { mutableStateOf<MapLayers?>(null) }
     var result by remember { mutableStateOf<SpotFinder.Result?>(null) }
-    var selected by remember { mutableStateOf<DarkSpot?>(null) }
     val night = c.night
 
     LaunchedEffect(Unit) {
@@ -311,13 +522,16 @@ fun DarkSkyScreen(onBack: () -> Unit, onPlanThere: (GeoLocation, String) -> Unit
         if (granted) locate()
     }
 
+    val p = place
+    val d = data
+    val l = layers
+    val r = result
+    if (p != null && d != null && l != null && r != null) {
+        LightMap(d, l, r, p, onBack, onPlanThere)
+        return
+    }
     ScScreen {
-        ScTopBar(
-            title = "Light map",
-            subtitle = place?.let { "Light pollution near you" } ?: "Find a darker sky",
-            onBack = onBack,
-        )
-        val p = place
+        ScTopBar(title = "Light map", subtitle = "Find darker skies", onBack = onBack)
         if (p == null) {
             Column(Modifier.fillMaxWidth().padding(ScreenMargin), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 ScCard(Modifier.fillMaxWidth()) {
@@ -336,52 +550,394 @@ fun DarkSkyScreen(onBack: () -> Unit, onPlanThere: (GeoLocation, String) -> Unit
                         modifier = Modifier.padding(top = 8.dp))
                 }
             }
-            return@ScScreen
-        }
-        val l = layers
-        val r = result
-        if (l == null || r == null) {
+        } else {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { ScSpinner(size = 28.dp) }
-            return@ScScreen
         }
-        Box(Modifier.fillMaxWidth().weight(0.56f)) {
-            DarkSkyMap(l, data!!, r, selected, onSelect = { selected = it },
-                hereLat = p.loc.latDeg, hereLon = p.loc.lonDeg, modifier = Modifier.fillMaxSize())
-            Legend(night, Modifier.align(Alignment.BottomStart).padding(8.dp))
+    }
+}
+
+/** The top bar over the map: [ScTopBar]'s 44 dp buttons and 8 dp above and below. */
+private val TopBarHeight = 60.dp
+
+/** The strip at the panel's top that holds its handle. */
+private val PanelHandle = 26.dp
+
+@Composable
+private fun LightMap(
+    data: DarkSkyData,
+    layers: MapLayers,
+    result: SpotFinder.Result,
+    place: SkyPlace,
+    onBack: () -> Unit,
+    onPlanThere: (GeoLocation, String) -> Unit,
+) {
+    val c = Sc.colors
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    val scope = rememberCoroutineScope()
+    val prefs = remember { UiPrefs(context) }
+    val hereLat = place.loc.latDeg
+    val hereLon = place.loc.lonDeg
+    val spots = result.all
+    val view = rememberSaveable(hereLat, hereLon, saver = MapView.Saver) { MapView() }
+    val panel = remember { Panel() }
+    // The place in the panel: a suggestion by its index, or (-1) a point tapped on the map. The
+    // nearest darker sky to begin with: the first answer to "where do I go?".
+    var pick by rememberSaveable(hereLat, hereLon) { mutableStateOf(0) }
+    var probe by remember { mutableStateOf<DarkSpot?>(null) }
+    val featured = if (pick < 0) probe else spots.getOrNull(pick)
+    var skyOpen by rememberSaveable { mutableStateOf(false) }
+    var roads by remember { mutableStateOf(prefs.mapRoads) }
+    var rings by remember { mutableStateOf(prefs.mapRings) }
+    var names by remember { mutableStateOf(prefs.mapNames) }
+    var menu by remember { mutableStateOf(false) }
+
+    BoxWithConstraints(Modifier.fillMaxSize().background(if (c.night) WaterNight else WaterDay)) {
+        val screenH = constraints.maxHeight.toFloat()
+        val insets = WindowInsets.safeDrawing
+        val navPx = insets.getBottom(density).toFloat()
+        val barBottom = insets.getTop(density) + with(density) { TopBarHeight.toPx() }
+        val margin = with(density) { 40.dp.toPx() }
+        val flingPx = with(density) { 500.dp.toPx() }
+        // The map's lower edge on screen: the panel's top.
+        fun mapBottom(): Float = if (panel.top.isNaN()) screenH * 0.6f else panel.top
+
+        fun choose(i: Int) {
+            pick = i
+            if (panel.stop != Stop.Half) panel.go(scope, Stop.Half)
+            val s = if (i < 0) probe else spots.getOrNull(i)
+            if (s != null) view.show(layers, s, barBottom, panel.halfAt, margin)
+        }
+
+        DarkSkyMap(
+            layers, spots, featured, probe, view, MapShow(roads, rings, names),
+            onSpot = { s -> choose(spots.indexOf(s)) },
+            onPoint = { x, y ->
+                val (lat, lon) = layers.latLon(x, y)
+                // The sea has no reading of its own in the data: a tap there picks nothing.
+                if (data.glow.value(lat, lon) > 0) {
+                    probe = probeSpot(data, lat, lon, hereLat, hereLon)
+                    choose(-1)
+                }
+            },
+            modifier = Modifier.fillMaxSize(),
+        )
+        LaunchedEffect(view, layers) {
+            snapshotFlow { view.size.width > 0 && panel.ready }.first { it }
+            if (view.scale == 0f) view.fit(layers, spots, barBottom, panel.halfAt)
+        }
+
+        // The top bar floats over the map, on a shade that keeps its words readable over a city.
+        Box(
+            Modifier.fillMaxWidth().height(with(density) { barBottom.toDp() } + 28.dp).background(
+                Brush.verticalGradient(
+                    0f to c.background.copy(alpha = 0.9f),
+                    0.6f to c.background.copy(alpha = 0.55f),
+                    1f to Color.Transparent,
+                ),
+            ),
+        )
+        ScTopBar(
+            "Light map", onBack,
+            Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)),
+            subtitle = "Find darker skies",
+        ) {
+            ScIconButton(ScIcons.Focus, "Back to where you are", { view.fit(layers, spots, barBottom, mapBottom()) })
+            ScIconButton(ScIcons.Layers, "Map layers", { menu = !menu }, selected = menu)
+        }
+
+        // The legend rides on the panel, and fades once the panel is up over most of the map.
+        var legendH by remember { mutableIntStateOf(0) }
+        Legend(
+            c.night,
+            Modifier
+                .onSizeChanged { legendH = it.height }
+                .offset { IntOffset(12.dp.roundToPx(), (mapBottom() - legendH - 10.dp.toPx()).roundToInt()) }
+                .graphicsLayer {
+                    val room = mapBottom() - barBottom - 120.dp.toPx()
+                    alpha = if (panel.top.isNaN()) 0f else (room / 80.dp.toPx()).coerceIn(0f, 1f)
+                },
+        )
+
+        var headH by remember { mutableIntStateOf(0) }
+        var summaryH by remember { mutableIntStateOf(0) }
+        LaunchedEffect(headH, summaryH, screenH, barBottom, navPx) {
+            if (headH == 0 || summaryH == 0) return@LaunchedEffect
+            with(density) {
+                val handle = PanelHandle.toPx()
+                panel.place(
+                    scope,
+                    full = barBottom + 6.dp.toPx(),
+                    half = max(screenH - (handle + summaryH + 22.dp.toPx() + navPx), screenH * 0.3f),
+                    peek = screenH - (handle + headH + 18.dp.toPx() + navPx),
+                )
+            }
+        }
+        BackHandler(enabled = panel.stop == Stop.Full && !menu) { panel.go(scope, Stop.Half) }
+        BackHandler(enabled = menu) { menu = false }
+        val navDp = with(density) { navPx.toDp() }
+        MapPanel(panel, screenH, scope, flingPx, navDp) {
+            PanelContent(
+                result, featured, skyOpen, c.night,
+                onSkyToggle = { skyOpen = !skyOpen },
+                onNavigate = { openInMaps(context, it) },
+                onPlan = { onPlanThere(GeoLocation(it.lat, it.lon), spotLabel(it)) },
+                onPick = ::choose,
+                onHeadSize = { headH = it },
+                onSummarySize = { summaryH = it },
+                bottomInset = navDp,
+            )
+        }
+
+        if (menu) {
+            // A tap anywhere else closes the menu.
+            Box(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { menu = false } })
+            LayersMenu(
+                MapShow(roads, rings, names),
+                onChange = { s ->
+                    roads = s.roads
+                    rings = s.rings
+                    names = s.names
+                    prefs.mapRoads = s.roads
+                    prefs.mapRings = s.rings
+                    prefs.mapNames = s.names
+                },
+                modifier = Modifier.align(Alignment.TopEnd)
+                    .padding(top = with(density) { barBottom.toDp() } + 4.dp, end = 10.dp),
+            )
+        }
+    }
+}
+
+/** The panel: violet glass with a lit top edge, its handle, and content that scrolls at Full. */
+@Composable
+private fun MapPanel(
+    panel: Panel,
+    screenH: Float,
+    scope: CoroutineScope,
+    flingPx: Float,
+    bottomInset: Dp,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val c = Sc.colors
+    val density = LocalDensity.current
+    val scroll = rememberScrollState()
+    // Below Full the panel shows its top: a list scrolled down there would hide the place.
+    LaunchedEffect(panel.stop) { if (panel.stop != Stop.Full) scroll.animateScrollTo(0) }
+    val connection = remember(panel) { PanelScroll(panel, scope, flingPx) }
+    val drag = rememberDraggableState { panel.drag(it) }
+    val height = with(density) { (screenH - (if (panel.ready) panel.fullAt else screenH * 0.1f)).toDp() }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .height(height)
+            .offset { IntOffset(0, (if (panel.top.isNaN()) screenH else panel.top).roundToInt()) }
+            .scGlow(c.accentGlow.copy(alpha = c.accentGlow.alpha * 0.35f), radius = 18.dp, cornerRadius = 28.dp)
+            .clip(ScShapes.sheet)
+            .background(Brush.verticalGradient(listOf(c.raised, c.surface, c.surface)))
+            .border(1.dp, c.buttonBorder, ScShapes.sheet)
+            .blockTouches(),
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(PanelHandle)
+                .draggable(drag, Orientation.Vertical, onDragStopped = { v -> panel.settle(scope, v, flingPx) })
+                .clickable(role = Role.Button) {
+                    panel.go(scope, if (panel.stop == Stop.Full) Stop.Half else Stop.Full)
+                }
+                .semantics {
+                    contentDescription = if (panel.stop == Stop.Full) "Show the map" else "Show the whole list"
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(Modifier.size(width = 36.dp, height = 4.dp).clip(CircleShape).background(c.text3.copy(alpha = 0.55f)))
         }
         Column(
-            Modifier.fillMaxWidth().weight(0.44f).verticalScroll(rememberScrollState())
-                .padding(horizontal = ScreenMargin, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            // A picked spot comes first, with its way there; then your own sky and the list.
-            val sel = selected
-            if (sel != null) {
-                SpotCard(sel, number = r.all.indexOf(sel).takeIf { it >= 0 }?.plus(1), night = night, onNavigate = {
-                    openInMaps(context, sel)
-                }, onPlan = { onPlanThere(GeoLocation(sel.lat, sel.lon), spotLabel(sel)) }, onClose = { selected = null })
-            }
-            HereCard(r, night)
-            if (r.all.isEmpty()) {
-                Text(
-                    if (r.hereBortle <= 2) "Your sky is about as dark as skies get: nothing darker within 150 km."
-                    else "Nothing clearly darker within 150 km.",
-                    style = ScType.bodySmall, color = c.text2,
-                )
-            } else {
-                ScLabel("Darker skies within reach")
-                r.all.forEachIndexed { i, s ->
-                    if (s != sel) SpotRow(i + 1, s, night) { selected = s }
-                }
-            }
+            Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .nestedScroll(connection)
+                .verticalScroll(scroll)
+                .padding(start = 16.dp, end = 16.dp, bottom = bottomInset + 20.dp),
+            content = content,
+        )
+    }
+}
+
+/**
+ * What the panel says, top to bottom: the place (all that shows at Peek), how dark it is, the way
+ * there and your own sky (Half ends there), then its numbers and every suggestion.
+ */
+@Composable
+private fun PanelContent(
+    result: SpotFinder.Result,
+    featured: DarkSpot?,
+    skyOpen: Boolean,
+    night: Boolean,
+    onSkyToggle: () -> Unit,
+    onNavigate: (DarkSpot) -> Unit,
+    onPlan: (DarkSpot) -> Unit,
+    onPick: (Int) -> Unit,
+    onHeadSize: (Int) -> Unit,
+    onSummarySize: (Int) -> Unit,
+    bottomInset: Dp,
+) {
+    val c = Sc.colors
+    val spots = result.all
+    Column(Modifier.fillMaxWidth().onSizeChanged { onSummarySize(it.height) }) {
+        if (featured != null) {
+            SpotHead(featured, night, Modifier.onSizeChanged { onHeadSize(it.height) })
+            BortleChip(featured.bortle, Modifier.padding(top = 12.dp))
             Text(
-                "Estimated from satellite night lights (NPP-VIIRS-like 2025, Chen et al., CC0) with the " +
-                    "Duriscoe 2018 sky-glow model; map: Natural Earth. City centres can be brighter than shown, " +
-                    "and the sky also needs no cloud and no Moon. Check access and safety before you go.",
-                style = ScType.caption, color = c.text3,
+                SkyQuality.compared(featured.sqm, result.hereSqm) + " " + SkyQuality.milkyWayShort(featured.bortle),
+                style = ScType.body, color = c.text2, modifier = Modifier.padding(top = 10.dp),
             )
-            Spacer(Modifier.height(4.dp))
+            Row(Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                ScButton("Navigate", { onNavigate(featured) }, Modifier.weight(1f), kind = ScButtonKind.Primary,
+                    icon = ScIcons.Navigate, height = 50.dp)
+                ScButton("Plan here", { onPlan(featured) }, Modifier.weight(1f), icon = ScIcons.Moon, height = 50.dp)
+            }
+            YourSkyRow(result, skyOpen, night, onSkyToggle, Modifier.padding(top = 16.dp))
+        } else {
+            HereHead(result, night, Modifier.onSizeChanged { onHeadSize(it.height) })
+            Text(SkyQuality.milkyWay(result.hereBortle), style = ScType.body, color = c.text2,
+                modifier = Modifier.padding(top = 12.dp))
+            Text(
+                if (result.hereBortle <= 2) "Your sky is about as dark as skies get: nothing darker within 150 km."
+                else "Nothing clearly darker within 150 km.",
+                style = ScType.bodySmall, color = c.text3, modifier = Modifier.padding(top = 6.dp),
+            )
         }
+    }
+    // Swiped up: the numbers, and every suggestion. Far enough down to stay out of sight at Half,
+    // which ends 22 dp above the navigation bar.
+    Column(Modifier.fillMaxWidth().padding(top = bottomInset + 34.dp)) {
+        if (featured != null) {
+            ScLabel("About this place")
+            Spacer(Modifier.height(6.dp))
+            Fact("Sky brightness", String.format(Locale.US, "%.1f mag/arcsec² at the zenith", featured.sqm))
+            Fact("Against yours", againstYours(featured.sqm, result.hereSqm))
+            Fact("Distance", "${featured.distanceKm.roundToInt()} km ${SpotFinder.compass(featured.bearingDeg)}, as the crow flies")
+            featured.near?.let { Fact("Near", it) }
+            Fact("Position", String.format(Locale.US, "%.4f, %.4f", featured.lat, featured.lon))
+            Text(SkyQuality.milkyWay(featured.bortle), style = ScType.bodySmall, color = c.text2,
+                modifier = Modifier.padding(top = 8.dp))
+        } else {
+            ScLabel("Your sky")
+            Spacer(Modifier.height(6.dp))
+            Fact("Sky brightness", String.format(Locale.US, "%.1f mag/arcsec² at the zenith", result.hereSqm))
+        }
+    }
+    if (spots.isNotEmpty()) {
+        ScLabel("Darker skies within reach", Modifier.padding(top = 26.dp, bottom = 10.dp))
+        spots.forEachIndexed { i, s ->
+            SpotRow(i + 1, s, night, chosen = s == featured, Modifier.padding(bottom = 8.dp)) { onPick(i) }
+        }
+    }
+    Text(
+        "Estimated from satellite night lights (NPP-VIIRS-like 2025, Chen et al., CC0) with the " +
+            "Duriscoe 2018 sky-glow model; map: Natural Earth. City centres can be brighter than shown, " +
+            "and the sky also needs no cloud and no Moon. Check access and safety before you go.",
+        style = ScType.caption, color = c.text3, modifier = Modifier.padding(top = 18.dp),
+    )
+}
+
+private val HeadStyle = ScType.screenTitle.copy(fontWeight = FontWeight.Bold)
+
+/** "7 km NE of you"; closer than a kilometre, right here. */
+private fun wayText(s: DarkSpot): String =
+    if (s.distanceKm < 1.0) "Right where you are"
+    else "${s.distanceKm.roundToInt()} km ${SpotFinder.compass(s.bearingDeg)} of you"
+
+/** "1.6× darker than yours": the zenith brightness of both, as a ratio. */
+private fun againstYours(sqm: Double, hereSqm: Double): String {
+    val k = SkyQuality.darkerBy(sqm, hereSqm)
+    fun times(x: Double) = if (x < 10.0) String.format(Locale.US, "%.1f×", x) else "${x.roundToInt()}×"
+    return when {
+        k >= 1.1 -> "${times(k)} darker than yours"
+        k <= 1.0 / 1.1 -> "${times(1.0 / k)} brighter than yours"
+        else -> "About the same as yours"
+    }
+}
+
+@Composable
+private fun SpotHead(s: DarkSpot, night: Boolean, modifier: Modifier) {
+    val c = Sc.colors
+    Row(modifier.fillMaxWidth().padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(ScIcons.Pin, null, Modifier.size(28.dp), tint = c.accent)
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(s.title, style = HeadStyle, color = c.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(wayText(s), style = ScType.body, color = c.text2, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Spacer(Modifier.width(12.dp))
+        BortleBadge(s.bortle, night, 40.dp)
+    }
+}
+
+/** The head when nothing nearby is darker: your own sky. */
+@Composable
+private fun HereHead(r: SpotFinder.Result, night: Boolean, modifier: Modifier) {
+    val c = Sc.colors
+    Row(modifier.fillMaxWidth().padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+        BortleBadge(r.hereBortle, night, 40.dp)
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text("Your sky", style = HeadStyle, color = c.text)
+            Text("Bortle ${r.hereBortle} · ${SkyQuality.name(r.hereBortle)}", style = ScType.body, color = c.text2)
+        }
+    }
+}
+
+@Composable
+private fun BortleChip(bortle: Int, modifier: Modifier = Modifier) {
+    val c = Sc.colors
+    Text(
+        "Bortle $bortle · ${SkyQuality.name(bortle)}",
+        style = ScType.body, color = c.text2, maxLines = 1,
+        modifier = modifier.clip(CircleShape).background(c.raised).border(1.dp, c.hairlineStrong, CircleShape)
+            .padding(horizontal = 14.dp, vertical = 6.dp),
+    )
+}
+
+/** Your own sky in one row; tapped, what that means for the Milky Way and its number. */
+@Composable
+private fun YourSkyRow(r: SpotFinder.Result, open: Boolean, night: Boolean, onToggle: () -> Unit, modifier: Modifier) {
+    val c = Sc.colors
+    Column(
+        modifier.fillMaxWidth().clip(ScShapes.tile).background(c.tile).border(1.dp, c.hairline, ScShapes.tile)
+            .clickable(role = Role.Button, onClickLabel = if (open) "Less about your sky" else "More about your sky",
+                onClick = onToggle)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            BortleBadge(r.hereBortle, night, 36.dp)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                ScLabel("Your sky")
+                Text("Bortle ${r.hereBortle} · ${SkyQuality.name(r.hereBortle)}",
+                    style = ScType.body.copy(fontWeight = FontWeight.Medium), color = c.text,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Spacer(Modifier.width(8.dp))
+            Icon(ScIcons.ChevronDown, null, Modifier.size(20.dp).rotate(if (open) 180f else 0f), tint = c.text2)
+        }
+        if (open) {
+            Text(SkyQuality.milkyWay(r.hereBortle), style = ScType.bodySmall, color = c.text2,
+                modifier = Modifier.padding(top = 10.dp))
+            Text(String.format(Locale.US, "About %.1f mag/arcsec² at the zenith", r.hereSqm), style = ScType.caption,
+                color = c.text3, modifier = Modifier.padding(top = 4.dp))
+        }
+    }
+}
+
+@Composable
+private fun Fact(label: String, value: String) {
+    val c = Sc.colors
+    Row(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+        Text(label, style = ScType.bodySmall, color = c.text3, modifier = Modifier.width(116.dp))
+        Text(value, style = ScType.bodySmall, color = c.text, modifier = Modifier.weight(1f))
     }
 }
 
@@ -401,7 +957,7 @@ private fun openInMaps(context: android.content.Context, s: DarkSpot) {
 }
 
 @Composable
-private fun BortleBadge(bortle: Int, night: Boolean, size: androidx.compose.ui.unit.Dp = 34.dp) {
+private fun BortleBadge(bortle: Int, night: Boolean, size: Dp = 34.dp) {
     val bg = bortleColor(bortle, night)
     Box(
         Modifier.size(size).clip(CircleShape).background(bg).border(1.dp, Sc.colors.hairlineStrong, CircleShape),
@@ -409,7 +965,7 @@ private fun BortleBadge(bortle: Int, night: Boolean, size: androidx.compose.ui.u
     ) {
         // Night vision: dark on the bright red of a city sky, red on the near-black of a dark
         // one; never white.
-        Text("$bortle", style = ScType.bodySmall.copy(fontWeight = FontWeight.Bold),
+        Text("$bortle", style = (if (size >= 40.dp) ScType.headline else ScType.bodySmall).copy(fontWeight = FontWeight.Bold),
             color = when {
                 night -> if (bortle >= 5) Color(0xFF1A0503) else Color(0xFFFF6A5A)
                 bortle <= 3 -> Color.White
@@ -419,46 +975,32 @@ private fun BortleBadge(bortle: Int, night: Boolean, size: androidx.compose.ui.u
 }
 
 @Composable
-private fun HereCard(r: SpotFinder.Result, night: Boolean) {
-    val c = Sc.colors
-    ScCard(Modifier.fillMaxWidth()) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            BortleBadge(r.hereBortle, night, 44.dp)
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                ScLabel("Your sky")
-                Text("Bortle ${r.hereBortle} · ${SkyQuality.name(r.hereBortle)}", style = ScType.body.copy(fontWeight = FontWeight.SemiBold), color = c.text)
-                Text(String.format(Locale.US, "About %.1f mag/arcsec² at the zenith", r.hereSqm), style = ScType.caption, color = c.text3)
-            }
-        }
-        Text(SkyQuality.milkyWay(r.hereBortle), style = ScType.bodySmall, color = c.text2, modifier = Modifier.padding(top = 8.dp))
-        r.nearestDarker?.let { d ->
-            Text(
-                "Nearest darker sky: ${d.distanceKm.roundToInt()} km ${SpotFinder.compass(d.bearingDeg)}, Bortle ${d.bortle}.",
-                style = ScType.bodySmall.copy(fontWeight = FontWeight.Medium), color = c.accentText,
-                modifier = Modifier.padding(top = 6.dp),
-            )
-        }
-    }
-}
-
-@Composable
-private fun SpotRow(number: Int, s: DarkSpot, night: Boolean, onClick: () -> Unit) {
+private fun SpotRow(
+    number: Int,
+    s: DarkSpot,
+    night: Boolean,
+    chosen: Boolean,
+    modifier: Modifier,
+    onClick: () -> Unit,
+) {
     val c = Sc.colors
     Row(
-        Modifier.fillMaxWidth().clip(ScShapes.card).background(c.surface).border(1.dp, c.hairline, ScShapes.card)
+        modifier.fillMaxWidth().clip(ScShapes.card).background(if (chosen) c.selectedFill else c.surface)
+            .border(1.dp, if (chosen) c.selectedBorder else c.hairline, ScShapes.card)
             .clickable(role = Role.Button, onClick = onClick).padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         NumberDot(number)
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
-            Text(s.title, style = ScType.bodySmall.copy(fontWeight = FontWeight.SemiBold), color = c.text, maxLines = 1)
+            Text(s.title, style = ScType.bodySmall.copy(fontWeight = FontWeight.SemiBold), color = c.text, maxLines = 1,
+                overflow = TextOverflow.Ellipsis)
             Text(
                 "${s.distanceKm.roundToInt()} km ${SpotFinder.compass(s.bearingDeg)}" + (s.near?.let { " · $it" } ?: ""),
-                style = ScType.caption, color = c.text2, maxLines = 1,
+                style = ScType.caption, color = c.text2, maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
         }
+        Spacer(Modifier.width(8.dp))
         BortleBadge(s.bortle, night, 30.dp)
     }
 }
@@ -472,49 +1014,43 @@ private fun NumberDot(number: Int) {
 }
 
 @Composable
-private fun SpotCard(s: DarkSpot, number: Int?, night: Boolean, onNavigate: () -> Unit, onPlan: () -> Unit, onClose: () -> Unit) {
+private fun Legend(night: Boolean, modifier: Modifier) {
     val c = Sc.colors
-    ScCard(Modifier.fillMaxWidth(), borderColor = c.selectedBorder) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (number != null) {
-                NumberDot(number)
-                Spacer(Modifier.width(10.dp))
-            }
-            Column(Modifier.weight(1f)) {
-                Text(s.title, style = ScType.body.copy(fontWeight = FontWeight.SemiBold), color = c.text)
-                Text(
-                    "${s.distanceKm.roundToInt()} km ${SpotFinder.compass(s.bearingDeg)} as the crow flies" +
-                        (s.near?.let { " · $it" } ?: ""),
-                    style = ScType.caption, color = c.text2,
-                )
-            }
-            ScIconButton(ScIcons.Close, "Close the spot", onClose, size = 36.dp, iconSize = 16.dp, filled = false)
-        }
-        Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            BortleBadge(s.bortle, night)
-            Spacer(Modifier.width(10.dp))
-            Column {
-                Text("Bortle ${s.bortle} · ${SkyQuality.name(s.bortle)}", style = ScType.bodySmall.copy(fontWeight = FontWeight.Medium), color = c.text)
-                Text(String.format(Locale.US, "About %.1f mag/arcsec²", s.sqm), style = ScType.caption, color = c.text3)
+    val small = ScType.caption.copy(fontSize = 11.sp, lineHeight = 14.sp)
+    ScGlass(modifier, padding = PaddingValues(horizontal = 12.dp, vertical = 7.dp)) {
+        Text("Bortle", style = small, color = c.text2)
+        Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+            for (b in 1..9) {
+                Box(Modifier.size(10.dp).clip(RoundedCornerShape(2.dp)).background(bortleColor(b, night)))
             }
         }
-        Text(SkyQuality.milkyWay(s.bortle), style = ScType.bodySmall, color = c.text2, modifier = Modifier.padding(top = 6.dp))
-        Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ScButton("Navigate", onNavigate, Modifier.weight(1f), kind = ScButtonKind.Primary, icon = ScIcons.Navigate)
-            ScButton("Plan there", onPlan, Modifier.weight(1f), icon = ScIcons.Moon)
-        }
+        Text("1 · Dark", style = small, color = c.text2)
+        Text("·", style = small, color = c.text3)
+        Text("9 · City", style = small, color = c.text2)
+    }
+}
+
+/** The layers button's menu: what the map draws besides the light pollution. */
+@Composable
+private fun LayersMenu(show: MapShow, onChange: (MapShow) -> Unit, modifier: Modifier) {
+    val c = Sc.colors
+    ScCard(
+        modifier.width(232.dp).blockTouches(),
+        color = c.raised, borderColor = c.hairlineStrong,
+        padding = PaddingValues(start = 16.dp, end = 6.dp, top = 14.dp, bottom = 6.dp),
+    ) {
+        ScLabel("Map layers", Modifier.padding(bottom = 2.dp))
+        LayerRow("Roads", show.roads) { onChange(show.copy(roads = it)) }
+        LayerRow("Distance rings", show.rings) { onChange(show.copy(rings = it)) }
+        LayerRow("Place names", show.names) { onChange(show.copy(names = it)) }
     }
 }
 
 @Composable
-private fun Legend(night: Boolean, modifier: Modifier) {
-    val c = Sc.colors
-    ScGlass(modifier, shape = ScShapes.chip, padding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 5.dp)) {
-        Text("Bortle", style = ScType.caption.copy(fontSize = 10.sp), color = c.text2)
-        for (b in 1..9) {
-            Box(Modifier.size(width = 12.dp, height = 10.dp).background(bortleColor(b, night)))
-        }
-        Text("1 dark · 9 city", style = ScType.caption.copy(fontSize = 10.sp), color = c.text2)
+private fun LayerRow(label: String, on: Boolean, onChange: (Boolean) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(label, style = ScType.body, color = Sc.colors.text, modifier = Modifier.weight(1f))
+        ScSwitch(on, onChange)
     }
 }
 
@@ -523,105 +1059,58 @@ private fun Legend(night: Boolean, modifier: Modifier) {
 @Composable
 private fun DarkSkyMap(
     layers: MapLayers,
-    data: DarkSkyData,
-    result: SpotFinder.Result,
-    selected: DarkSpot?,
-    onSelect: (DarkSpot?) -> Unit,
-    hereLat: Double,
-    hereLon: Double,
+    spots: List<DarkSpot>,
+    featured: DarkSpot?,
+    probe: DarkSpot?,
+    view: MapView,
+    show: MapShow,
+    onSpot: (DarkSpot) -> Unit,
+    /** A tap away from every marker, in the map's km. */
+    onPoint: (Float, Float) -> Unit,
     modifier: Modifier,
 ) {
     val c = Sc.colors
     val measurer = rememberTextMeasurer()
     val labels = remember { HashMap<String, TextLayoutResult>() }
-    // The view: its centre in the map's km and its scale in px per km.
-    var panX by remember(layers) { mutableFloatStateOf(0f) }
-    var panY by remember(layers) { mutableFloatStateOf(0f) }
-    var scale by remember(layers) { mutableFloatStateOf(0f) }
-    val spots = result.all
-    var probe by remember { mutableStateOf<DarkSpot?>(null) }
-
-    // The first view fits you and every suggestion, at least 60 km around you.
-    fun fit(w: Int, h: Int) {
-        var reach = 60f
-        for (s in spots) {
-            val o = layers.km(s.lat, s.lon)
-            reach = max(reach, max(abs(o.x), abs(o.y)) * 1.15f)
-        }
-        panX = 0f
-        panY = 0f
-        scale = min(w, h) / 2f / reach
-    }
-    var viewSize by remember { mutableStateOf(IntSize.Zero) }
-    // A spot picked from the list but off the screen: bring it and you into view.
-    LaunchedEffect(selected) {
-        val s = selected ?: return@LaunchedEffect
-        if (viewSize.width == 0 || scale <= 0f) return@LaunchedEffect
-        val o = layers.km(s.lat, s.lon)
-        val halfW = viewSize.width / 2f / scale
-        val halfH = viewSize.height / 2f / scale
-        if (abs(o.x - panX) > halfW * 0.85f || abs(o.y - panY) > halfH * 0.85f) {
-            panX = o.x / 2f
-            panY = o.y / 2f
-            val reach = max(abs(o.x), abs(o.y)) / 2f * 1.3f + 8f
-            scale = min(scale, min(viewSize.width, viewSize.height) / 2f / reach)
-        }
-    }
-    Box(modifier.clip(androidx.compose.ui.graphics.RectangleShape).onSizeChanged {
-        viewSize = it
-        if (scale == 0f && it.width > 0) fit(it.width, it.height)
-    }) {
-        Canvas(
-            Modifier.fillMaxSize()
-                .semantics { contentDescription = "Light pollution map" }
-                .pointerInput(layers) {
-                    detectTransformGestures { centroid, pan, zoom, _ ->
-                        val w = size.width / 2f
-                        val h = size.height / 2f
-                        val old = scale
-                        if (old <= 0f) return@detectTransformGestures
-                        val new = (old * zoom).coerceIn(0.25f, 80f)
-                        val kmX = panX + (centroid.x - w) / old
-                        val kmY = panY + (centroid.y - h) / old
-                        panX = (kmX - (centroid.x - w) / new - pan.x / new).coerceIn(-REGION_KM.toFloat(), REGION_KM.toFloat())
-                        panY = (kmY - (centroid.y - h) / new - pan.y / new).coerceIn(-REGION_KM.toFloat(), REGION_KM.toFloat())
-                        scale = new
+    val ink = remember(c) { mapInk(c) }
+    Canvas(
+        modifier
+            .clipToBounds()
+            .onSizeChanged { view.size = it }
+            .semantics { contentDescription = "Light pollution map" }
+            .pointerInput(layers) {
+                detectTransformGestures { centroid, pan, zoom, _ ->
+                    val w = size.width / 2f
+                    val h = size.height / 2f
+                    val old = view.scale
+                    if (old <= 0f) return@detectTransformGestures
+                    val new = (old * zoom).coerceIn(0.25f, 80f)
+                    val kmX = view.panX + (centroid.x - w) / old
+                    val kmY = view.panY + (centroid.y - h) / old
+                    view.panX = (kmX - (centroid.x - w) / new - pan.x / new).coerceIn(-REGION_KM.toFloat(), REGION_KM.toFloat())
+                    view.panY = (kmY - (centroid.y - h) / new - pan.y / new).coerceIn(-REGION_KM.toFloat(), REGION_KM.toFloat())
+                    view.scale = new
+                }
+            }
+            .pointerInput(layers, spots, probe) {
+                detectTapGestures { pos ->
+                    if (view.scale <= 0f) return@detectTapGestures
+                    fun dist2(s: DarkSpot): Float {
+                        val p = view.toScreen(layers.km(s.lat, s.lon))
+                        return (p.x - pos.x) * (p.x - pos.x) + (p.y - pos.y) * (p.y - pos.y)
+                    }
+                    val hit = (spots + listOfNotNull(probe)).minByOrNull(::dist2)
+                        ?.takeIf { dist2(it) < 28.dp.toPx() * 28.dp.toPx() }
+                    if (hit != null) {
+                        onSpot(hit)
+                    } else {
+                        onPoint(view.panX + (pos.x - size.width / 2f) / view.scale,
+                            view.panY + (pos.y - size.height / 2f) / view.scale)
                     }
                 }
-                .pointerInput(layers, spots) {
-                    detectTapGestures { pos ->
-                        val w = size.width / 2f
-                        val h = size.height / 2f
-                        if (scale <= 0f) return@detectTapGestures
-                        val hit = (spots + listOfNotNull(probe)).minByOrNull { s ->
-                            val o = layers.km(s.lat, s.lon)
-                            val sx = w + (o.x - panX) * scale
-                            val sy = h + (o.y - panY) * scale
-                            (sx - pos.x) * (sx - pos.x) + (sy - pos.y) * (sy - pos.y)
-                        }?.takeIf { s ->
-                            val o = layers.km(s.lat, s.lon)
-                            val sx = w + (o.x - panX) * scale
-                            val sy = h + (o.y - panY) * scale
-                            (sx - pos.x) * (sx - pos.x) + (sy - pos.y) * (sy - pos.y) < (28.dp.toPx() * 28.dp.toPx())
-                        }
-                        if (hit != null) {
-                            onSelect(hit)
-                        } else {
-                            val p = probeSpot(data, layers, panX + (pos.x - w) / scale, panY + (pos.y - h) / scale, hereLat, hereLon)
-                            probe = p
-                            onSelect(p)
-                        }
-                    }
-                },
-        ) {
-            if (scale > 0f) drawMap(layers, spots, selected, probe, panX, panY, scale, measurer, labels, c.night)
-        }
-        ScIconButton(
-            ScIcons.Focus, "Back to where you are", {
-                if (viewSize.width > 0) fit(viewSize.width, viewSize.height)
             },
-            Modifier.align(Alignment.TopEnd).padding(8.dp), size = 40.dp, iconSize = 18.dp,
-        )
+    ) {
+        if (view.scale > 0f) drawMap(layers, spots, featured, probe, view, measurer, labels, ink, show, c.night)
     }
 }
 
@@ -632,15 +1121,18 @@ private val SiteStyle = TownStyle.copy(fontSize = 10.sp, fontWeight = FontWeight
 private fun DrawScope.drawMap(
     l: MapLayers,
     spots: List<DarkSpot>,
-    selected: DarkSpot?,
+    featured: DarkSpot?,
     probe: DarkSpot?,
-    panX: Float,
-    panY: Float,
-    scale: Float,
+    view: MapView,
     measurer: TextMeasurer,
     labels: HashMap<String, TextLayoutResult>,
+    ink: MapInk,
+    show: MapShow,
     night: Boolean,
 ) {
+    val panX = view.panX
+    val panY = view.panY
+    val scale = view.scale
     val cx = size.width / 2f
     val cy = size.height / 2f
     fun sx(x: Float) = cx + (x - panX) * scale
@@ -679,102 +1171,119 @@ private fun DrawScope.drawMap(
         translate(cx - panX * scale, cy - panY * scale)
         scale(scale, scale, Offset.Zero)
     }) {
-        val roadColors = if (lineDay) listOf(Color(0xCCF2E6C8), Color(0x99E8DCC0), Color(0x66D8D0C0))
-        else listOf(Color(0xAA7A1E14), Color(0x885E1810), Color(0x66481208))
-        val roadWidths = floatArrayOf(1.6f, 1.1f, 0.8f)
-        // Minor roads only once zoomed in enough to tell them apart.
-        val roadClasses = when {
-            scale > 3f -> 3
-            scale > 1.2f -> 2
-            else -> 1
-        }
-        for (k in roadClasses - 1 downTo 0) {
-            drawPath(l.roads[k], roadColors[k], style = Stroke(roadWidths[k] * density * px, cap = StrokeCap.Round))
+        if (show.roads) {
+            val roadColors = if (lineDay) listOf(Color(0xCCF2E6C8), Color(0x99E8DCC0), Color(0x66D8D0C0))
+            else listOf(Color(0xAA7A1E14), Color(0x885E1810), Color(0x66481208))
+            val roadWidths = floatArrayOf(1.6f, 1.1f, 0.8f)
+            // Minor roads only once zoomed in enough to tell them apart.
+            val roadClasses = when {
+                scale > 3f -> 3
+                scale > 1.2f -> 2
+                else -> 1
+            }
+            for (k in roadClasses - 1 downTo 0) {
+                drawPath(l.roads[k], roadColors[k], style = Stroke(roadWidths[k] * density * px, cap = StrokeCap.Round))
+            }
         }
         drawPath(l.lakes, if (lineDay) Color(0x8885B4E8) else Color(0x66803020), style = Stroke(0.8f * density * px))
         drawPath(l.coast, if (lineDay) Color(0xCC9CC8F0) else Color(0x99A03020), style = Stroke(1.1f * density * px))
         drawPath(l.borders, if (lineDay) Color(0xAAE0E0F0) else Color(0x88A03020),
             style = Stroke(1f * density * px, pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f * density * px, 4f * density * px))))
-        // Distance rings around you.
-        for (ring in listOf(25f, 50f, 100f, 150f)) {
-            drawCircle(if (lineDay) Color(0x55FFFFFF) else Color(0x55FF5040), ring, Offset.Zero,
-                style = Stroke(1f * density * px, pathEffect = PathEffect.dashPathEffect(floatArrayOf(3f * density * px, 5f * density * px))))
+        if (show.rings) {
+            // Distance rings around you.
+            for (ring in listOf(25f, 50f, 100f, 150f)) {
+                drawCircle(if (lineDay) Color(0x55FFFFFF) else Color(0x55FF5040), ring, Offset.Zero,
+                    style = Stroke(1f * density * px, pathEffect = PathEffect.dashPathEffect(floatArrayOf(3f * density * px, 5f * density * px))))
+            }
         }
     }
-    val textColor = if (night) Color(0xFFFF6A55) else Color(0xEEFFFFFF)
-    // Ring labels, to the south of you.
-    for (ring in listOf(25, 50, 100, 150)) {
-        val y = sy(ring.toFloat())
-        if (y in 0f..size.height) labelAt("$ring km", Offset(sx(0f) + 4f, y - 14f * density), textColor.copy(alpha = 0.7f), measurer, labels, TownStyle)
+    if (show.rings) {
+        // Ring labels, to the south of you.
+        for (ring in listOf(25, 50, 100, 150)) {
+            val y = sy(ring.toFloat())
+            if (y in 0f..size.height) labelAt("$ring km", Offset(sx(0f) + 4f, y - 14f * density), ink.label.copy(alpha = 0.7f), measurer, labels, TownStyle)
+        }
     }
 
     // ---- towns, largest first, without overlaps
     val placed = ArrayList<Rect>()
-    val maxTowns = 40
-    var shown = 0
-    val minPop = when {
-        scale > 6f -> 20_000
-        scale > 2f -> 60_000
-        scale > 0.8f -> 200_000
-        else -> 700_000
-    }
-    for (t in l.towns) {
-        if (shown >= maxTowns) break
-        if (t.place.value < minPop) continue
-        val x = sx(t.x)
-        val y = sy(t.y)
-        if (x < 0 || y < 0 || x > size.width || y > size.height) continue
-        val layout = labels.getOrPut("t|${t.place.name}") { measurer.measure(t.place.name, TownStyle) }
-        val box = Rect(x + 5f * density, y - layout.size.height / 2f, x + 5f * density + layout.size.width, y + layout.size.height / 2f)
-        if (placed.any { it.overlaps(box) }) continue
-        placed += box
-        drawCircle(textColor, 2.2f * density, Offset(x, y))
-        drawText(layout, color = textColor, topLeft = Offset(box.left, box.top))
-        shown++
+    if (show.names) {
+        val maxTowns = 40
+        var shown = 0
+        val minPop = when {
+            scale > 6f -> 20_000
+            scale > 2f -> 60_000
+            scale > 0.8f -> 200_000
+            else -> 700_000
+        }
+        for (t in l.towns) {
+            if (shown >= maxTowns) break
+            if (t.place.value < minPop) continue
+            val x = sx(t.x)
+            val y = sy(t.y)
+            if (x < 0 || y < 0 || x > size.width || y > size.height) continue
+            val layout = labels.getOrPut("t|${t.place.name}") { measurer.measure(t.place.name, TownStyle) }
+            val box = Rect(x + 5f * density, y - layout.size.height / 2f, x + 5f * density + layout.size.width, y + layout.size.height / 2f)
+            if (placed.any { it.overlaps(box) }) continue
+            placed += box
+            drawCircle(ink.label, 2.2f * density, Offset(x, y))
+            drawText(layout, color = ink.label, topLeft = Offset(box.left, box.top))
+            shown++
+        }
     }
     // ---- dark-sky places: a star
-    val siteColor = if (night) Color(0xFFFF8A60) else Color(0xFFFFE07A)
     for (s in l.sites) {
         val x = sx(s.x)
         val y = sy(s.y)
         if (x < -20 || y < -20 || x > size.width + 20 || y > size.height + 20) continue
-        drawStar(Offset(x, y), 6f * density, siteColor)
-        if (scale > 0.6f) {
+        drawStar(Offset(x, y), 6f * density, ink.site)
+        if (show.names && scale > 0.6f) {
             val layout = labels.getOrPut("s|${s.place.name}") { measurer.measure(s.place.name, SiteStyle) }
             val box = Rect(x + 8f * density, y - layout.size.height / 2f, x + 8f * density + layout.size.width, y + layout.size.height / 2f)
             if (placed.none { it.overlaps(box) }) {
                 placed += box
-                drawText(layout, color = siteColor, topLeft = Offset(box.left, box.top))
+                drawText(layout, color = ink.site, topLeft = Offset(box.left, box.top))
             }
         }
     }
-    // ---- the suggestions, numbered; the tapped point; you
-    val accent = if (night) Color(0xFFFF5A44) else Color(0xFFCDAAFF)
-    val ink = if (night) Color(0xFF160505) else Color(0xFF140A28)
-    spots.forEachIndexed { i, s ->
-        val o = l.km(s.lat, s.lon)
-        val p = Offset(sx(o.x), sy(o.y))
-        val sel = s == selected
-        val rad = (if (sel) 13f else 10f) * density
-        if (sel) drawCircle(accent.copy(alpha = 0.35f), rad * 1.9f, p)
-        drawCircle(ink, rad + 2f * density, p)
-        drawCircle(accent, rad, p)
+    // ---- the suggestions, numbered, the one in the panel lit and on top; the tapped point; you
+    fun number(i: Int, p: Offset, sp: Int, color: Color) {
         val text = "${i + 1}"
-        val layout = labels.getOrPut("n|$text") {
-            measurer.measure(text, TextStyle(fontFamily = NotoSans, fontSize = 11.sp, fontWeight = FontWeight.Bold))
+        val layout = labels.getOrPut("n|$text|$sp") {
+            measurer.measure(text, TextStyle(fontFamily = NotoSans, fontSize = sp.sp, fontWeight = FontWeight.Bold))
         }
-        drawText(layout, color = ink, topLeft = Offset(p.x - layout.size.width / 2f, p.y - layout.size.height / 2f))
+        drawText(layout, color = color, topLeft = Offset(p.x - layout.size.width / 2f, p.y - layout.size.height / 2f))
+    }
+    spots.forEachIndexed { i, s ->
+        if (s == featured) return@forEachIndexed
+        val p = view.toScreen(l.km(s.lat, s.lon))
+        val rad = 10f * density
+        drawCircle(ink.ink, rad + 2f * density, p)
+        drawCircle(ink.mark, rad, p)
+        number(i, p, 11, ink.ink)
     }
     probe?.let { s ->
-        val o = l.km(s.lat, s.lon)
-        val p = Offset(sx(o.x), sy(o.y))
-        drawCircle(ink, 9f * density, p)
-        drawCircle(if (s == selected) accent else accent.copy(alpha = 0.7f), 7f * density, p, style = Stroke(2.5f * density))
+        val p = view.toScreen(l.km(s.lat, s.lon))
+        if (s == featured) drawCircle(ink.glow, 18f * density, p)
+        drawCircle(ink.ink, 9f * density, p)
+        drawCircle(if (s == featured) ink.chosenRim else ink.mark.copy(alpha = 0.7f), 7f * density, p, style = Stroke(2.5f * density))
     }
-    // You: a bright dot in a light ring (in night vision a dark one: nothing white).
+    val chosen = featured?.let { spots.indexOf(it) } ?: -1
+    if (featured != null && chosen >= 0) {
+        // The place in the panel: bigger, deep violet, lit (the owner's design).
+        val p = view.toScreen(l.km(featured.lat, featured.lon))
+        val rad = 14f * density
+        drawCircle(ink.glow.copy(alpha = ink.glow.alpha * 0.45f), rad * 2.1f, p)
+        drawCircle(ink.glow, rad * 1.5f, p)
+        drawCircle(ink.chosenRim, rad + 2f * density, p)
+        drawCircle(Brush.verticalGradient(ink.chosen, startY = p.y - rad, endY = p.y + rad), rad, p)
+        number(chosen, p, 13, ink.chosenText)
+    }
+    // You: a lit dot in a light ring (in night vision a dark one: nothing white).
     val here = Offset(sx(0f), sy(0f))
-    drawCircle(if (night) Color(0xFF3A0E09) else Color(0xFFF5F0FF), 9f * density, here)
-    drawCircle(if (night) Color(0xFFFF3B30) else Color(0xFF9B5CF0), 6.5f * density, here)
+    drawCircle(ink.glow.copy(alpha = ink.glow.alpha * 0.6f), 16f * density, here)
+    drawCircle(ink.youRim, 9f * density, here)
+    drawCircle(ink.you, 6.5f * density, here)
 }
 
 private fun DrawScope.drawStar(c: Offset, r: Float, color: Color) {

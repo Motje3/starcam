@@ -1,5 +1,30 @@
 # StarCam build progress (PLAN.md §10)
 
+## The owner's third round: hold still, the light map (2026-11-05)
+
+Two more designs from the owner's image AI, built to match (measured from the images; no
+screenshots, at the owner's request):
+- **Hold still**: "Let the tripod settle. Keep your hands off the phone." under the title; a pill
+  with the verdict ("Tripod steady", or "Tripod moving" in amber); the card is now STABILITY, its
+  graph a full six seconds wide from the first moment (the gyroscope keeps the last 60 tenths of
+  a second, each slot's loudest reading, `MotionMonitor.recent()`, so the graph opens on the
+  shutter's tap dying away), the stillness line dotted, the trace lit; "Starts automatically when
+  stable" with the rule behind an (i). The step's clock line (every step's) is a clock icon, the
+  step's name and time, and a bar filling under them; an unknown length still spins. The step
+  strip stays the circles of the second round (the design was drawn from an older screenshot).
+- **The light map**: the map fills the screen, the top bar floats over it ("Find darker skies",
+  the back-to-you crosshair and a layers button), and one panel over its lower part, at three
+  heights: the place's name alone (swiped down: the map almost whole), the place (the nearest
+  darker sky to begin with, or a tapped marker or point) with its Bortle class, how it compares
+  with your sky and what the Milky Way does there, Navigate and Plan here, and your own sky in an
+  opening row; swiped up, its numbers (mag/arcsec², how many times darker, the way there, the
+  nearest town, the position) and every suggestion. The tapped marker is drawn bigger and lit.
+  The layers menu switches roads, distance rings and place names (kept between visits). The sea
+  has no reading of its own in the data, so a tap there no longer shows a "pristine" sky.
+- **Secondary buttons** (Cancel, Plan here, ...) have the clearly lavender edge every design
+  draws (`buttonBorder`, 55 %; as dim as any other edge in night vision).
+- New wording in `SkyQuality` (`compared`, `milkyWayShort`, `darkerBy`), with a unit test.
+
 ## The owner's second round: cover the lens, the step circles, Adjust (2026-11-05)
 
 From the owner's review of every screen (Desktop › Stelli screens › all screens 5 Nov), two new

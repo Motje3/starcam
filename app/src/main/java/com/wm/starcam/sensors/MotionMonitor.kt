@@ -63,6 +63,24 @@ class MotionMonitor(context: Context) : SensorEventListener {
     private var windowSumSq = 0.0
     private var windowCount = 0
 
+    // The last few seconds, for the hold-still graph: the loudest reading of each slot. Kept all
+    // the time, so the graph opens on the seconds before the session too (the shutter's tap dying
+    // away) instead of an empty strip.
+    private val recentPeaks = FloatArray(RECENT_SLOTS)
+    private var recentCount = 0
+    private var recentNext = 0
+    private var slotStartMs = 0L
+    private var slotPeak = 0f
+
+    /** The loudest reading (rad/s) of each of the last [RECENT_SLOTS] slots of [SLOT_MS], oldest first. */
+    @Synchronized
+    fun recent(): FloatArray {
+        val out = FloatArray(recentCount)
+        val first = (recentNext - recentCount + RECENT_SLOTS) % RECENT_SLOTS
+        for (i in 0 until recentCount) out[i] = recentPeaks[(first + i) % RECENT_SLOTS]
+        return out
+    }
+
     fun start() {
         gyro?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
         accel?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
@@ -122,6 +140,17 @@ class MotionMonitor(context: Context) : SensorEventListener {
                 windowSumSq += m.toDouble() * m
                 windowCount++
             }
+            if (now - slotStartMs >= SLOT_MS) {
+                if (slotStartMs != 0L) {
+                    recentPeaks[recentNext] = slotPeak
+                    recentNext = (recentNext + 1) % RECENT_SLOTS
+                    if (recentCount < RECENT_SLOTS) recentCount++
+                }
+                slotStartMs = now
+                slotPeak = m
+            } else if (m > slotPeak) {
+                slotPeak = m
+            }
         }
     }
 
@@ -129,5 +158,8 @@ class MotionMonitor(context: Context) : SensorEventListener {
 
     companion object {
         const val STILL_HOLD_MS = 1500L
+        const val SLOT_MS = 100L
+        /** Six seconds of [recent] history. */
+        const val RECENT_SLOTS = 60
     }
 }

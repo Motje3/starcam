@@ -65,6 +65,21 @@ class DarkSkyDataTest {
     }
 
     @Test
+    fun aSkyComparedWithYours() {
+        // The light map's own example: Bortle 6 at home, Bortle 5 nearby, half a magnitude apart.
+        assertEquals("A little darker than your sky.", SkyQuality.compared(20.0, 19.5))
+        assertEquals("About as dark as your sky.", SkyQuality.compared(19.6, 19.5))
+        assertEquals("Clearly darker than your sky.", SkyQuality.compared(20.5, 19.5))
+        assertEquals("Much darker than your sky.", SkyQuality.compared(21.5, 19.5))
+        assertEquals("Brighter than your sky.", SkyQuality.compared(19.0, 19.5))
+        // A magnitude is a factor of 2.512.
+        assertEquals(2.512, SkyQuality.darkerBy(20.5, 19.5), 0.001)
+        assertEquals(1.585, SkyQuality.darkerBy(20.0, 19.5), 0.001)
+        assertEquals(1.0, SkyQuality.darkerBy(19.5, 19.5), 1e-9)
+        assertTrue(SkyQuality.darkerBy(19.0, 19.5) < 1.0)
+    }
+
+    @Test
     fun theBaseMapIsComplete() {
         assertTrue(data.coast.size > 4000)
         assertTrue(data.lakes.size > 1000)

@@ -55,6 +55,8 @@ data class ScColors(
     val panel: Color,
     val tile: Color,
     val buttonSecondary: Color,
+    /** A secondary button's lavender edge (the owner's designs draw it clearly). */
+    val buttonBorder: Color,
     val hairline: Color,
     val hairlineStrong: Color,
     val text: Color,
@@ -108,6 +110,7 @@ val DarkColors = ScColors(
     panel = Color(0xFF150E2A),
     tile = Color(0xFF1F1737),
     buttonSecondary = Color(0xFF1E1535),
+    buttonBorder = Color(0x8CB184FF),    // 55 %
     hairline = Color(0x29C9B2FF),        // lavender, 16 %
     hairlineStrong = Color(0x45C9B2FF),  // 27 %
     text = Color(0xFFF5F0FF),
@@ -156,6 +159,8 @@ val NightColors = ScColors(
     panel = Color(0xFF160505),
     tile = Color(0xFF1F0807),
     buttonSecondary = Color(0xFF1C0807),
+    // At night no brighter than the other edges.
+    buttonBorder = Color(0x47FF5544),
     hairline = Color(0x2EFF5544),        // 0.18
     hairlineStrong = Color(0x47FF5544),
     text = Color(0xFFFF5544),

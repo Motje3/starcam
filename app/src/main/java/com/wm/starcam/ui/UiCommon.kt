@@ -311,4 +311,17 @@ class UiPrefs(context: Context) {
     var lensTipDismissed: Boolean
         get() = prefs.getBoolean("lensTipDismissed", false)
         set(v) = prefs.edit().putBoolean("lensTipDismissed", v).apply()
+
+    /** The light map's layers, as last chosen. */
+    var mapRoads: Boolean
+        get() = prefs.getBoolean("mapRoads", true)
+        set(v) = prefs.edit().putBoolean("mapRoads", v).apply()
+
+    var mapRings: Boolean
+        get() = prefs.getBoolean("mapRings", true)
+        set(v) = prefs.edit().putBoolean("mapRings", v).apply()
+
+    var mapNames: Boolean
+        get() = prefs.getBoolean("mapNames", true)
+        set(v) = prefs.edit().putBoolean("mapNames", v).apply()
 }

@@ -71,6 +71,12 @@ object ScIcons {
         circle(12f, 13f, 8f)
         path("M12 9v4l2.5 2.5M9.5 2.5h5")
     }
+    val Clock by icon {
+        circle(12f, 12f, 8.5f)
+        path("M12 7.5V12l3 2")
+    }
+    /** Map layers: two sheets, as [Stack]. */
+    val Layers get() = Stack
     val Heat by icon { path("M10 14.5V5a2 2 0 0 1 4 0v9.5a4 4 0 1 1-4 0z") }
     val Check by icon { path("M5 12.5l4.5 4.5L19 7.5") }
     val CheckCircle by icon {

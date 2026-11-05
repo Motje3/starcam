@@ -22,6 +22,7 @@ red on black.
 | raised | `#261D40` | `#260B09` | the top of a button's gradient, raised tiles |
 | buttonSecondary | `#1E1535` | `#1C0807` | buttons, icon squares |
 | hairline / strong | lavender `#C9B2FF` at 16 % / 27 % | red at 18 % / 28 % | edges |
+| buttonBorder | `#B184FF` at 55 % | red at 28 % | a secondary button's edge |
 | text / text2 / text3 | `#F5F0FF` / `#C9BEE4` / `#948CB1` | `#FF5544` / `#D9483A` / `#A8392E` | |
 | accent | `#B88AFF` | `#FF5544` | chosen things, icons, rings |
 | accentText | `#D3B6FF` | `#FF6A5A` | accent words |
@@ -85,6 +86,16 @@ red on black.
   in capitals between them. No summary line, no disabled switch, no second way to Settings.
 - **Sky label** (the sky view): a ring round a dot, a thin leader line, the name in capitals in a
   glass pill with a lavender edge.
+- **Status pill** (hold still): a dot and two words, "Tripod steady"; amber when it is not.
+- **A step's clock line** (every capture step): a clock icon, what it is doing, the time against
+  its length, and a thin lavender bar filling under the words; a spinner instead where the length
+  is unknown.
+- **A map with a panel** (the light map, the owner's design, 5 Nov 2026): the map fills the
+  screen under a floating top bar; one panel of violet glass with a lit top edge and a handle
+  rests at three heights (the name alone, the summary, everything) and follows the finger. The
+  summary: a pin, the place's name and way, its Bortle badge, a chip with the class, one line
+  comparing it with your sky, Navigate and Plan here, and your own sky as a row that opens. The
+  legend rides on the panel's top edge.
 
 ## Icons
 

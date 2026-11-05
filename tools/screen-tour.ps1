@@ -10,7 +10,7 @@
 #                     the timelapse, the studio's tabs, the delete question; a meteor watch's meteor
 #   05 gallery        (empty, with -Clean)
 #   06 tonight        the planner, a place by its coordinates, the sky calendar, a night planned
-#   07 light map      your sky, a darker sky nearby
+#   07 light map      the map with its panel at each height, the layers menu
 #   08 settings       every tab, a setting explained, the search, Advanced's dialogs and tools
 #   09 night vision   the main screens in red
 # The status bar is in demo mode (21:30, full battery and signal), the emulator placed in
@@ -502,17 +502,32 @@ if (Wanted '06') {
     }
 }
 
-# ---- 07: the light map: your sky, a darker one nearby
+# ---- 07: the light map: its panel at each height, the layers menu
 if (Wanted '07') {
     Section '07 light map'
     Launch
     if (Tap 'Light map*') {
-        WaitFor 'Your sky' 30 | Out-Null
-        Start-Sleep -Seconds 2
-        Page 'light map' 4
-        if ((ScrollTo 'Nearest darker sky') -and (Tap 'Nearest darker sky')) {
-            WaitFor 'Navigate' 10 | Out-Null
-            Shot 'a darker sky nearby'
+        WaitFor 'Find darker skies' 30 | Out-Null
+        Start-Sleep -Seconds 3
+        Shot 'light map'
+        $h = FindNode 'Show the whole list'
+        if ($h) {
+            # Dragged down by its handle: the place's name alone. Then the handle's tap: everything.
+            $c = Center $h
+            A shell input swipe $c[0] $c[1] $c[0] ($c[1] + 900) 500
+            Start-Sleep -Milliseconds 1500
+            Shot 'light map, the panel down'
+            $h = FindNode 'Show the whole list'
+            if ($h) {
+                TapNode $h
+                Start-Sleep -Milliseconds 1500
+                Page 'light map, the panel up' 3
+            }
+            Back
+        }
+        if (Tap 'Map layers') {
+            Shot 'light map, layers'
+            Back
         }
     }
 }

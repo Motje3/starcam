@@ -1,6 +1,7 @@
 package com.wm.starcam.ui
 
 import android.graphics.Bitmap
+import android.graphics.BlurMaskFilter
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -60,8 +62,12 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.asAndroidPath
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -84,6 +90,7 @@ import com.wm.starcam.camera.CaptureState
 import com.wm.starcam.camera.FocusSweep
 import com.wm.starcam.camera.StopRequest
 import com.wm.starcam.engine.FrameStats
+import com.wm.starcam.sensors.MotionMonitor
 import com.wm.starcam.session.AppSettings
 import com.wm.starcam.session.SINGLE_FRAME_JPG
 import com.wm.starcam.ui.components.ScButton
@@ -91,7 +98,9 @@ import com.wm.starcam.ui.components.ScButtonKind
 import com.wm.starcam.ui.components.ScCard
 import com.wm.starcam.ui.components.ScConfirmDialog
 import com.wm.starcam.ui.components.ScGlass
+import com.wm.starcam.ui.components.ScHelpText
 import com.wm.starcam.ui.components.ScIconButton
+import com.wm.starcam.ui.components.ScInfoButton
 import com.wm.starcam.ui.components.ScLabel
 import com.wm.starcam.ui.components.ScNotice
 import com.wm.starcam.ui.components.ScPipeline
@@ -334,9 +343,9 @@ private fun StopButton(
 }
 
 /**
- * What the engine is doing right now, with a clock that always moves: a known-length step counts
- * down; an unknown one spins and counts up; a known step that overruns says so rather than
- * pretending to be finished.
+ * What the engine is doing right now, with a clock that always moves: a known-length step fills
+ * a bar under its name as the time counts up to its length; an unknown one spins and counts up; a
+ * known step that overruns says so rather than pretending to be finished.
  */
 @Composable
 private fun BusyLine(busy: Busy?, modifier: Modifier = Modifier) {
@@ -345,26 +354,37 @@ private fun BusyLine(busy: Busy?, modifier: Modifier = Modifier) {
     val elapsed = rememberElapsedMs(busy.startedAtMs)
     val expected = busy.expectedMs
     val overrun = if (expected > 0L) elapsed > expected + 3_000L else elapsed > 25_000L
-    Column(modifier.fillMaxWidth()) {
+    val known = expected > 0L && !overrun
+    // Inset to line up with the content of the cards above it.
+    Column(modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            if (expected > 0L && !overrun) {
-                ScRing((elapsed.toFloat() / expected).coerceIn(0f, 1f), Modifier.size(18.dp),
-                    strokeWidth = 2.5.dp, glow = false, animate = false)
-            } else {
-                ScSpinner(size = 18.dp, color = if (overrun) c.warning else c.accent)
+            Box(Modifier.size(22.dp), contentAlignment = Alignment.Center) {
+                if (known) Icon(ScIcons.Clock, null, Modifier.fillMaxSize(), tint = c.accent)
+                else ScSpinner(size = 18.dp, color = if (overrun) c.warning else c.accent)
             }
-            Spacer(Modifier.width(10.dp))
-            Text(busy.label.replaceFirstChar { it.uppercase() }, style = ScType.bodySmall, color = c.text2,
+            Spacer(Modifier.width(14.dp))
+            Text(busy.label.replaceFirstChar { it.uppercase() }, style = ScType.body, color = c.text,
                 modifier = Modifier.weight(1f), maxLines = 1)
             Text(
                 durationClock(elapsed / 1000L) +
                     if (expected > 0L) " / " + durationClock((expected + 999L) / 1000L) else "",
-                style = ScType.data, color = if (overrun) c.warning else c.text3,
+                style = ScType.dataLarge, color = if (overrun) c.warning else c.text2,
             )
+        }
+        if (known) {
+            Box(
+                Modifier.padding(start = 36.dp, top = 8.dp).fillMaxWidth().height(4.dp)
+                    .clip(CircleShape).background(c.raised),
+            ) {
+                Box(
+                    Modifier.fillMaxWidth((elapsed.toFloat() / expected).coerceIn(0f, 1f)).fillMaxHeight()
+                        .clip(CircleShape).background(c.accent),
+                )
+            }
         }
         if (overrun) {
             Text("Slower than usual — still running", style = ScType.caption, color = c.warning,
-                modifier = Modifier.padding(start = 28.dp, top = 2.dp))
+                modifier = Modifier.padding(start = 36.dp, top = 2.dp))
         }
     }
 }
@@ -417,19 +437,20 @@ private fun HoldStillStep(
     onCancel: () -> Unit,
 ) {
     val c = Sc.colors
+    val still by vm.motion.isStill.collectAsState()
     val progress = if (st.delayRemaining > 0 && s.startDelaySec > 0)
         (s.startDelaySec - st.delayRemaining).toFloat() / s.startDelaySec else 0.6f
     StepScaffold(
         SessionStep.Still, progress, centered = true,
         actions = { StopButton("Cancel", pending, onCancel, Modifier.fillMaxWidth()) },
     ) {
-        BusyRing(busy, 188.dp) {
+        BusyRing(busy, 176.dp, stroke = 6.dp) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 if (st.delayRemaining > 0) {
-                    Text("Starting in", style = ScType.bodySmall, color = c.text2)
+                    Text("Starting in", style = ScType.body, color = c.text2)
                     Row(verticalAlignment = Alignment.Bottom) {
                         Text("${st.delayRemaining}", style = ScType.countdown, color = c.text)
-                        Text("s", style = ScType.stat, color = c.text3, modifier = Modifier.padding(bottom = 12.dp))
+                        Text("s", style = ScType.stat, color = c.accentText, modifier = Modifier.padding(bottom = 12.dp))
                     }
                 } else {
                     Icon(ScIcons.Tripod, null, Modifier.size(40.dp), tint = c.accent)
@@ -438,76 +459,94 @@ private fun HoldStillStep(
                 }
             }
         }
-        StepTitle(
-            "Hold still",
-            "Waiting for the tripod to settle. Hands off — it starts by itself.",
-            centered = true,
-        )
-        StillnessCard(vm)
+        StepTitle("Hold still", "Let the tripod settle.\nKeep your hands off the phone.", centered = true)
+        // The verdict in two words where the eye lands after the title; the card says why.
+        ScStatusPill(if (still) "Tripod steady" else "Tripod moving", tone = if (still) Tone.Normal else Tone.Warning)
+        StillnessCard(vm, still)
         BusyLine(busy)
     }
 }
 
 /**
- * The gyroscope, live: the last six seconds on a log scale against the stillness threshold. Says
- * *why* it is still waiting - wind, a soft tripod, a passing truck - where a bare spinner would
- * look like the app hanging.
+ * The gyroscope, live: the last six seconds on a log scale against the stillness threshold (the
+ * dotted line). Says *why* it is still waiting - wind, a soft tripod, a passing truck - where a
+ * bare spinner would look like the app hanging. The rule itself is behind the (i).
  */
 @Composable
-private fun StillnessCard(vm: StarCamViewModel) {
+private fun StillnessCard(vm: StarCamViewModel, still: Boolean) {
     val c = Sc.colors
-    val samples = remember { mutableStateListOf<Float>() }
-    var mag by remember { mutableFloatStateOf(0f) }
+    var trace by remember { mutableStateOf(vm.motion.recent()) }
+    var mag by remember { mutableFloatStateOf(vm.motion.magnitude.value) }
     LaunchedEffect(Unit) {
         while (true) {
-            val m = vm.motion.magnitude.value
-            mag = m
-            samples.add(m)
-            if (samples.size > 60) samples.removeAt(0)
-            delay(100)
+            trace = vm.motion.recent()
+            mag = vm.motion.magnitude.value
+            delay(MotionMonitor.SLOT_MS)
         }
     }
-    val still by vm.motion.isStill.collectAsState()
+    var help by remember { mutableStateOf(false) }
     val threshold = vm.motion.stillThreshold
-    ScCard(Modifier.fillMaxWidth()) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            ScLabel("Stillness")
+    // The (i) brings its own 44 dp target: the card leaves it the right and bottom edges.
+    ScCard(Modifier.fillMaxWidth(), padding = PaddingValues(start = 16.dp, top = 14.dp, end = 4.dp, bottom = 2.dp)) {
+        Row(Modifier.padding(end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            ScLabel("Stability", color = c.text2)
             Spacer(Modifier.weight(1f))
             Text(if (still) "Steady" else "Moving", style = ScType.headline,
                 color = if (still) c.accentText else c.warning)
-            Text(String.format(Locale.US, " · %.4f rad/s", mag), style = ScType.data, color = c.text2)
+            Text(String.format(Locale.US, " · %.4f rad/s", mag), style = ScType.dataLarge, color = c.text2)
         }
-        val lineColor = c.accent
-        val warnColor = c.warning
+        val line = c.accent
+        val warn = c.warning
         val guide = c.text3
-        Canvas(Modifier.fillMaxWidth().height(64.dp).padding(top = 10.dp)) {
-            val lo = 0.0005f
-            val hi = 0.5f
+        val glow = line.copy(alpha = if (c.night) 0.25f else 0.5f)
+        Canvas(Modifier.fillMaxWidth().padding(top = 8.dp, end = 12.dp).height(48.dp)) {
+            // Log scale: a still tripod reads 0.0005-0.002 rad/s, a phone in the hand 0.05 and up.
+            val lo = 0.0002f
+            val hi = 0.05f
             val span = ln(hi / lo)
-            fun y(v: Float): Float = size.height * (1f - (ln(v.coerceIn(lo, hi) / lo) / span))
+            val pad = 5.dp.toPx()
+            fun y(v: Float): Float = pad + (size.height - 2 * pad) * (1f - ln(v.coerceIn(lo, hi) / lo) / span)
             val ty = y(threshold)
-            drawLine(guide, Offset(0f, ty), Offset(size.width, ty), 1.dp.toPx(),
-                pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f)))
-            if (samples.size >= 2) {
-                val step = size.width / 59f
-                val x0 = size.width - (samples.size - 1) * step
+            drawLine(guide, Offset(0f, ty), Offset(size.width, ty), 1.5.dp.toPx(), cap = StrokeCap.Round,
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(0.01f, 5.dp.toPx())))
+            if (trace.size >= 2) {
+                val step = (size.width - pad) / (MotionMonitor.RECENT_SLOTS - 1)
+                val x0 = size.width - pad - (trace.size - 1) * step
                 val path = Path()
-                samples.forEachIndexed { i, v ->
+                trace.forEachIndexed { i, v ->
                     val p = Offset(x0 + i * step, y(v))
                     if (i == 0) path.moveTo(p.x, p.y) else path.lineTo(p.x, p.y)
                 }
-                drawPath(path, lineColor, style = Stroke(2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
-                val last = samples.last()
-                drawCircle(if (last <= threshold) lineColor else warnColor, 4.dp.toPx(),
-                    Offset(size.width, y(last)))
+                drawIntoCanvas {
+                    val paint = android.graphics.Paint().apply {
+                        isAntiAlias = true
+                        style = android.graphics.Paint.Style.STROKE
+                        strokeWidth = 3.dp.toPx()
+                        strokeCap = android.graphics.Paint.Cap.ROUND
+                        strokeJoin = android.graphics.Paint.Join.ROUND
+                        color = glow.toArgb()
+                        maskFilter = BlurMaskFilter(4.dp.toPx(), BlurMaskFilter.Blur.NORMAL)
+                    }
+                    it.nativeCanvas.drawPath(path.asAndroidPath(), paint)
+                }
+                drawPath(path, line, style = Stroke(2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+                val last = trace.last()
+                drawCircle(if (last <= threshold) line else warn, 4.5.dp.toPx(), Offset(size.width - pad, y(last)))
             }
         }
-        Text(
-            String.format(Locale.US,
-                "Starts once it stays under %.4f rad/s (dashed line) for 1.5 s, or after %d min at most.",
-                threshold, com.wm.starcam.camera.CaptureEngine.STILL_TIMEOUT_MS / 60_000L),
-            style = ScType.caption, color = c.text3, modifier = Modifier.padding(top = 8.dp),
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Starts automatically when stable", style = ScType.bodySmall, color = c.text2,
+                modifier = Modifier.weight(1f))
+            ScInfoButton(help, { help = !help }, "When does it start?", tint = c.accent)
+        }
+        if (help) {
+            ScHelpText(
+                String.format(Locale.US,
+                    "Once the phone stays under %.4f rad/s (the dotted line) for 1.5 s, or after %d min at most.",
+                    threshold, CaptureEngine.STILL_TIMEOUT_MS / 60_000L),
+                Modifier.padding(end = 12.dp, bottom = 12.dp),
+            )
+        }
     }
 }
 
