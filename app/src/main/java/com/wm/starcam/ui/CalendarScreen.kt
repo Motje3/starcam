@@ -3,12 +3,14 @@ package com.wm.starcam.ui
 import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -22,6 +24,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -35,10 +39,26 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.wm.starcam.alerts.NightAlerts
 import com.wm.starcam.darksky.DarkSkyData
@@ -52,7 +72,6 @@ import com.wm.starcam.ui.components.ScButton
 import com.wm.starcam.ui.components.ScButtonKind
 import com.wm.starcam.ui.components.ScCard
 import com.wm.starcam.ui.components.ScChip
-import com.wm.starcam.ui.components.ScIconBadge
 import com.wm.starcam.ui.components.ScLabel
 import com.wm.starcam.ui.components.ScScreen
 import com.wm.starcam.ui.components.ScSpinner
@@ -63,6 +82,7 @@ import com.wm.starcam.ui.theme.ScIcons
 import com.wm.starcam.ui.theme.ScShapes
 import com.wm.starcam.ui.theme.ScType
 import com.wm.starcam.ui.theme.ScreenMargin
+import com.wm.starcam.ui.theme.scGlow
 import com.wm.starcam.util.AppLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -72,6 +92,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlin.random.Random
 
 /** What the calendar shows: everything, or one kind. */
 private enum class CalendarFilter(val label: String, val kinds: Set<SkyEvent.Kind>?) {
@@ -159,8 +180,9 @@ fun CalendarScreen(onBack: () -> Unit, onShowSky: (Long) -> Unit, onPlanNight: (
     ScScreen {
         ScTopBar(
             title = "Sky calendar",
-            subtitle = place?.let { "The next 12 months · " + placeLabel(it.loc) } ?: "What the sky does, and when",
+            subtitle = if (place != null) "Plan your next night" else "What the sky does, and when",
             onBack = onBack,
+            actions = { if (place != null) AlertsPill("Sky calendar", alertsOn, ::setAlerts) },
         )
         val p = place
         if (p == null) {
@@ -182,12 +204,17 @@ fun CalendarScreen(onBack: () -> Unit, onShowSky: (Long) -> Unit, onPlanNight: (
             return@ScScreen
         }
         val list = events
+        val big = remember(list) { list?.let { SkyCalendar.nextBigNight(it, System.currentTimeMillis()) } }
         LazyColumn(
             Modifier.fillMaxSize(),
             contentPadding = PaddingValues(horizontal = ScreenMargin, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            item("alerts") { AlertsCard(alertsOn, ::setAlerts) }
+            item("next") {
+                // Held open while the year is worked out, so nothing jumps when it arrives.
+                if (big != null) NextNightCard(big, zone, onPlanNight)
+                else if (list == null) Box(Modifier.fillMaxWidth().height(NextNightHeight).clip(ScShapes.card).background(c.surface))
+            }
             item("filters") {
                 Row(
                     Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(vertical = 4.dp),
@@ -244,7 +271,7 @@ fun CalendarScreen(onBack: () -> Unit, onShowSky: (Long) -> Unit, onPlanNight: (
             }
             item("credits") {
                 Text(
-                    "Worked out on this phone for your place: the Sun, Moon and planets from Meeus' and JPL's " +
+                    "Worked out on this phone for ${placeLabel(p.loc)}: the Sun, Moon and planets from Meeus' and JPL's " +
                         "methods, meteor showers from the IMO's list. Clouds are the one thing it cannot know.",
                     style = ScType.caption, color = c.text3, modifier = Modifier.padding(top = 12.dp, bottom = 16.dp),
                 )
@@ -253,21 +280,161 @@ fun CalendarScreen(onBack: () -> Unit, onShowSky: (Long) -> Unit, onPlanNight: (
     }
 }
 
+/**
+ * Night alerts on the top bar: a Milky Way window, a meteor peak, an eclipse, a close pairing,
+ * said in the afternoon. A bell, the name where that fits beside [title], and the switch; the
+ * whole pill is the switch.
+ */
 @Composable
-private fun AlertsCard(on: Boolean, onChange: (Boolean) -> Unit) {
+private fun AlertsPill(title: String, on: Boolean, onChange: (Boolean) -> Unit) {
     val c = Sc.colors
-    ScCard(Modifier.fillMaxWidth(), padding = PaddingValues(start = 14.dp, end = 6.dp, top = 12.dp, bottom = 12.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            ScIconBadge(ScIcons.Bell, size = 40.dp)
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text("Night alerts", style = ScType.body.copy(fontWeight = FontWeight.SemiBold), color = c.text)
-                // A Milky Way window, a meteor peak, an eclipse, a close pairing: said in the afternoon.
-                Text("When tonight is worth it", style = ScType.caption, color = c.text2)
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val style = ScType.caption.copy(fontWeight = FontWeight.Medium)
+    BoxWithConstraints {
+        fun width(s: String, st: TextStyle) = with(density) { measurer.measure(s, st).size.width.toDp() }
+        val bare = 10.dp + 18.dp + 42.dp + 2.dp
+        val words = width(title, ScType.screenTitle) + 10.dp + bare + 8.dp + width("Night alerts", style) <= maxWidth
+        Row(
+            Modifier.height(40.dp)
+                .scGlow(c.accentGlow.copy(alpha = c.accentGlow.alpha * 0.35f), radius = 10.dp)
+                .clip(CircleShape)
+                .background(Brush.verticalGradient(listOf(c.raised, c.buttonSecondary)))
+                .border(1.dp, c.selectedBorder.copy(alpha = 0.75f), CircleShape)
+                .toggleable(value = on, role = Role.Switch, onValueChange = onChange)
+                .semantics { contentDescription = "Night alerts" }
+                .padding(start = 10.dp, end = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(ScIcons.Bell, null, Modifier.size(18.dp), tint = c.iconAccent)
+            if (words) {
+                Spacer(Modifier.width(5.dp))
+                Text("Night alerts", style = style, color = c.text, maxLines = 1, softWrap = false)
+                Spacer(Modifier.width(3.dp))
             }
-            ScSwitch(on, onChange)
+            ScSwitch(on, null, compact = true)
         }
     }
+}
+
+/** How tall the card at the head of the calendar stands. */
+private val NextNightHeight = 200.dp
+
+/**
+ * The one night to look forward to, at the head of the calendar: a picture of what it is, the
+ * date, its name, a few words and its rating in five dots. It opens that night in the planner.
+ */
+@Composable
+private fun NextNightCard(e: SkyEvent, zone: ZoneId, onPlan: (LocalDate) -> Unit) {
+    val c = Sc.colors
+    // The night it is seen on; what has no moment to look at (a new moon) simply its date.
+    val day = if (e.lookAtMs != null) nightDate(e, zone) else Instant.ofEpochMilli(e.atMs).atZone(zone).toLocalDate()
+    val date = day.format(DateTimeFormatter.ofPattern("EEE, MMM d", Locale.US))
+    val words = e.tagline ?: e.summary
+    Box(
+        Modifier.fillMaxWidth().height(NextNightHeight).clip(ScShapes.card).background(c.surface)
+            .border(1.dp, c.hairlineStrong, ScShapes.card)
+            .clickable(role = Role.Button, onClick = { onPlan(day) })
+            .clearAndSetSemantics {
+                contentDescription = listOf(date, e.title, words, e.rating.label).filter { it.isNotEmpty() }
+                    .joinToString(". ") + ". Plan this night."
+            },
+    ) {
+        NightPicture(e.kind, Modifier.fillMaxSize())
+        Column(Modifier.align(Alignment.BottomStart).padding(start = 105.dp, end = 14.dp, bottom = 34.dp)) {
+            Text(date, style = ScType.headline, color = c.accentText)
+            Text(e.title, style = if (e.title.length <= 18) ScType.title else ScType.screenTitle, color = c.text,
+                maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(words, style = ScType.body, color = c.text2, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (e.rating != SkyEvent.Rating.INFO) RatingDots(e.rating, Modifier.padding(top = 10.dp))
+        }
+    }
+}
+
+/** A rating as five dots and its word: Great fills all five, each step down one fewer. */
+@Composable
+private fun RatingDots(r: SkyEvent.Rating, modifier: Modifier) {
+    val c = Sc.colors
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        repeat(5) { i ->
+            Box(Modifier.size(12.dp).clip(CircleShape).background(if (i < 5 - r.ordinal) c.accent else c.hairlineStrong))
+        }
+        Text(r.label, style = ScType.bodySmall, color = c.text2)
+    }
+}
+
+/** The card's picture: stars over hills against a violet horizon, and on the left what the night is about. */
+@Composable
+private fun NightPicture(kind: SkyEvent.Kind, modifier: Modifier) {
+    val c = Sc.colors
+    val stars = remember { Random(11).let { r -> List(54) { floatArrayOf(r.nextFloat(), r.nextFloat() * 0.72f, r.nextFloat()) } } }
+    Canvas(modifier) {
+        drawRect(Brush.verticalGradient(0f to c.background, 0.6f to c.surface, 0.9f to c.accent.copy(alpha = 0.27f).compositeOver(c.surface)))
+        stars.forEach { (x, y, b) ->
+            // None behind the words, where a star reads as a stray dot.
+            if (x * size.width > 96.dp.toPx() && y > 0.24f) return@forEach
+            drawCircle(c.text.copy(alpha = 0.18f + b * 0.5f), (0.5f + b * 0.7f).dp.toPx(), Offset(x * size.width, y * size.height))
+        }
+        val o = Offset(54.dp.toPx(), size.height * 0.45f)
+        val r = 34.dp.toPx()
+        fun halo(at: Offset, radius: Float, alpha: Float) = drawCircle(
+            Brush.radialGradient(listOf(c.accent.copy(alpha = alpha), Color.Transparent), at, radius), radius, at)
+        when (kind) {
+            SkyEvent.Kind.METEORS -> listOf(Triple(-26f, 36f, 80f), Triple(12f, 10f, 56f), Triple(-10f, -24f, 40f)).forEach { (x, y, length) ->
+                val head = o + Offset(x.dp.toPx(), y.dp.toPx())
+                // Each tail points back up the sky to the shower's radiant.
+                val tail = head + Offset(0.62f, -0.78f) * length.dp.toPx()
+                drawLine(Brush.linearGradient(listOf(c.accentText, Color.Transparent), head, tail), head, tail,
+                    strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+                drawCircle(c.text, 1.6.dp.toPx(), head)
+            }
+            SkyEvent.Kind.MILKY_WAY -> withTransform({ rotate(-52f, o); scale(1f, 0.26f, o) }) {
+                drawCircle(Brush.radialGradient(listOf(c.accentText.copy(alpha = 0.55f), Color.Transparent), o, r * 2.2f), r * 2.2f, o)
+            }
+            SkyEvent.Kind.LUNAR_ECLIPSE -> {
+                halo(o, r * 1.6f, 0.3f)
+                drawCircle(Brush.radialGradient(listOf(c.accent2, c.accent2.copy(alpha = 0.45f)), o - Offset(r, r) * 0.3f, r * 1.3f), r * 0.85f, o)
+            }
+            SkyEvent.Kind.PLANET -> {
+                halo(o, r * 1.5f, 0.25f)
+                drawCircle(Brush.radialGradient(listOf(c.accentText, c.accent.copy(alpha = 0.5f)), o - Offset(r, r) * 0.25f, r), r * 0.6f, o)
+                withTransform({ rotate(-18f, o); scale(1f, 0.28f, o) }) {
+                    drawCircle(c.accentText.copy(alpha = 0.7f), r * 1.05f, o, style = Stroke(2.dp.toPx()))
+                }
+            }
+            SkyEvent.Kind.CONJUNCTION -> listOf(Triple(-12f, 8f, 7f), Triple(14f, -9f, 5f)).forEach { (x, y, radius) ->
+                val at = o + Offset(x.dp.toPx(), y.dp.toPx())
+                halo(at, radius.dp.toPx() * 3.2f, 0.5f)
+                drawCircle(c.text, radius.dp.toPx(), at)
+            }
+            // The new moon: only just there, as it is on the night. (Nothing else gets this far.)
+            else -> {
+                halo(o, r * 1.6f, 0.14f)
+                drawCircle(c.accent.copy(alpha = 0.1f), r, o)
+                drawCircle(c.accent.copy(alpha = 0.35f), r, o, style = Stroke(1.dp.toPx()))
+            }
+        }
+        hills(listOf(22f, 30f, 42f, 33f, 38f, 28f, 40f, 31f, 26f, 44f, 34f, 38f), c.accent.copy(alpha = 0.12f).compositeOver(c.surface))
+        hills(listOf(16f, 22f, 18f, 27f, 20f, 15f, 24f, 18f, 28f, 21f, 16f, 22f), c.surface)
+    }
+}
+
+/** A line of hills along the foot: [heights] in dp, evenly spaced, the ridge smoothed between them. */
+private fun DrawScope.hills(heights: List<Float>, color: Color) {
+    val step = size.width / (heights.size - 1)
+    fun y(i: Int) = size.height - heights[i].dp.toPx()
+    val ridge = Path().apply {
+        moveTo(0f, size.height)
+        lineTo(0f, y(0))
+        for (i in 1 until heights.size) {
+            val x = (i - 1) * step
+            quadraticTo(x, y(i - 1), x + step / 2f, (y(i - 1) + y(i)) / 2f)
+        }
+        lineTo(size.width, y(heights.lastIndex))
+        lineTo(size.width, size.height)
+        close()
+    }
+    drawPath(ridge, color)
 }
 
 @Composable

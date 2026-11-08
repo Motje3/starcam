@@ -206,4 +206,47 @@ class SkyCalendarTest {
         assertEquals(events.sortedBy { it.atMs }, events)
         assertTrue(events.all { it.summary.isNotBlank() })
     }
+
+    private fun event(kind: SkyEvent.Kind, rating: SkyEvent.Rating, at: String, seen: Boolean = true, end: String? = null) =
+        SkyEvent(kind, kind.name, ms(at), end?.let { ms(it) }, rating, "", lookAtMs = if (seen) ms(at) else null)
+
+    @Test
+    fun theNextBigNightIsTheFirstGreatThenGoodThenTheNewMoon() {
+        val now = ms("2026-11-08T12:00:00Z")
+        val newMoon = event(SkyEvent.Kind.NEW_MOON, SkyEvent.Rating.INFO, "2026-11-09T07:00:00Z", seen = false)
+        val pairing = event(SkyEvent.Kind.CONJUNCTION, SkyEvent.Rating.GOOD, "2026-11-20T17:00:00Z")
+        val meteors = event(SkyEvent.Kind.METEORS, SkyEvent.Rating.GREAT, "2026-12-14T01:00:00Z")
+        assertEquals(meteors, SkyCalendar.nextBigNight(listOf(newMoon, pairing, meteors), now))
+        assertEquals(pairing, SkyCalendar.nextBigNight(listOf(newMoon, pairing), now))
+        assertEquals(newMoon, SkyCalendar.nextBigNight(listOf(newMoon), now))
+        assertNull(SkyCalendar.nextBigNight(emptyList(), now))
+    }
+
+    @Test
+    fun theNextBigNightLeavesOutWhatIsGoneFarOffUnseenOrInDaylight() {
+        val now = ms("2026-11-08T12:00:00Z")
+        val pairing = event(SkyEvent.Kind.CONJUNCTION, SkyEvent.Rating.GOOD, "2026-11-20T17:00:00Z")
+        val over = event(SkyEvent.Kind.METEORS, SkyEvent.Rating.GREAT, "2026-11-08T03:00:00Z")
+        val farOff = event(SkyEvent.Kind.METEORS, SkyEvent.Rating.GREAT, "2027-08-13T00:00:00Z")
+        val unseen = event(SkyEvent.Kind.LUNAR_ECLIPSE, SkyEvent.Rating.GREAT, "2026-11-15T20:00:00Z", seen = false)
+        val solar = event(SkyEvent.Kind.SOLAR_ECLIPSE, SkyEvent.Rating.GREAT, "2026-11-16T10:00:00Z")
+        assertEquals(pairing, SkyCalendar.nextBigNight(listOf(over, unseen, solar, pairing, farOff), now))
+        // A stretch of nights still running counts, though it began before now.
+        val running = event(SkyEvent.Kind.MILKY_WAY, SkyEvent.Rating.GREAT, "2026-11-07T21:00:00Z", end = "2026-11-10T02:00:00Z")
+        assertEquals(running, SkyCalendar.nextBigNight(listOf(running, pairing), now))
+    }
+
+    @Test
+    fun theNextBigNightFromAmsterdamIsTheGeminids() {
+        val now = ms("2026-11-08T12:00:00Z")
+        val events = SkyCalendar.events(now - 6 * 3_600_000L, 366, amsterdam, ZoneId.of("Europe/Amsterdam"), 19.5)
+        val big = SkyCalendar.nextBigNight(events, now)
+        assertEquals("Geminids", big?.title)
+        assertEquals(SkyEvent.Rating.GREAT, big?.rating)
+        assertTrue(big?.tagline, big!!.tagline!!.matches(Regex("Up to ~\\d+ an hour")))
+        // Every kind that can head the calendar has its few words.
+        assertTrue(events.filter { it.rating == SkyEvent.Rating.GREAT || it.rating == SkyEvent.Rating.GOOD }
+            .filter { it.kind != SkyEvent.Kind.SOLAR_ECLIPSE }.all { it.tagline != null })
+        assertEquals("Darkest skies this month", events.first { it.kind == SkyEvent.Kind.NEW_MOON }.tagline)
+    }
 }

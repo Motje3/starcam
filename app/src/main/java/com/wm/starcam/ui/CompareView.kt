@@ -2,6 +2,7 @@ package com.wm.starcam.ui
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
@@ -42,7 +43,9 @@ import kotlin.math.roundToInt
 
 /**
  * One frame against the finished stack, same framing, split by a handle: drag (or tap) to move
- * it. The quickest way to see what stacking did - and the picture people share.
+ * it. The quickest way to see what stacking did - and the picture people share. The editing
+ * studio sets a photo against its edit the same way, in a box of its own ([modifier] without the
+ * full width) and without the words.
  */
 @Composable
 fun CompareSlider(
@@ -50,13 +53,14 @@ fun CompareSlider(
     after: ImageBitmap,
     beforeLabel: String,
     afterLabel: String,
-    modifier: Modifier = Modifier,
+    modifier: Modifier = Modifier.fillMaxWidth(),
+    showLabels: Boolean = true,
 ) {
     val c = Sc.colors
     var split by remember { mutableFloatStateOf(0.5f) }
     var width by remember { mutableIntStateOf(1) }
     Box(
-        modifier.fillMaxWidth().aspectRatio(after.width.toFloat() / after.height.coerceAtLeast(1))
+        modifier.aspectRatio(after.width.toFloat() / after.height.coerceAtLeast(1))
             .background(c.sunken)
             .onSizeChanged { width = it.width.coerceAtLeast(1) }
             .pointerInput(Unit) {
@@ -82,19 +86,21 @@ fun CompareSlider(
         Box(
             Modifier.fillMaxHeight().width(2.dp)
                 .offset { IntOffset((width * split).roundToInt() - 1.dp.roundToPx(), 0) }
-                .background(c.text),
+                .background(c.accentText),
         )
         Box(
             Modifier.align(Alignment.CenterStart)
                 .offset { IntOffset((width * split).roundToInt() - 16.dp.roundToPx(), 0) }
-                .size(32.dp).clip(CircleShape).background(c.glass),
+                .size(32.dp).clip(CircleShape).background(c.glass).border(1.dp, c.selectedBorder, CircleShape),
             contentAlignment = Alignment.Center,
         ) { Icon(ScIcons.Compare, "Drag to compare", Modifier.size(18.dp), tint = c.text) }
-        ScGlass(Modifier.align(Alignment.TopStart).padding(10.dp)) {
-            Text(beforeLabel.uppercase(), style = ScType.label, color = c.text)
-        }
-        ScGlass(Modifier.align(Alignment.TopEnd).padding(10.dp)) {
-            Text(afterLabel.uppercase(), style = ScType.label, color = c.text)
+        if (showLabels) {
+            ScGlass(Modifier.align(Alignment.TopStart).padding(10.dp)) {
+                Text(beforeLabel.uppercase(), style = ScType.label, color = c.text)
+            }
+            ScGlass(Modifier.align(Alignment.TopEnd).padding(10.dp)) {
+                Text(afterLabel.uppercase(), style = ScType.label, color = c.text)
+            }
         }
     }
 }

@@ -1,5 +1,29 @@
 # StarCam build progress (PLAN.md §10)
 
+## The store pictures' good ideas, built (2026-11-08)
+
+The owner's image AI drew eight store pictures (Desktop › Stelli screens › final) with things the
+app did not have yet; the good ones were to be added, so the pictures tell the truth:
+- **The next big night** heads the sky calendar: the first night rated Great in the coming 45 days
+  that can be seen from here, or else the first Good, or else the next new moon
+  (`SkyCalendar.nextBigNight`). A card with a picture of what the night is about, its date, name,
+  a few words (`SkyEvent.tagline`) and its rating in five dots; a tap opens that night in the
+  planner. The design drew a crescent on a new moon; the card draws a new moon as it is, only just
+  there. From Amsterdam on 8 Nov 2026 it says Mon, Dec 14, Geminids, up to ~141 an hour, Great.
+- **Night alerts** left the list for a pill on the top bar, the whole pill the switch (its word
+  only where it fits beside the title). The subtitle became "Plan your next night"; the place
+  moved to the credits at the list's foot.
+- **A slider in Edit** instead of hold-to-compare: the photo page's handle over the photo before
+  and after, once there is an edit to compare (a turn alone is none), without words on the photo.
+- The tools wait for "Save as new photo" where they waited for "HOLD TO COMPARE"; `emulator-test`
+  checks the card, the pill and that the handle follows a finger, and scrolls to the opened
+  card's buttons now that the list starts lower.
+
+Checked: the unit tests (three new, the Geminids from real sky maths among them), `emulator-test
+-Only stack,studio,calendar` all passing, and by hand from the layout: the alerts pill on and off,
+the card opening the night in the planner and Back, a saved edit opening with the handle, Reset
+taking it away, a turn alone not bringing it, a look and a turn together keeping it. No crashes.
+
 ## The owner's fourth round: Quick tools, tonight behind a moon (2026-11-05)
 
 Two more images from the owner's image AI, of the capture screen, built to match (measured from

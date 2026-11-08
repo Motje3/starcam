@@ -1,6 +1,6 @@
 # Stelli: to do before Google Play
 
-Updated 2026-11-05 on 0.6.1 (versionCode 12: the owner's new design, and the star alignment the
+Updated 2026-11-08 on 0.6.1 (versionCode 12: the owner's new design, and the star alignment the
 phone's own sessions showed to be wrong, see PROGRESS.md). Everything that needed no
 decision is done: the upload key and the signed AAB, the privacy policy and terms of use (on the
 web and in the app), the reworded card for phones without RAW, the release build checked on the
@@ -32,7 +32,8 @@ Easy: every answer is written down. In this order, as each Play Console step nee
       safety: no data collected or shared, advertising ID no; news, government, financial and
       health apps: no. Trader status: confirm it and give the terms link.
 - [ ] **Upload the bundle**: `app/build/outputs/bundle/release/app-release.aab` (0.6.1,
-      versionCode 12) to Internal testing, with Play App Signing (Google's key). Then download the APK Play makes from it (App
+      versionCode 12; rebuild it first, the one there dates from 5 Nov 02:10, before the last
+      design rounds) to Internal testing, with Play App Signing (Google's key). Then download the APK Play makes from it (App
       bundle explorer › Downloads › signed universal APK) and check it has no INTERNET permission
       (automatic protection, PLAY_STORE.md).
 
@@ -90,12 +91,19 @@ match it. Built in 0.6.0; `design/STYLE.md` is the style, PROGRESS.md says what 
       step circles, the Adjust sheet, the hold-still step, the light map with its panel; then
       every other screen made simple first, more behind a tap (settings, the photo page, the
       result, Tonight, the intro); then the capture screen's Quick tools, tonight behind a moon
-      on the top row and the session-length pill.
+      on the top row and the session-length pill; then, from the store pictures (8 Nov), the
+      calendar's next big night, Night alerts on its top bar and the slider in Edit.
 - [x] On the phone: 0.6.1's debug build installed over wireless adb on 5 Nov 2026 (a new app
       beside the old StarCam; this PC's debug key, so `tools\build.ps1` updates it, sessions kept).
 - [ ] Under a real sky.
-- [ ] Store screenshots from the new screens (`tools\ui-shots.ps1`): the owner's AI designs the
-      frames around the real screens. The ones in `store/screenshots` still show the old look.
+- [ ] Store screenshots: eight from the owner's image AI (Desktop › Stelli screens › final, 8 Nov
+      2026), being remade at 1080 × 1920. Before the public listing: real Stelli photos in 1 (the
+      Milky Way), 2 (1 photo vs 40, the same scene on both sides) and 5 (star trails), as
+      PLAY_STORE.md requires. One clear, dark night gives all three (new moon 9 Nov, 9 Dec; from
+      here the bright core is only up in daylight until spring). Also: 7 shows the Geminids (the
+      app says Mon, Dec 14) rather than a crescent on a new moon; 4 a darker spot than "may be
+      faint"; 1 the photo full-screen, spilling out of the phone; 6 a session running; 8 What's in
+      this photo. The ones in `store/screenshots` still show the old look.
 
 ## From the phone's own sessions (5 Nov 2026)
 

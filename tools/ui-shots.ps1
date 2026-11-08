@@ -147,7 +147,7 @@ if ($tile) {
         Start-Sleep -Seconds 2
         Shot '3-photo'
         for ($k = 0; $k -lt 4 -and -not ((AllText) -match '\|Edit\|'); $k++) { Down }
-        if ((Tap 'Edit') -and (WaitFor 'HOLD TO COMPARE' 90)) {
+        if ((Tap 'Edit') -and (WaitFor 'Save as new photo' 90)) {
             Start-Sleep -Seconds 4
             Shot '4-studio'
         }

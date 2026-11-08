@@ -449,19 +449,26 @@ fun ScTabs(
 
 // -------------------------------------------------------------------- switch, slider, help
 
-/** The toggle: 46 × 28 track, a light knob when on, a soft glow. Draws no white in night vision. */
+/**
+ * The toggle: 46 × 28 track ([compact]: 38 × 24, for a pill on the top bar), a light knob when on,
+ * a soft glow. Draws no white in night vision.
+ */
 @Composable
 fun ScSwitch(
     checked: Boolean,
     onCheckedChange: ((Boolean) -> Unit)?,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    compact: Boolean = false,
 ) {
     val c = Sc.colors
-    val knobX by animateDpAsState(if (checked) 21.dp else 3.dp, tween(140), label = "knob")
+    val trackWidth = if (compact) 38.dp else 46.dp
+    val trackHeight = if (compact) 24.dp else 28.dp
+    val knob = trackHeight - 6.dp
+    val knobX by animateDpAsState(if (checked) trackWidth - knob - 3.dp else 3.dp, tween(140), label = "knob")
     Box(
         modifier
-            .size(width = 50.dp, height = 44.dp)
+            .size(width = trackWidth + 4.dp, height = 44.dp)
             .alpha(if (enabled) 1f else 0.4f)
             .then(
                 if (onCheckedChange != null) Modifier.clickable(
@@ -471,7 +478,7 @@ fun ScSwitch(
         contentAlignment = Alignment.Center,
     ) {
         Box(
-            Modifier.size(width = 46.dp, height = 28.dp)
+            Modifier.size(width = trackWidth, height = trackHeight)
                 .scGlow(c.accentGlow.copy(alpha = c.accentGlow.alpha * 0.5f), radius = 8.dp, enabled = checked)
                 .clip(CircleShape)
                 .background(
@@ -481,7 +488,7 @@ fun ScSwitch(
                 .border(1.dp, if (checked) c.selectedBorder else c.hairlineStrong, CircleShape),
         ) {
             Box(
-                Modifier.offset(x = knobX, y = 3.dp).size(22.dp).clip(CircleShape)
+                Modifier.offset(x = knobX, y = 3.dp).size(knob).clip(CircleShape)
                     .background(if (checked) c.switchKnobOn else c.switchKnobOff),
             )
         }

@@ -29,6 +29,8 @@ data class SkyEvent(
     val details: List<String> = emptyList(),
     /** When to look, for the sky view; null when it cannot be seen from here. */
     val lookAtMs: Long? = null,
+    /** A few words for the head of the calendar ("Up to ~120 an hour"), where [summary] is too long. */
+    val tagline: String? = null,
 ) {
     enum class Kind { MILKY_WAY, METEORS, NEW_MOON, FULL_MOON, LUNAR_ECLIPSE, SOLAR_ECLIPSE, PLANET, CONJUNCTION }
 
@@ -91,6 +93,7 @@ object SkyCalendar {
 
     private const val HOUR = 3_600_000L
     private const val DAY = 86_400_000L
+    private const val BIG_NIGHT_DAYS = 45
     private const val J2000 = 2451545.0
 
     /** The Milky Way's nights are worked out this far ahead. */
@@ -115,6 +118,19 @@ object SkyCalendar {
         out += planetEvents(fromMs, toMs, loc, zone)
         out += conjunctions(fromMs, toMs, loc, zone)
         return out.sortedBy { it.atMs }
+    }
+
+    /**
+     * The one night to look forward to, for the head of the calendar: of [events] (in time order)
+     * in the coming [BIG_NIGHT_DAYS] days, seen from here and after dark, the first rated Great, or
+     * else the first rated Good; or else the next new moon, the month's darkest nights.
+     */
+    fun nextBigNight(events: List<SkyEvent>, nowMs: Long): SkyEvent? {
+        val ahead = events.filter { (it.endMs ?: it.lookAtMs ?: it.atMs) >= nowMs && it.atMs <= nowMs + BIG_NIGHT_DAYS * DAY }
+        fun first(r: SkyEvent.Rating) =
+            ahead.firstOrNull { it.rating == r && it.lookAtMs != null && it.kind != SkyEvent.Kind.SOLAR_ECLIPSE }
+        return first(SkyEvent.Rating.GREAT) ?: first(SkyEvent.Rating.GOOD)
+            ?: ahead.firstOrNull { it.kind == SkyEvent.Kind.NEW_MOON }
     }
 
     // ------------------------------------------------------------------------- formatting
@@ -218,6 +234,7 @@ object SkyCalendar {
                     summary = "The darkest nights of the month: around now the Moon is out of the way all night.",
                     details = listOf("New moon at ${hm(at, zone)} on ${weekdayDayMonth(at, zone)}. For about four nights " +
                         "either side the Moon stays below the horizon through most of the dark hours."),
+                    tagline = "Darkest skies this month",
                 )
                 2 -> {
                     val km = SkyMath.moonEcliptic(jde(at)).distanceKm
@@ -355,7 +372,7 @@ object SkyCalendar {
         details += "For photos: the widest lens, frames as long as the stars allow, and many of them - a few " +
             "will catch a meteor. METEOR mode keeps shooting and flags the frames with streaks."
         return SkyEvent(SkyEvent.Kind.METEORS, title, peakMs, rating = rating, summary = summary,
-            details = details, lookAtMs = bestAt)
+            details = details, lookAtMs = bestAt, tagline = "Up to ~${bestRate.roundToInt()} an hour")
     }
 
     // -------------------------------------------------------------------- Milky Way nights
@@ -436,6 +453,7 @@ object SkyCalendar {
                         "away from towns in that direction." else null,
                 ),
                 lookAtMs = best.window.startMs + (best.window.durationMs / 2),
+                tagline = if (run.size == 1) "The core up in a dark sky" else "${run.size} nights with the core up",
             )
             i = j + 1
         }
@@ -586,6 +604,7 @@ object SkyCalendar {
                 else "${weekdayDayMonth(e.greatestMs, zone)}: not visible from here.",
                 details = details,
                 lookAtMs = if (visible) (if (greatestUp) e.greatestMs else upAt) else null,
+                tagline = "Greatest at ${hm(e.greatestMs, zone)}",
             )
         }
 
@@ -776,6 +795,7 @@ object SkyCalendar {
                     when (name) { "Jupiter" -> "its four largest moons in a line."; "Saturn" -> "it as a slightly oval dot (the rings)."; else -> "its colour." },
             ),
             lookAtMs = bestT,
+            tagline = "Closest and brightest this year",
         )
     }
 
@@ -802,6 +822,7 @@ object SkyCalendar {
                 else "Mercury is only ever seen low in twilight; this is one of its better showings from here.",
             ),
             lookAtMs = twilight,
+            tagline = "${h.altDeg.roundToInt()}° up ${if (east) "after sunset" else "before sunrise"}",
         )
     }
 
@@ -912,6 +933,7 @@ object SkyCalendar {
                 "${bestAlt.roundToInt()}° up in the ${compass(bestAz)}$moonText.",
             details = listOf("A pretty pairing for a landscape at twilight: the 1x lens frames both with room for the foreground."),
             lookAtMs = t,
+            tagline = "${"%.1f".format(Locale.US, sep)}° apart",
         )
     }
 }

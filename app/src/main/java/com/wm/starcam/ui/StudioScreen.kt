@@ -7,7 +7,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,7 +35,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
@@ -52,7 +50,6 @@ import com.wm.starcam.engine.NativeEngine
 import com.wm.starcam.session.stackPhoto
 import com.wm.starcam.ui.components.ScButton
 import com.wm.starcam.ui.components.ScButtonKind
-import com.wm.starcam.ui.components.ScGlass
 import com.wm.starcam.ui.components.ScLabel
 import com.wm.starcam.ui.components.ScNotice
 import com.wm.starcam.ui.components.ScScreen
@@ -154,7 +151,6 @@ fun StudioScreen(dir: File, vm: StarCamViewModel, onBack: () -> Unit) {
     var preview by remember { mutableStateOf<ImageBitmap?>(null) }
     // The photo as the session made it, as the master is stored (unturned).
     var original by remember { mutableStateOf<Bitmap?>(null) }
-    var comparing by remember { mutableStateOf(false) }
     var developing by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var savedMessage by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
@@ -232,6 +228,8 @@ fun StudioScreen(dir: File, vm: StarCamViewModel, onBack: () -> Unit) {
     }
     // The original, turned the way the edit is.
     val before = remember(original, params.rotation) { original?.let { turned(it, params.rotation).asImageBitmap() } }
+    // Whether there is anything to set against it: a turn alone changes nothing to compare.
+    val edited = params.copy(rotation = defaults.rotation) != defaults
     BackHandler(enabled = saving) { /* the photo is being written; leaving would lose it */ }
 
     fun save() {
@@ -295,30 +293,21 @@ fun StudioScreen(dir: File, vm: StarCamViewModel, onBack: () -> Unit) {
                 modifier = Modifier.padding(horizontal = ScreenMargin))
             return@ScScreen
         }
-        // ---- the picture: hold it to see the photo before these changes
+        // ---- the picture: once edited, a handle splits it into the photo before and after
         Box(
-            Modifier.fillMaxWidth().weight(1f).background(c.sunken)
-                .pointerInput(Unit) {
-                    detectTapGestures(onPress = {
-                        comparing = true
-                        tryAwaitRelease()
-                        comparing = false
-                    })
-                },
+            Modifier.fillMaxWidth().weight(1f).background(c.sunken),
             contentAlignment = Alignment.Center,
         ) {
-            val shown = if (comparing) before ?: preview else preview
-            if (shown != null) {
-                Image(shown, if (comparing) "Before" else "Edited photo", Modifier.fillMaxSize(),
+            val shown = preview
+            val was = before
+            when {
+                shown == null -> ScSpinner(size = 28.dp)
+                was != null && edited -> CompareSlider(was, shown, "Before", "Edited photo", Modifier, showLabels = false)
+                else -> Image(shown, "Edited photo", Modifier.fillMaxSize(),
                     contentScale = ContentScale.Fit, colorFilter = scImageFilter)
-            } else {
-                ScSpinner(size = 28.dp)
             }
             if (developing || saving) {
                 ScSpinner(Modifier.align(Alignment.TopEnd).padding(12.dp), size = 18.dp)
-            }
-            ScGlass(Modifier.align(Alignment.BottomStart).padding(10.dp)) {
-                Text(if (comparing) "BEFORE" else "HOLD TO COMPARE", style = ScType.label, color = c.text)
             }
         }
         // ---- the controls

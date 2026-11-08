@@ -442,7 +442,7 @@ if (Wanted '04') {
             if ((ScrollTo 'Details') -and (Tap 'Details')) { Page 'details' 2 }
             Top
             if ((ScrollTo 'Edit') -and (Tap 'Edit')) {
-                WaitFor 'HOLD TO COMPARE' 90 | Out-Null
+                WaitFor 'Save as new photo' 90 | Out-Null
                 WaitFor 'Look: Mono' 30 | Out-Null
                 Start-Sleep -Seconds 3
                 Shot 'edit, looks'

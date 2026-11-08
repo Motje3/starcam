@@ -90,6 +90,16 @@ each; the rest waits one tap away.
 - **A pill that opens a list** (the session length, over the viewfinder's foot): a clock, the
   value and a chevron in a dark glass pill; tapped, the choices stand on it in a glass card, the
   chosen one lit. The lenses share its row, on the right.
+- **A pill with a switch** (Night alerts, on the calendar's top bar): a bell, the name where it
+  fits beside the title, a small switch (38 × 24); the whole pill is the switch.
+- **The next big night** (the head of the calendar, from the owner's store picture, 8 Nov 2026): a
+  card 200 dp tall, stars over two lines of hills against a violet horizon; on its left what the
+  night is about (meteors, the Milky Way, an eclipse, a planet, a pairing, or a new moon as it is:
+  only just there); the date in lavender, the name at 26 sp, a few words, the rating as five dots.
+  It opens that night in the planner.
+- **Before and after** (the photo page's 1 frame vs stacked, Edit): a lavender line and a round
+  handle with a lavender edge, following the finger. In Edit it comes once there is an edit to
+  compare, without words on the photo.
 - **Segment strip** (focus and the start delay in Adjust): a dark glass pill of choices; the
   chosen one lit, edged and glowing.
 - **Tabs** (the modes): icon and word, the chosen one lavender with a glowing bar under it.

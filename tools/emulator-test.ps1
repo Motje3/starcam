@@ -6,7 +6,8 @@
 #   stack       a synthetic starfield session (make-test-session.ps1) stacked from Sessions, recorded
 #               as shot with the phone upright: 7 of 8 frames, a portrait photo, a 1-frame comparison
 #   studio      that session opened in the editing studio: the Vivid look picked from the looks'
-#               pictures, the Detail tab, restyled and saved as a new photo, the edit kept with it
+#               pictures, the handle comparing it with the photo before, the Detail tab, restyled
+#               and saved as a new photo, the edit kept with it
 #   replay      that session's "watch it build up" video made, kept in the session and the gallery
 #   timelapse   that session's kept RAW frames developed into a timelapse video, kept and in the gallery
 #   meteors     a meteor watch with one meteor in it stacked: the meteor found and cut out of its frame
@@ -18,7 +19,8 @@
 #               viewfinder, closed, from Quick tools; Find: the North Star picked, where it stands
 #   darksky     the dark-sky map from the top bar (showing your Bortle class) and from the planner:
 #               your sky, a suggested spot, planned for there
-#   calendar    the sky calendar: a year listed, the Geminids opened in the sky view
+#   calendar    the sky calendar: the next big night at its head, the alerts' switch on the top bar,
+#               a year listed, the Geminids opened in the sky view
 #   autopilot   two sessions under a simulated sky (SkySim): cloud left out, waited out and
 #               replaced, a focus drift refocused, the planned 12 good frames stacked; then dawn
 #               ending a session early
@@ -263,13 +265,22 @@ if (Wanted 'studio') {
         for ($k = 0; $k -lt 4 -and -not ((AllText) -match '\|Edit\|'); $k++) { A shell input swipe 636 2000 636 1200 300; Start-Sleep -Milliseconds 700 }
         for ($k = 0; $k -lt 6 -and -not ((AllText) -match '\|Edit\|'); $k++) { A shell input swipe 636 900 636 2200 300; Start-Sleep -Milliseconds 700 }
         Tap 'Edit' | Out-Null
-        $opened = WaitFor 'HOLD TO COMPARE' 90
+        $opened = WaitFor 'Save as new photo' 90
         # The looks, each a picture of this photo: Vivid picked.
         $looks = WaitFor 'Look: Mono' 30
         Start-Sleep -Seconds 3
         Shot 'studio-open'
+        # Nothing to compare yet; a look brings the handle, which follows a finger across the photo.
+        $plain = -not ((AllText) -match 'Drag to compare')
         $vivid = Tap 'Look: Vivid'
+        $handle = WaitFor 'Drag to compare' 15
         Start-Sleep -Seconds 3
+        function HandleX { $n = Nodes | Where-Object { $_.'content-desc' -eq 'Drag to compare' } | Select-Object -First 1; if ($n) { (Center $n)[0] } else { 0 } }
+        $x0 = HandleX
+        A shell input swipe ($x0 - 100) 800 ($x0 + 220) 800 400
+        Start-Sleep -Seconds 1
+        $x1 = HandleX
+        $follows = $x1 -gt ($x0 + 150)
         Shot 'studio-vivid'
         Tap 'Detail' | Out-Null
         $detail = WaitFor 'Milky Way detail.*Smaller stars' 10
@@ -285,8 +296,8 @@ if (Wanted 'studio') {
         # Kept with the session for the next time: the look's Milky Way detail in it.
         $kept = ((A shell cat "$out/edit.json") -join '') -match '"detail":0\.5'
         Back
-        Check 'studio' ($opened -and $looks -and $vivid -and $detail -and $saved -and [bool]$edit -and $kept) `
-            "opened=$opened looks=$looks vivid=$vivid detail=$detail saved=$saved file=$([bool]$edit) kept=$kept"
+        Check 'studio' ($opened -and $looks -and $plain -and $vivid -and $handle -and $follows -and $detail -and $saved -and [bool]$edit -and $kept) `
+            "opened=$opened looks=$looks plain=$plain vivid=$vivid handle=$handle follows=$follows ($x0 to $x1) detail=$detail saved=$saved file=$([bool]$edit) kept=$kept"
     }
 }
 
@@ -628,6 +639,9 @@ if (Wanted 'calendar') {
         for ($k = 0; $k -lt 6 -and -not ((AllText) -match 'Sky calendar'); $k++) { A shell input swipe 636 2200 636 900 300; Start-Sleep -Milliseconds 700 }
         if (Tap 'Sky calendar') {
             $listed = WaitFor 'New moon' 40
+            # At its head the next big night, and the alerts' switch on the top bar.
+            $head = (AllText) -match 'Plan this night'
+            $alerts = (AllText) -match 'Night alerts'
             Shot 'calendar'
             if (Tap 'Meteors') {
                 Start-Sleep -Seconds 1
@@ -635,8 +649,9 @@ if (Wanted 'calendar') {
                 if (Tap 'Geminids') {
                     $opened = WaitFor 'From your sky|Radiant in Gemini' 10
                     Shot 'calendar-geminids'
-                    # The opened card's buttons sit below the fold.
-                    A shell input swipe 636 2000 636 1200 400
+                    # The opened card's buttons sit below the fold; then clear of the gesture bar.
+                    for ($k = 0; $k -lt 5 -and -not ((AllText) -match '\|Sky view\|'); $k++) { A shell input swipe 636 2000 636 1200 400; Start-Sleep -Seconds 1 }
+                    A shell input swipe 636 2000 636 1500 400
                     Start-Sleep -Seconds 1
                     if (Tap 'Sky view') { $sky = WaitFor 'The sky at' 20 }
                     $n = Nodes | Where-Object { $_.'content-desc' -eq 'Close the sky view' } | Select-Object -First 1
@@ -645,7 +660,7 @@ if (Wanted 'calendar') {
             }
         }
     }
-    Check 'calendar' ($listed -and $opened -and $sky) "listed=$listed geminids=$opened sky view=$sky"
+    Check 'calendar' ($listed -and $head -and $alerts -and $opened -and $sky) "listed=$listed head=$head alerts=$alerts geminids=$opened sky view=$sky"
 }
 
 # ---- the autopilot under a simulated sky (camera/SkySim.kt): cloud over light attempts 5-8, the
@@ -669,7 +684,7 @@ if ($Release -and (Wanted 'autopilot')) {
     $cloud = [int]$ap.leftOutCloud; $soft = [int]$ap.leftOutSoft; $refocused = [int]$ap.refocused; $checks = [int]$ap.checks
     # Edit, beside Share on the result: the studio on this photo.
     $edit = $false
-    if (Tap 'Edit') { $edit = WaitFor 'HOLD TO COMPARE' 90 }
+    if (Tap 'Edit') { $edit = WaitFor 'Save as new photo' 90 }
     Back
     # Dawn: the sky brightening 60% a frame from attempt 8 ends a 16-frame plan early.
     Launch | Out-Null
