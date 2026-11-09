@@ -273,7 +273,8 @@ What Play's review needs from the app and the repository (PLAY_STORE.md has the 
   internet access and the two can never differ. `util/LegalPage.kt` reads the pages' blocks
   (h1, h2, p, li); `LegalPageTest` checks both pages read whole and carry no `{{placeholder}}`.
 - **Upload key and the signed bundle.** `D:\Code\keys\stelli-upload.jks` (outside the
-  repository, see DEBUGGING.md), `keystore.properties` git-ignored. The release APK and AAB are
+  repository, see DEBUGGING.md; since 9 Nov 2026 in `keys\` in this folder, git-ignored),
+  `keystore.properties` git-ignored. The release APK and AAB are
   signed with it, target API 36, arm64, 16 KB-aligned, and have no INTERNET permission (aapt2).
 - **The release build on the emulator**: `tools\emulator-test.ps1 -Release` runs the checks on
   the R8 build, sessions started from the shutter.

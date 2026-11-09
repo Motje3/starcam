@@ -76,6 +76,19 @@ function Tap([string]$label) {
     Start-Sleep -Milliseconds 800
     $true
 }
+# A video's row has one button, Make: the one level with the row's name.
+function TapMake([string]$title) {
+    $all = Nodes
+    $t = $all | Where-Object { $_.text -eq $title } | Select-Object -First 1
+    if (-not $t) { return $false }
+    $y = (Center $t)[1]
+    $b = $all | Where-Object { $_.text -eq 'Make' } | Sort-Object { [math]::Abs((Center $_)[1] - $y) } | Select-Object -First 1
+    if (-not $b -or [math]::Abs((Center $b)[1] - $y) -gt 200) { return $false }
+    $c = Center $b
+    A shell input tap $c[0] $c[1]
+    Start-Sleep -Milliseconds 800
+    $true
+}
 function WaitFor([string]$pattern, [int]$seconds) {
     $deadline = (Get-Date).AddSeconds($seconds)
     while ((Get-Date) -lt $deadline) {
@@ -177,6 +190,8 @@ if (Wanted 'self-test') {
     Tool 'Settings' | Out-Null
     for ($k = 0; $k -lt 4 -and -not ((AllText) -match '\|Advanced\|'); $k++) { A shell input swipe 1100 590 150 590 300; Start-Sleep -Milliseconds 700 }
     Tap 'Advanced' | Out-Null
+    # The self-test is one of the rows folded under the tab's Troubleshooting.
+    for ($k = 0; $k -lt 8 -and -not (Tap 'Troubleshooting'); $k++) { A shell input swipe 636 2200 636 1000 300; Start-Sleep -Milliseconds 700 }
     for ($k = 0; $k -lt 8 -and -not ((AllText) -match 'Engine self-test'); $k++) { A shell input swipe 636 2200 636 1000 300; Start-Sleep -Milliseconds 700 }
     Tap 'Engine self-test' | Out-Null
     Tap 'Run self-test' | Out-Null
@@ -327,10 +342,8 @@ if (Wanted 'replay') {
         $name = $rname
         # Only frames read back from this video count.
         A shell run-as com.wm.stelli rm -rf cache/replay_check 2>&1 | Out-Null
-        for ($k = 0; $k -lt 6 -and -not ((AllText) -match '\|Make video\|'); $k++) { A shell input swipe 636 2000 636 1200 300; Start-Sleep -Milliseconds 700 }
-        $card = Tap 'Make video'
-        # Its message comes under the buttons: the card's lower part into view.
-        A shell input swipe 636 1800 636 1300 300
+        for ($k = 0; $k -lt 6 -and -not ((AllText) -match '\|Watch it build up\|'); $k++) { A shell input swipe 636 2000 636 1200 300; Start-Sleep -Milliseconds 700 }
+        $card = TapMake 'Watch it build up'
         $made = WaitFor 'Saved to the gallery \(Movies' 240
         Shot 'replay'
         $mp4 = (A shell ls -l "$sessions/$name/out/stack_replay.mp4") -join ''
@@ -362,8 +375,8 @@ if (Wanted 'timelapse') {
     } else {
         # Only frames read back from this video count.
         A shell run-as com.wm.stelli rm -rf cache/timelapse_check 2>&1 | Out-Null
-        for ($k = 0; $k -lt 8 -and -not ((AllText) -match '\|Make timelapse\|'); $k++) { A shell input swipe 636 2000 636 1200 300; Start-Sleep -Milliseconds 700 }
-        $card = Tap 'Make timelapse'
+        for ($k = 0; $k -lt 8 -and -not ((AllText) -match '\|Timelapse\|'); $k++) { A shell input swipe 636 2000 636 1200 300; Start-Sleep -Milliseconds 700 }
+        $card = TapMake 'Timelapse'
         $size = 0
         $deadline = (Get-Date).AddSeconds(300)
         while ((Get-Date) -lt $deadline -and $size -eq 0) {
@@ -449,7 +462,8 @@ if (Wanted 'whatsin') {
         # The card sits under the photo.
         for ($k = 0; $k -lt 4 -and -not ((AllText) -match '\|Find out\|'); $k++) { A shell input swipe 636 2000 636 1300 300; Start-Sleep -Milliseconds 700 }
         Tap 'Find out' | Out-Null
-        $found = WaitFor 'stars recognised' 90
+        # The answer starts at the top of the card; its count of stars may be below the fold.
+        $found = WaitFor '\|Orion|stars recognised' 90
         $orion = (AllText) -match '\|Orion'
         Shot 'whatsin-answer'
         for ($k = 0; $k -lt 4; $k++) { A shell input swipe 636 900 636 2200 300; Start-Sleep -Milliseconds 500 }
@@ -615,7 +629,7 @@ if (Wanted 'darksky') {
             if (Tap 'Nearest darker sky') {
                 $spot = WaitFor 'Navigate' 10
                 Shot 'darksky-spot'
-                if (Tap 'Plan there') {
+                if (Tap 'Plan here') {
                     # The planner for there; its "Planned for" note is at the foot of the page.
                     WaitFor 'Show me the sky|Planned for' 30 | Out-Null
                     for ($k = 0; $k -lt 6 -and -not ((AllText) -match 'Planned for'); $k++) { A shell input swipe 636 2000 636 1000 300; Start-Sleep -Milliseconds 700 }

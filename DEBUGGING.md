@@ -111,9 +111,10 @@ deletes everything under `Android/media/com.wm.stelli` (every session, frame and
 or `assembleRelease` builds a minified (R8), resource-shrunk build of about 11 MB instead of the
 debug APK's 30+, with the native symbols attached for Play's crash reports. It is signed with the
 upload key named in `keystore.properties` (git-ignored, like the key; never commit either); without
-it the output is unsigned. The upload key was created on 4 November 2026: `D:\Code\keys\stelli-upload.jks`,
-outside the repository, with its password in `stelli-upload-README.txt` beside it. Keep that folder
-backed up off this computer; a lost upload key is reset through Play Console (App integrity). Its
+it the output is unsigned. The upload key was created on 4 November 2026: `keys\stelli-upload.jks` in
+this folder (all of `keys\` is git-ignored: the repository is public), with its password in
+`stelli-upload-README.txt` beside it. Keep that folder backed up off this computer (`git clean -x`
+would delete it); a lost upload key is reset through Play Console (App integrity). Its
 certificate's SHA-256 is `E3:27:6E:28:…:98:B4:28:6A`. On another computer, recreate
 `keystore.properties` from `keystore.properties.example` and the README.
 

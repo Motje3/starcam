@@ -1,6 +1,6 @@
 # Stelli: to do before Google Play
 
-Updated 2026-11-08 on 0.6.1 (versionCode 12: the owner's new design, and the star alignment the
+Updated 2026-11-09 on 0.6.1 (versionCode 12: the owner's new design, and the star alignment the
 phone's own sessions showed to be wrong, see PROGRESS.md). Everything that needed no
 decision is done: the upload key and the signed AAB, the privacy policy and terms of use (on the
 web and in the app), the reworded card for phones without RAW, the release build checked on the
@@ -16,24 +16,23 @@ night alerts, the data and font licences credited in Settings.
 
 Easy: every answer is written down. In this order, as each Play Console step needs the one before.
 
-- [ ] **Back up the upload key.** Copy `D:\Code\keys` (the key and the README with its password)
-      off this computer: a password manager, USB stick or cloud drive.
+- [x] **Back up the upload key.** Copied off this computer by the owner, 9 Nov 2026. `keys\` in this
+      folder (git-ignored) is the copy every release build is signed with.
 - [x] **Publish the privacy policy and terms.** GitHub Pages (Settings › Pages, `main`, `/docs`),
       on since 4 Nov 2026: https://motje3.github.io/starcam/legal/privacy.html and
       `.../legal/terms.html`. The app shows its own copy either way.
 - [x] **Trader status.** Declared 4 Nov 2026 (Manage account › Account details › About you).
 - [x] **Create the app.** "Stelli: Night Sky Camera", `com.wm.stelli`, Free (a free app can never
       become paid, but it can sell in-app products).
-- [ ] **Store listing**: the texts in `store/listing.md`, `icon-512.png`, `feature-graphic.png` and
-      the screenshots (to be made from the new screens, "The new look" below); category
-      Photography, email info@siteaanpakkers.com.
-- [ ] **App content** (the answers in PLAY_STORE.md): privacy policy (the URL above), ads no, app
-      access without restrictions, the content rating questionnaire, target audience 13+, data
-      safety: no data collected or shared, advertising ID no; news, government, financial and
-      health apps: no. Trader status: confirm it and give the terms link.
+- [x] **Store listing**: saved 9 Nov 2026 with the eight pictures from the owner's image AI ("The
+      new look" below) and not sent for review: the public listing waits for real photos. Category
+      Photography, email info@siteaanpakkers.com, tags Camera and Photography.
+- [x] **App content** (the answers in PLAY_STORE.md): every form filled in on 9 Nov 2026, from the
+      Dashboard's "Set up your app" list, waiting in Publishing overview. Content rating: Everyone,
+      PEGI 3. The foreground service form comes after the upload.
 - [ ] **Upload the bundle**: `app/build/outputs/bundle/release/app-release.aab` (0.6.1,
-      versionCode 12; rebuild it first, the one there dates from 5 Nov 02:10, before the last
-      design rounds) to Internal testing, with Play App Signing (Google's key). Then download the APK Play makes from it (App
+      versionCode 12, rebuilt 9 Nov 2026 from 6083813, with the last design rounds) to Internal
+      testing, with Play App Signing (Google's key). Then download the APK Play makes from it (App
       bundle explorer › Downloads › signed universal APK) and check it has no INTERNET permission
       (automatic protection, PLAY_STORE.md).
 
@@ -68,13 +67,14 @@ features are Pro is decided after the testing.
 
 ## Done
 
-- [x] **Upload key.** Created 4 Nov 2026 in `D:\Code\keys` (outside the repository), with its
-      password in the README beside it and in `keystore.properties` (git-ignored).
+- [x] **Upload key.** Created 4 Nov 2026; in `keys\` in this folder since 9 Nov, with its password
+      in the README beside it and in `keystore.properties` (all git-ignored).
 - [x] **Privacy policy and terms of use.** `docs/legal`, shown in the app under Settings ›
       Advanced from the same files. Contact: info@siteaanpakkers.com (chosen 4 Nov 2026:
       `wm-websolutions.nl` is not registered, so info@wm-websolutions.nl receives nothing). Give
       the Play listing the same email.
-- [x] **Check the release build.** `tools\emulator-test.ps1 -Release`, see PROGRESS.md.
+- [x] **Check the release build.** `tools\emulator-test.ps1 -Release`, see PROGRESS.md. Again on
+      9 Nov 2026 with the bundle to upload: 15 of 15, and no INTERNET permission (aapt2).
 - [x] **Play Console account.** Organisation W&M Websolutions with its D-U-N-S number (in the
       local `.env`, gitignored, kept out of this public repo). An organisation account skips the
       12 testers / 14 days closed test.
@@ -96,14 +96,17 @@ match it. Built in 0.6.0; `design/STYLE.md` is the style, PROGRESS.md says what 
 - [x] On the phone: 0.6.1's debug build installed over wireless adb on 5 Nov 2026 (a new app
       beside the old StarCam; this PC's debug key, so `tools\build.ps1` updates it, sessions kept).
 - [ ] Under a real sky.
-- [ ] Store screenshots: eight from the owner's image AI (Desktop › Stelli screens › final, 8 Nov
-      2026), being remade at 1080 × 1920. Before the public listing: real Stelli photos in 1 (the
-      Milky Way), 2 (1 photo vs 40, the same scene on both sides) and 5 (star trails), as
-      PLAY_STORE.md requires. One clear, dark night gives all three (new moon 9 Nov, 9 Dec; from
-      here the bright core is only up in daylight until spring). Also: 7 shows the Geminids (the
-      app says Mon, Dec 14) rather than a crescent on a new moon; 4 a darker spot than "may be
-      faint"; 1 the photo full-screen, spilling out of the phone; 6 a session running; 8 What's in
-      this photo. The ones in `store/screenshots` still show the old look.
+- [ ] Store screenshots: eight from the owner's image AI (Desktop › Stelli screens › google-play
+      fotos final, 1080 × 1920), uploaded 9 Nov 2026 in this order: Milky Way, 1 photo vs 40, One
+      tap, Light map, Star trails, Calendar, Find, Edit. Before the public listing: real Stelli
+      photos in the five that show a photo as Stelli's result (Milky Way, 1 photo vs 40 with the
+      same scene on both sides, One tap, Star trails, Edit), as PLAY_STORE.md requires; pictures an
+      image AI made or edited carry Play's AI label. One clear, dark night gives them all (new
+      moon 9 Nov, 9 Dec; from here the bright core is only up in daylight until spring). Also:
+      Calendar's star touches the top edge, and it rates a new moon Great, which the app never
+      does (the app says Geminids, Mon, Dec 14); Light map a darker spot than "may be faint"; One
+      tap a session running; Edit What's in this photo. The ones in `store/screenshots` still show
+      the old look.
 
 ## From the phone's own sessions (5 Nov 2026)
 

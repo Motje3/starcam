@@ -83,11 +83,14 @@ name or logo.
 
 ### App content
 
+The Dashboard's "Set up your app" list opens each of these forms; the page itself is under Monitor
+and improve › Policy and programs › App content. All answered on 9 Nov 2026.
+
 | Form | Answer |
 |---|---|
 | Privacy policy | the page's URL |
 | Ads | No, the app does not contain ads |
-| App access | All functionality is available without any access restrictions |
+| App access (the Dashboard's "Sign-in details") | All functionality is available without any access restrictions |
 | Content rating | see below |
 | Target audience | 13–15, 16–17 and 18+ (not under 13); appeals to children: No |
 | Data safety | see below |
@@ -110,7 +113,9 @@ name or logo.
 
 Category: the one for all other apps (not a game). Violence, sexuality, language, drugs, gambling:
 none. Users can interact or exchange content: No. Shares the user's location with other users:
-No. Digital purchases: No. Unrestricted internet access: No. Expected: Everyone, PEGI 3.
+No. Digital purchases: No. Unrestricted internet access: No. Also asked, all No: online content;
+cash rewards, gift cards, crypto or NFTs; primarily a news or educational product. Result (9 Nov
+2026): ESRB Everyone, PEGI 3, USK 0, ClassInd L, IARC 3+. Digital purchases changes with Pro.
 
 ### Foreground service: Camera
 
@@ -140,7 +145,16 @@ The texts to paste and the graphics are in `store/` (`listing.md`). The specs th
 - **Feature graphic**: 1024 × 500, JPEG or 24-bit PNG (no transparency).
 - **Phone screenshots**: 2 to 8, JPEG or 24-bit PNG, each side 320 to 3,840 px, the long side at
   most twice the short one; 1080 × 1920 recommended.
-- **Category** Photography; a contact email is required.
+- **Tablet screenshots**: optional (Google's page does not require them, and "Tablet assets" has no
+  star on its heading, read 9 Nov 2026), left empty.
+- **Category** Photography; a contact email is required. Tags: Camera and Photography (Play has no
+  Astronomy tag).
+- **AI asset declaration** (the review step of the listing): "Label assets as created or edited
+  using AI" for whatever an image AI made or edited, the eight screenshots among them. Each image
+  is declared on its own, with no exception for mock-ups or stylised art; the page states no effect
+  on ranking and no penalty (https://support.google.com/googleplay/android-developer/answer/17262077,
+  read 9 Nov 2026). Pictures made from real photos and screens without an image AI need no label.
+  The label does not lift the rule against misleading screenshots.
 
 ### The privacy policy: what it covers
 
