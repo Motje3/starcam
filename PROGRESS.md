@@ -1,5 +1,35 @@
 # StarCam build progress (PLAN.md §10)
 
+## The owner's first go on the Play build: finding you, a cleaner viewfinder (0.6.2, 2026-11-09)
+
+**"Finding you" took forever, or for ever.** From the phone (`dumpsys location`, the app's log):
+- Stelli has approximate location only, and Android turns such a request into
+  `ProviderRequest[@+10m, LOW_POWER]`: no provider answered it, indoors, in the 15-20 s it was
+  given (`locations = 0` on every one).
+- The phone meanwhile held a position minutes old. `DeviceLocation.current` read it only after
+  its 15 s timeout: on 5 Nov the map got its place 19 s after opening.
+- The search belonged to the screen. All five searches of 9 Nov ended after 1-10 s, as the screen
+  was left; the next screen knew nothing of it and started again, so 15 s were never reached.
+
+So: the position the phone already holds comes first, and answers at once when it is under 30
+minutes old (`searchPlace`, tested without Android). Up to 6 hours old it is shown and improved on
+quietly; older or none, the search shows and takes at most 25 s. `PlaceFinder` is the one search
+for the app, outliving the screens; `SkyPlaceStore.place` carries what it finds to every open
+screen, so the light map opens by itself. Once the permission is given nobody taps anything.
+`FindingYou` replaces the static words: a pin sending out rings. The log now says how each search
+went (never where).
+
+Also on the capture screen: no gradient over the viewfinder's top and foot, no compass, and the
+session length and the lenses smaller (36 dp pills in a 44 dp touch height), 10 dp higher and
+see-through (42 %), the chosen lens in a neutral light fill instead of violet.
+
+Checked: the unit tests (`PlaceSearchTest`, five new); `emulator-test -Release` 15 of 15 and no
+INTERNET permission; `-Only place` (new, debug builds): no saved place, the map open by itself in
+2.2 s. By hand on the emulator: from a cold boot with no position known, Finding you, an answer
+after 3.8 s and the map opening; with location off, saying so at once. On the phone itself it is
+still to be seen, through Play. The two-hour "Finding you" the owner saw is not explained by the
+phone's records (no search ran past 10 s); a search can no longer outlast 25 s.
+
 ## The store pictures' good ideas, built (2026-11-08)
 
 The owner's image AI drew eight store pictures (Desktop › Stelli screens › final) with things the

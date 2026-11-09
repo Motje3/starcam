@@ -1,7 +1,7 @@
 # Stelli: to do before Google Play
 
-Updated 2026-11-09 on 0.6.1 (versionCode 12: the owner's new design, and the star alignment the
-phone's own sessions showed to be wrong, see PROGRESS.md). Everything that needed no
+Updated 2026-11-09 on 0.6.2 (versionCode 13: the owner's new design, the star alignment the
+phone's own sessions showed to be wrong, and finding you at once, see PROGRESS.md). Everything that needed no
 decision is done: the upload key and the signed AAB, the privacy policy and terms of use (on the
 web and in the app), the reworded card for phones without RAW, the release build checked on the
 emulator, and the store listing texts and graphics (`store/`). What is left happens on GitHub, in
@@ -34,6 +34,7 @@ Easy: every answer is written down. In this order, as each Play Console step nee
       9 Nov 2026 13:37, with Play App Signing (Google's key) and the owner alone on the testers list
       so far. The APK Play makes from it (App bundle explorer › Downloads › signed universal APK)
       has no INTERNET permission; automatic protection added only CHECK_LICENSE (PLAY_STORE.md).
+- [ ] **Upload 0.6.2** (versionCode 13) the same way: `app/build/outputs/bundle/release/app-release.aab`.
 
 ## Later: test with friends, then launch with Pro
 
@@ -44,11 +45,10 @@ features are Pro is decided after the testing.
 - [ ] **Foreground service declaration** (App content; it appears once the bundle is uploaded):
       the texts in PLAY_STORE.md, and a video of a session carrying on with the screen off,
       recorded on the phone (the steps are there too), as an unlisted YouTube link.
-- [ ] **The Play build on the phone.** First copy `Android/media/com.wm.stelli/Stelli` to the PC:
-      a Play build can't update the debug build, and uninstalling deletes every session. The old
-      StarCam build (0.5.0) may go: its sessions were copied to
-      `field-logs\phone-20261105\backup` on 5 Nov 2026. Then uninstall the debug build and install
-      Stelli from Play. Open it once in airplane mode: automatic protection's check must not stop
+- [x] **The Play build on the phone.** Installed from Internal testing on 9 Nov 2026 in place of the
+      debug build (which held no sessions; its logs are in `field-logs\phone-20261109`). The old
+      StarCam build (0.5.0) may go: its sessions were copied to `field-logs\phone-20261105\backup`.
+- [ ] **Open it once in airplane mode**, on a night out: automatic protection's check must not stop
       it at a dark site without signal.
 - [ ] **Five friends test it.** Internal testing › Testers: an email list with their Google
       accounts, then send them the join link. Before the public launch: finished sessions on 5+
@@ -92,7 +92,11 @@ match it. Built in 0.6.0; `design/STYLE.md` is the style, PROGRESS.md says what 
       every other screen made simple first, more behind a tap (settings, the photo page, the
       result, Tonight, the intro); then the capture screen's Quick tools, tonight behind a moon
       on the top row and the session-length pill; then, from the store pictures (8 Nov), the
-      calendar's next big night, Night alerts on its top bar and the slider in Edit.
+      calendar's next big night, Night alerts on its top bar and the slider in Edit; then, from the
+      first go on the phone (9 Nov), a viewfinder without compass or gradient and a lighter row of
+      pills over its foot.
+- [ ] The intro pages (four now): the owner has GPT design new ones, with real photos and better
+      illustrations, to be built here.
 - [x] On the phone: 0.6.1's debug build installed over wireless adb on 5 Nov 2026 (a new app
       beside the old StarCam; this PC's debug key, so `tools\build.ps1` updates it, sessions kept).
 - [ ] Under a real sky.

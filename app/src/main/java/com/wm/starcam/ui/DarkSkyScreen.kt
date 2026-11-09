@@ -1,14 +1,11 @@
 package com.wm.starcam.ui
 
-import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.spring
@@ -50,6 +47,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -110,7 +108,6 @@ import com.wm.starcam.darksky.MapPlace
 import com.wm.starcam.darksky.Polylines
 import com.wm.starcam.darksky.SkyQuality
 import com.wm.starcam.darksky.SpotFinder
-import com.wm.starcam.sensors.DeviceLocation
 import com.wm.starcam.sensors.SkyPlace
 import com.wm.starcam.sensors.SkyPlaceStore
 import com.wm.starcam.sky.GeoLocation
@@ -473,10 +470,7 @@ private fun probeSpot(data: DarkSkyData, lat: Double, lon: Double, hereLat: Doub
 fun DarkSkyScreen(onBack: () -> Unit, onPlanThere: (GeoLocation, String) -> Unit) {
     val c = Sc.colors
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val store = remember { SkyPlaceStore(context) }
-    var place by remember { mutableStateOf(store.load()) }
-    var locating by remember { mutableStateOf(false) }
+    val place by remember { SkyPlaceStore(context).place }.collectAsState()
     var data by remember { mutableStateOf<DarkSkyData?>(null) }
     var layers by remember { mutableStateOf<MapLayers?>(null) }
     var result by remember { mutableStateOf<SpotFinder.Result?>(null) }
@@ -507,21 +501,6 @@ fun DarkSkyScreen(onBack: () -> Unit, onPlanThere: (GeoLocation, String) -> Unit
         result = r
     }
 
-    fun locate() {
-        locating = true
-        scope.launch {
-            DeviceLocation.current(context)?.let { loc ->
-                val p = SkyPlace(loc, manual = false, atMs = System.currentTimeMillis())
-                store.save(p)
-                place = p
-            }
-            locating = false
-        }
-    }
-    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) locate()
-    }
-
     val p = place
     val d = data
     val l = layers
@@ -541,11 +520,7 @@ fun DarkSkyScreen(onBack: () -> Unit, onPlanThere: (GeoLocation, String) -> Unit
                             "darker skies are. Your location stays on this phone: Stelli has no internet access.",
                         style = ScType.bodySmall, color = c.text2, modifier = Modifier.padding(top = 4.dp),
                     )
-                    ScButton(if (locating) "Finding you…" else "Use my location", {
-                        if (DeviceLocation.permitted(context)) locate()
-                        else permission.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
-                    }, Modifier.fillMaxWidth().padding(top = 12.dp), kind = ScButtonKind.Primary,
-                        icon = ScIcons.Pin, enabled = !locating, height = 52.dp)
+                    FindMeButton(Modifier.fillMaxWidth().padding(top = 12.dp))
                     Text("Or type coordinates in the Tonight planner.", style = ScType.caption, color = c.text3,
                         modifier = Modifier.padding(top = 8.dp))
                 }

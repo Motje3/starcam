@@ -1,8 +1,5 @@
 package com.wm.starcam.ui
 
-import android.Manifest
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -26,12 +23,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -58,6 +55,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import com.wm.starcam.sensors.DeviceLocation
+import com.wm.starcam.sensors.PlaceFinder
+import com.wm.starcam.sensors.PlaceSearch
 import com.wm.starcam.sensors.SkyPlace
 import com.wm.starcam.sensors.SkyPlaceStore
 import com.wm.starcam.sky.GeoLocation
@@ -91,7 +90,6 @@ import com.wm.starcam.ui.theme.ScType
 import com.wm.starcam.ui.theme.ScreenMargin
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.LocalDate
@@ -212,7 +210,8 @@ fun tonightSummary(context: android.content.Context, nowMs: Long): TonightSummar
 fun rememberTonightSummary(active: Boolean, refresh: Any? = null): TonightSummary? {
     val context = LocalContext.current
     var summary by remember { mutableStateOf<TonightSummary?>(null) }
-    LaunchedEffect(active, refresh) {
+    val place by remember { SkyPlaceStore(context).place }.collectAsState()
+    LaunchedEffect(active, refresh, place) {
         while (active) {
             summary = withContext(Dispatchers.Default) {
                 runCatching { tonightSummary(context, System.currentTimeMillis()) }.getOrNull()
@@ -246,14 +245,13 @@ fun TonightScreen(
 ) {
     val c = Sc.colors
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val store = remember { SkyPlaceStore(context) }
-    var place by remember {
-        mutableStateOf(there?.let { SkyPlace(it, manual = true, atMs = System.currentTimeMillis()) } ?: store.load())
-    }
+    val saved by store.place.collectAsState()
+    val elsewhere = remember(there) { there?.let { SkyPlace(it, manual = true, atMs = System.currentTimeMillis()) } }
+    val place = elsewhere ?: saved
     val zone = remember(place) { place?.let { planZone(it.loc) } ?: ZoneId.systemDefault() }
-    var locating by remember { mutableStateOf(false) }
-    var locateFailed by remember { mutableStateOf(false) }
+    val search by PlaceFinder.status.collectAsState()
+    val findMe = rememberFindMe()
     var showManual by remember { mutableStateOf(false) }
     var showDetails by rememberSaveable { mutableStateOf(false) }
     var dayOffset by rememberSaveable {
@@ -269,31 +267,9 @@ fun TonightScreen(
     }
     val date = remember(dayOffset, zone) { tonightDate(zone).plusDays(dayOffset.toLong()) }
 
-    fun locate() {
-        locating = true
-        locateFailed = false
-        scope.launch {
-            val loc = DeviceLocation.current(context)
-            if (loc != null) {
-                val p = SkyPlace(loc, manual = false, atMs = System.currentTimeMillis())
-                store.save(p)
-                place = p
-            } else {
-                locateFailed = true
-            }
-            locating = false
-        }
-    }
-    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) locate() else locateFailed = true
-    }
-    fun useMyLocation() {
-        if (DeviceLocation.permitted(context)) locate()
-        else permission.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
-    }
     // A stored device location is refreshed quietly on every visit; a typed-in place is kept.
     LaunchedEffect(Unit) {
-        if (there == null && DeviceLocation.permitted(context) && place?.manual != true) locate()
+        if (there == null && DeviceLocation.permitted(context) && place?.manual != true) PlaceFinder.find(context)
     }
     LaunchedEffect(place, date) {
         val p = place ?: return@LaunchedEffect
@@ -328,18 +304,11 @@ fun TonightScreen(
                             "this phone: Stelli has no internet access at all.",
                         style = ScType.bodySmall, color = c.text2, modifier = Modifier.padding(top = 4.dp),
                     )
-                    ScButton(
-                        if (locating) "Finding you…" else "Use my location", ::useMyLocation,
-                        Modifier.fillMaxWidth().padding(top = 12.dp), kind = ScButtonKind.Primary,
-                        icon = ScIcons.Focus, enabled = !locating, height = 52.dp,
+                    FindMeButton(
+                        Modifier.fillMaxWidth().padding(top = 12.dp), icon = ScIcons.Focus,
+                        failText = "No location: location is off, or Stelli may not use it. Enter coordinates instead.",
                     )
                     ScButton("Enter coordinates", { showManual = true }, Modifier.fillMaxWidth().padding(top = 8.dp))
-                    if (locateFailed) {
-                        Text(
-                            "No location: location is off, or Stelli may not use it. Enter coordinates instead.",
-                            style = ScType.bodySmall, color = c.warning, modifier = Modifier.padding(top = 8.dp),
-                        )
-                    }
                 }
                 return@Column
             }
@@ -391,13 +360,13 @@ fun TonightScreen(
                         style = ScType.caption, color = c.text3, modifier = Modifier.padding(top = 4.dp),
                     )
                 }
-                if (locateFailed) {
+                if (search == PlaceSearch.NotFound && !p.manual) {
                     Text("Could not get a fresh location; using the last one.", style = ScType.caption,
                         color = c.warning, modifier = Modifier.padding(top = 4.dp))
                 }
                 Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ScButton(if (locating) "Locating…" else "Use my location", ::useMyLocation, Modifier.weight(1f),
-                        enabled = !locating)
+                    if (search == PlaceSearch.Finding) FindingYou(Modifier.weight(1f), height = 48.dp)
+                    else ScButton("Use my location", findMe, Modifier.weight(1f))
                     // Beside "Use my location" the longer "Enter coordinates" was cut short.
                     ScButton("Enter by hand", { showManual = true }, Modifier.weight(1f))
                 }
@@ -410,9 +379,7 @@ fun TonightScreen(
             initial = place?.loc,
             onDismiss = { showManual = false },
             onSave = { loc ->
-                val p = SkyPlace(loc, manual = true, atMs = System.currentTimeMillis())
-                store.save(p)
-                place = p
+                store.save(SkyPlace(loc, manual = true, atMs = System.currentTimeMillis()))
                 showManual = false
             },
         )

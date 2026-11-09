@@ -17,6 +17,8 @@
 #               is worth a shot tonight listed, the first opened in the sky view to be found
 #   sky         the sky view: from the top bar's Find (its list open), from the planner onto the
 #               viewfinder, closed, from Quick tools; Find: the North Star picked, where it stands
+#   place       no saved place, a position the phone already holds: the light map opens on it by
+#               itself, within a few seconds (debug builds: clearing the saved place needs run-as)
 #   darksky     the dark-sky map from the top bar (showing your Bortle class) and from the planner:
 #               your sky, a suggested spot, planned for there
 #   calendar    the sky calendar: the next big night at its head, the alerts' switch on the top bar,
@@ -598,6 +600,29 @@ if (Wanted 'sky') {
         "bar=$fromBar planner=$fromPlanner closed=$closed chip=$fromChip find=$find where=$where"
 }
 
+# ---- no saved place: the position the phone already holds is used at once, without a tap
+if ($Release -and (Wanted 'place')) {
+    Write-Host "place       left out: clearing the saved place needs a debug build"
+} elseif (Wanted 'place') {
+    A shell pm grant com.wm.stelli android.permission.ACCESS_COARSE_LOCATION 2>&1 | Out-Null
+    & $adbExe -s $Serial emu geo fix 4.90 52.37 2>&1 | Out-Null
+    Start-Sleep -Seconds 2
+    A shell am force-stop com.wm.stelli
+    A shell run-as com.wm.stelli rm -f shared_prefs/starcam_sky.xml 2>&1 | Out-Null
+    Launch | Out-Null
+    $opened = $false
+    $bar = Nodes | Where-Object { $_.'content-desc' -like 'Light map*' } | Select-Object -First 1
+    $took = [Diagnostics.Stopwatch]::StartNew()
+    if ($bar) {
+        $c = Center $bar
+        A shell input tap $c[0] $c[1]
+        $opened = WaitFor 'Your sky' 8
+    }
+    $seconds = [math]::Round($took.Elapsed.TotalSeconds, 1)
+    Back
+    Check 'place' $opened "opened=$opened after $seconds s"
+}
+
 # ---- the dark-sky map from the planner (the emulator in Amsterdam): your sky, the suggestions, one
 # picked and planned for
 if (Wanted 'darksky') {
@@ -652,7 +677,8 @@ if (Wanted 'calendar') {
         WaitFor 'Show me the sky' 40 | Out-Null
         for ($k = 0; $k -lt 6 -and -not ((AllText) -match 'Sky calendar'); $k++) { A shell input swipe 636 2200 636 900 300; Start-Sleep -Milliseconds 700 }
         if (Tap 'Sky calendar') {
-            $listed = WaitFor 'New moon' 40
+            # Any month's label: which events are near the top depends on the day it runs.
+            $listed = WaitFor '\|[a-z]+ 20\d\d\|' 40
             # At its head the next big night, and the alerts' switch on the top bar.
             $head = (AllText) -match 'Plan this night'
             $alerts = (AllText) -match 'Night alerts'

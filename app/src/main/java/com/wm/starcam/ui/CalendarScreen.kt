@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
@@ -30,10 +29,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -63,8 +62,6 @@ import androidx.compose.ui.unit.dp
 import com.wm.starcam.alerts.NightAlerts
 import com.wm.starcam.darksky.DarkSkyData
 import com.wm.starcam.darksky.SkyQuality
-import com.wm.starcam.sensors.DeviceLocation
-import com.wm.starcam.sensors.SkyPlace
 import com.wm.starcam.sensors.SkyPlaceStore
 import com.wm.starcam.sky.SkyCalendar
 import com.wm.starcam.sky.SkyEvent
@@ -128,10 +125,7 @@ internal fun nightDate(e: SkyEvent, zone: ZoneId): LocalDate {
 fun CalendarScreen(onBack: () -> Unit, onShowSky: (Long) -> Unit, onPlanNight: (LocalDate) -> Unit) {
     val c = Sc.colors
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val store = remember { SkyPlaceStore(context) }
-    var place by remember { mutableStateOf(store.load()) }
-    var locating by remember { mutableStateOf(false) }
+    val place by remember { SkyPlaceStore(context).place }.collectAsState()
     var events by remember { mutableStateOf<List<SkyEvent>?>(null) }
     var filter by rememberSaveable { mutableStateOf(CalendarFilter.All) }
     var open by rememberSaveable { mutableStateOf<String?>(null) }
@@ -150,20 +144,6 @@ fun CalendarScreen(onBack: () -> Unit, onShowSky: (Long) -> Unit, onPlanNight: (
         }
     }
 
-    fun locate() {
-        locating = true
-        scope.launch {
-            DeviceLocation.current(context)?.let { loc ->
-                val p = SkyPlace(loc, manual = false, atMs = System.currentTimeMillis())
-                store.save(p)
-                place = p
-            }
-            locating = false
-        }
-    }
-    val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) locate()
-    }
     val notifyPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         NightAlerts.setEnabled(context, granted)
         alertsOn = granted
@@ -194,11 +174,7 @@ fun CalendarScreen(onBack: () -> Unit, onShowSky: (Long) -> Unit, onPlanNight: (
                             "location stays on this phone: Stelli has no internet access.",
                         style = ScType.bodySmall, color = c.text2, modifier = Modifier.padding(top = 4.dp),
                     )
-                    ScButton(if (locating) "Finding you…" else "Use my location", {
-                        if (DeviceLocation.permitted(context)) locate()
-                        else locationPermission.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
-                    }, Modifier.fillMaxWidth().padding(top = 12.dp), kind = ScButtonKind.Primary,
-                        icon = ScIcons.Pin, enabled = !locating, height = 52.dp)
+                    FindMeButton(Modifier.fillMaxWidth().padding(top = 12.dp))
                 }
             }
             return@ScScreen

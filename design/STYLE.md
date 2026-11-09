@@ -69,9 +69,11 @@ each; the rest waits one tap away.
 - Cards 22 dp corners, tiles 18 dp, the bottom sheet 28 dp at the top.
 - Screen margin 16 dp; 8-12 dp between things in a card; touch targets at least 44 dp, the
   shutter 84 dp on the capture screen. The capture screen is kept slim, as in the design: a 44 dp
-  top row, nothing between it and the viewfinder, a 42 dp row over the viewfinder's foot (the
-  session length, the lenses), 46 dp tabs, 58 dp gallery and Adjust squares. (The mockup draws its
-  buttons smaller still; 44 dp is the least a finger, in a glove, can hit.)
+  top row, nothing between it and the viewfinder, a 44 dp row over the viewfinder's foot (the
+  session length, the lenses; their pills drawn 36 dp tall inside it, 20 dp up), 46 dp tabs, 58 dp
+  gallery and Adjust squares. (The mockup draws its buttons smaller still; 44 dp is the least a
+  finger, in a glove, can hit.) The viewfinder has no gradient over its edges and no compass: the
+  owner took both off on 9 Nov 2026.
 
 ## Components
 
@@ -88,8 +90,12 @@ each; the rest waits one tap away.
 - **Tonight** (from the moon): a line each for the Moon, the dark hours, your sky's Bortle class
   and the best thing to shoot (its time under it), an icon before each, and Plan tonight.
 - **A pill that opens a list** (the session length, over the viewfinder's foot): a clock, the
-  value and a chevron in a dark glass pill; tapped, the choices stand on it in a glass card, the
-  chosen one lit. The lenses share its row, on the right.
+  value and a chevron in a see-through glass pill (42 %); tapped, the choices stand on it in a
+  glass card, the chosen one lit. The lenses share its row, on the right, the chosen one in a
+  neutral light fill, not violet, so the row does not colour the sky behind it.
+- **Finding you** (in place of "Use my location" on every screen that needs a place): a pill the
+  button's size, a pin sending out rings and three dots lighting in turn. After 8 s a line says it
+  is still looking; a search has an end (25 s), and what it found reaches every open screen.
 - **A pill with a switch** (Night alerts, on the calendar's top bar): a bell, the name where it
   fits beside the title, a small switch (38 × 24); the whole pill is the switch.
 - **The next big night** (the head of the calendar, from the owner's store picture, 8 Nov 2026): a

@@ -1,13 +1,9 @@
 package com.wm.starcam.ui
 
-import android.Manifest
 import android.hardware.GeomagneticField
 import android.hardware.camera2.CameraCharacteristics
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -28,12 +24,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,7 +63,6 @@ import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.wm.starcam.ui.theme.NotoSans
 import com.wm.starcam.camera.CamInfo
-import com.wm.starcam.sensors.DeviceLocation
 import com.wm.starcam.sensors.SkyOrientation
 import com.wm.starcam.sensors.SkyPlace
 import com.wm.starcam.sensors.SkyPlaceStore
@@ -77,8 +72,6 @@ import com.wm.starcam.sky.SkyScene
 import com.wm.starcam.sky.SkyTarget
 import com.wm.starcam.sky.SkyTargets
 import com.wm.starcam.sky.StarCatalog
-import com.wm.starcam.ui.components.ScButton
-import com.wm.starcam.ui.components.ScButtonKind
 import com.wm.starcam.ui.components.ScDialog
 import com.wm.starcam.ui.components.ScGlass
 import com.wm.starcam.ui.components.ScIconBadge
@@ -89,7 +82,6 @@ import com.wm.starcam.ui.theme.ScShapes
 import com.wm.starcam.ui.theme.ScType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.ZoneId
@@ -144,10 +136,7 @@ fun SkyOverlay(
 ) {
     val c = Sc.colors
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val store = remember { SkyPlaceStore(context) }
-    var place by remember { mutableStateOf(store.load()) }
-    var locating by remember { mutableStateOf(false) }
+    val place by remember { SkyPlaceStore(context).place }.collectAsState()
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -171,21 +160,6 @@ fun SkyOverlay(
             val decl = GeomagneticField(p.loc.latDeg.toFloat(), p.loc.lonDeg.toFloat(), 0f, atMs).declination
             SkyScene.build(atMs, p.loc, decl.toDouble(), cat)
         }
-    }
-
-    fun locate() {
-        locating = true
-        scope.launch {
-            DeviceLocation.current(context)?.let { loc ->
-                val p = SkyPlace(loc, manual = false, atMs = System.currentTimeMillis())
-                store.save(p)
-                place = p
-            }
-            locating = false
-        }
-    }
-    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) locate()
     }
 
     val (tanW, tanH) = remember(cam) { fieldOfView(cam) }
@@ -237,10 +211,7 @@ fun SkyOverlay(
                     padding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)) {
                     Column(Modifier.padding(vertical = 4.dp)) {
                         Text("The sky view needs to know where you are.", style = ScType.bodySmall, color = c.text)
-                        ScButton(if (locating) "Finding you…" else "Use my location", {
-                            if (DeviceLocation.permitted(context)) locate()
-                            else permission.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
-                        }, Modifier.padding(top = 6.dp), kind = ScButtonKind.Primary, enabled = !locating, height = 40.dp)
+                        FindMeButton(Modifier.padding(top = 6.dp), icon = null, height = 40.dp)
                     }
                 }
                 else -> {
