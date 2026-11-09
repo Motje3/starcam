@@ -426,6 +426,8 @@ if (Wanted 'meteors') {
         $stacked = WaitFor 'Done: the photo above is updated' 600
         # The card sits under "What's in this photo".
         for ($k = 0; $k -lt 5 -and -not ((AllText) -match 'meteor caught'); $k++) { A shell input swipe 636 2000 636 1300 300; Start-Sleep -Milliseconds 700 }
+        # Its title can stop at the screen's foot with the meteors under it, out of sight: one more.
+        A shell input swipe 636 2000 636 1400 300; Start-Sleep -Milliseconds 700
         $caught = WaitFor '\|1 meteor caught\|' 30
         $cut = WaitFor 'Meteor at \d\d:\d\d' 90
         Shot 'meteors'

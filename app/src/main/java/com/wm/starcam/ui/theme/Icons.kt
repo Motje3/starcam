@@ -210,6 +210,79 @@ object ScIcons {
         path("M3.5 16.5l5-5 4 4 2.5-2.5 5.5 5.5")
         circle(15.5f, 8.8f, 1.4f)
     }
+
+    // ---- the first-launch intro (the owner's design, Nov 2026)
+
+    /** A tripod under a wide head: a tip's small picture. */
+    val IntroTripod by icon(1.45f) {
+        rect(6f, 3.2f, 12f, 6f, 2f)
+        path("M12 9.4L5.4 20.8M12 9.4L18.6 20.8M12 9.4V20.8")
+    }
+    /** A draped cloth, for covering the lens. */
+    val Cloth by icon(1.15f) {
+        path("M2.5 13.6C5.9 11.2 8.9 7.3 11.6 5.2C13.3 3.9 15.8 4.4 16.9 5.9L21.6 15C22.4 16.5 21.6 17.5 20.1 17.5H18")
+        path("M2.5 13.6C1.7 15.3 2.2 17.5 4.6 17.7C7.6 17.9 8.7 15.6 11.4 16.2C14.1 16.8 14.6 19.8 16.6 19.6C17.8 19.5 17.9 18.5 18 17.5")
+        path("M16.9 5.9C17.4 9.5 17.1 14.2 18 17.5")
+        path("M3.6 13.2C6 12.8 8.4 14.2 10.6 15.2")
+    }
+    /** Two pictures either side of a divider: one frame against the finished stack. */
+    val CompareFrames by icon(1.1f) {
+        path("M10.4 5.6H4.6a2.8 2.8 0 0 0-2.8 2.8v7a2.8 2.8 0 0 0 2.8 2.8h5.8")
+        path("M13.6 5.6h5.8a2.8 2.8 0 0 1 2.8 2.8v7a2.8 2.8 0 0 1-2.8 2.8h-5.8")
+        path("M12 4.2V19.8")
+        circle(6.7f, 10f, 1.3f)
+        circle(17f, 10f, 1.3f)
+        path("M3.4 17.2l4.1-4 3 2.8")
+        path("M13.9 16l2.7-2.8 3.7 4")
+    }
+    val ShieldCheck by icon(1.3f) {
+        path("M12 3C14.2 4.6 16.7 5.3 19.5 5.5V11.4C19.5 16 16.4 19.4 12 21C7.6 19.4 4.5 16 4.5 11.4V5.5C7.3 5.3 9.8 4.6 12 3z")
+        path("M8.6 12.1l2.4 2.4 4.6-4.9")
+    }
+    /** The intro's camera: a softer shoulder than [Camera], and the flash's dot. */
+    val IntroCamera by icon(1.35f) {
+        path("M6.6 7.1h1.9l1-1.6c.3-.5.8-.8 1.4-.8h2.2c.6 0 1.1.3 1.4.8l1 1.6h1.9a2.6 2.6 0 0 1 2.6 2.6v7.2a2.6 2.6 0 0 1-2.6 2.6H6.6A2.6 2.6 0 0 1 4 16.9V9.7a2.6 2.6 0 0 1 2.6-2.6z")
+        circle(12f, 13f, 3.3f)
+        path("M16.9 9.7v.01")
+    }
+
+    // The five steps of a session on the intro's strip: thin lines, each inside a ring.
+    val StepList by icon(1f) {
+        dot(6.7f, 7.7f, 0.85f)
+        dot(6.7f, 11.9f, 0.85f)
+        dot(6.7f, 16f, 0.85f)
+        path("M9.3 7.7H17.2M9.3 11.9H17.2M9.3 16H17.2")
+    }
+    val StepTripod by icon(1f) {
+        rect(9.4f, 5.9f, 5.6f, 2.6f, 0.6f)
+        path("M12.2 8.5L6.3 18.3M12.2 8.5L18.2 18.3M12.2 8.5V18.3")
+    }
+    /** The aperture: a ring and four blades, a pinwheel round the opening. */
+    val StepApertureRing by icon(1f) { circle(12f, 12f, 7.7f) }
+    val StepAperture by icon(1f) {
+        val r = 7.7f
+        val d = 3.5f
+        val l = kotlin.math.sqrt(r * r - d * d)
+        fun f(v: Float) = String.format(Locale.US, "%.3f", v)
+        for (i in 0 until 4) {
+            val a = Math.toRadians(22.0 + 90.0 * i)
+            val nx = cos(a).toFloat()
+            val ny = sin(a).toFloat()
+            // from the opening's corner, along the blade's edge, out to the ring
+            path("M${f(12f + nx * d - ny * d)} ${f(12f + ny * d + nx * d)}L${f(12f + nx * d + ny * l)} ${f(12f + ny * d - nx * l)}")
+        }
+    }
+    val Layers3 by icon(1f) {
+        path("M12.2 5.2L19.2 8.7L12.2 12.2L5.2 8.7Z")
+        path("M7.3 10.7L5.2 11.7L12.2 15.2L19.2 11.7L17.1 10.7")
+        path("M7.3 13.7L5.2 14.7L12.2 18.2L19.2 14.7L17.1 13.7")
+    }
+    val StepPhoto by icon(1f) {
+        rect(5.4f, 6f, 13.7f, 11.6f, 1f)
+        path("M5.5 16.4l4.4-4.6 4.3 4.7")
+        path("M13.2 15.3l1.9-1.4 3.9 3.6")
+        dot(15f, 9.5f, 1f)
+    }
 }
 
 /**
@@ -321,7 +394,7 @@ fun ScDuoIcon(
 
 // ------------------------------------------------------------------------------- builder
 
-private class IconPaths {
+private class IconPaths(val stroke: Float = 1.6f) {
     /** Path data, and whether it is filled rather than stroked. */
     val paths = ArrayList<Pair<String, Boolean>>()
     fun path(d: String) {
@@ -409,7 +482,7 @@ private fun build(p: IconPaths): ImageVector {
                 pathData = addPathNodes(d),
                 fill = null,
                 stroke = SolidColor(Color.Black),
-                strokeLineWidth = 1.6f,
+                strokeLineWidth = p.stroke,
                 strokeLineCap = StrokeCap.Round,
                 strokeLineJoin = StrokeJoin.Round,
             )
@@ -419,7 +492,7 @@ private fun build(p: IconPaths): ImageVector {
 }
 
 /** Lazily built stroke icon; `val X by icon { ... }`. */
-private fun icon(block: IconPaths.() -> Unit) = lazy { build(IconPaths().apply(block)) }
+private fun icon(stroke: Float = 1.6f, block: IconPaths.() -> Unit) = lazy { build(IconPaths(stroke).apply(block)) }
 
 private class DuoBuilder {
     val base = IconPaths()

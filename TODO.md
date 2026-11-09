@@ -34,7 +34,8 @@ Easy: every answer is written down. In this order, as each Play Console step nee
       9 Nov 2026 13:37, with Play App Signing (Google's key) and the owner alone on the testers list
       so far. The APK Play makes from it (App bundle explorer › Downloads › signed universal APK)
       has no INTERNET permission; automatic protection added only CHECK_LICENSE (PLAY_STORE.md).
-- [ ] **Upload 0.6.2** (versionCode 13) the same way: `app/build/outputs/bundle/release/app-release.aab`.
+- [ ] **Upload 0.6.2** (versionCode 13, with the new intro) the same way:
+      `app/build/outputs/bundle/release/app-release.aab` (13.9 MB, built 9 Nov 2026 22:44).
 
 ## Later: test with friends, then launch with Pro
 
@@ -95,8 +96,8 @@ match it. Built in 0.6.0; `design/STYLE.md` is the style, PROGRESS.md says what 
       calendar's next big night, Night alerts on its top bar and the slider in Edit; then, from the
       first go on the phone (9 Nov), a viewfinder without compass or gradient and a lighter row of
       pills over its foot.
-- [ ] The intro pages (four now): the owner has GPT design new ones, with real photos and better
-      illustrations, to be built here.
+- [x] The intro pages: GPT's five finished screens, built to match on 9 Nov 2026 (PROGRESS.md;
+      design/STYLE.md, "The intro").
 - [x] On the phone: 0.6.1's debug build installed over wireless adb on 5 Nov 2026 (a new app
       beside the old StarCam; this PC's debug key, so `tools\build.ps1` updates it, sessions kept).
 - [ ] Under a real sky.

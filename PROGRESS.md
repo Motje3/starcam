@@ -1,5 +1,31 @@
 # StarCam build progress (PLAN.md §10)
 
+## The intro, from the owner's five finished screens (0.6.2, 2026-11-09)
+
+The owner had GPT design the first-launch pages: five finished screens of 1080 × 2400 and five
+cut-outs ("close visual matches", by GPT's own note, with glow left round them). To be spot on the
+pictures are the finished screens themselves: `drawable-nodpi/intro_1..5.webp` (1.2 MB together),
+with the fake status bar, the logo, the name, Skip and the headline painted out of the sky, cut
+where the picture has faded into the floor. The cut-outs were not used.
+
+Everything else is real: the words, the tip pills, the dots, the buttons, and the labels on the
+pictures (Stability detected, the five-step strip, DARK FRAMES, CAMERA ACCESS), which are drawn in
+the picture's own coordinates and so stay on their spot at any size. All numbers were measured
+from the screens by scanning their pixels, then checked against the emulator's screenshots at the
+same width (1272 × 2800): every line of text within about 1 dp of its place, except page 2's
+headline, 3 dp high, and within 2 % of its width. The dots and the button keep one place while the
+pages change, so against pages that wobble by up to 10 dp they cannot match every one.
+
+The page is laid out at the design's 360 × 800 dp and scales with the phone's width; on a screen
+shorter than 800 dp the gaps in the footer give way first, so that the picture and the words stay
+put, and on a much shorter one the step strip is left out rather than run under the app's name.
+Night vision turns it all red; a large system font is held at 1.3 and lets the tip wrap. Page 1's
+headline came in another typeface than the other four: the app's Noto Sans Bold is used for all.
+
+Checked: the unit tests; `emulator-test -Release` 14 of 15, the meteor check failing on its scroll
+(the card's thumbnails stayed under the screen's foot; it passed run alone, and now scrolls once
+more); the bundle signed with the upload key, versionCode 13, no INTERNET permission.
+
 ## The owner's first go on the Play build: finding you, a cleaner viewfinder (0.6.2, 2026-11-09)
 
 **"Finding you" took forever, or for ever.** From the phone (`dumpsys location`, the app's log):

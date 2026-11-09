@@ -122,6 +122,14 @@ each; the rest waits one tap away.
   the session has got.
 - **Pictures** (the cover-the-lens step): the owner's illustrations, their edges faded into
   transparency so they melt into the background, drawn edge to edge.
+- **The intro** (first launch and the camera question, the owner's five finished screens, 9 Nov
+  2026): a full-bleed picture running behind the status bar, faded into a flat floor (`#140A2E`),
+  the app's name and Skip over its sky. Over the fade the words: a two-line headline in Noto Sans
+  Bold (26-31 sp, set per page), the text at 15 sp in lavender (`#C0A1F2`) on the design's own
+  line breaks, a tip pill 28 dp tall. Under them the dots (22 and 7 dp) and a 51 dp button, brighter
+  than the usual primary (`#804EF2` to `#512BB2`, edge `#C698FB`). The labels on a picture are
+  drawn in its coordinates and scale with it; the picture's own glow stays round them. One page is
+  360 × 800 dp and scales with the width: the numbers are in `OnboardingScreen.kt`, per page.
 - **The Adjust sheet** (the owner's design, 5 Nov 2026): Auto or Manual in one selector; the three
   exposure numbers as tiles, a tapped one lit with its stepper under the row; focus and start
   delay as segment strips; Dark frames and Save RAW as switch cards (an icon, a thin divider, the
