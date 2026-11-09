@@ -66,7 +66,9 @@ name or logo.
   code; Google says it works offline. After the first upload, download the APK Play makes (App
   bundle explorer › Downloads › signed universal APK) and run `aapt2 dump permissions` on it: the
   app and the privacy policy promise no internet access, so INTERNET must not be in it. If it is,
-  turn automatic protection off.
+  turn automatic protection off. Checked 9 Nov 2026 on versionCode 12: no INTERNET; automatic
+  protection adds only `com.android.vending.CHECK_LICENSE`. Its check is still to be tried offline
+  on the phone.
 - **A grown-up listing.** No cartoons or mascots in the icon and graphics, so that Play does not
   judge the app to be aimed at children; the Families rules would then apply (a children's app may
   not ask for location).

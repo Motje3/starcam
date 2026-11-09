@@ -30,11 +30,10 @@ Easy: every answer is written down. In this order, as each Play Console step nee
 - [x] **App content** (the answers in PLAY_STORE.md): every form filled in on 9 Nov 2026, from the
       Dashboard's "Set up your app" list, waiting in Publishing overview. Content rating: Everyone,
       PEGI 3. The foreground service form comes after the upload.
-- [ ] **Upload the bundle**: `app/build/outputs/bundle/release/app-release.aab` (0.6.1,
-      versionCode 12, rebuilt 9 Nov 2026 from 6083813, with the last design rounds) to Internal
-      testing, with Play App Signing (Google's key). Then download the APK Play makes from it (App
-      bundle explorer › Downloads › signed universal APK) and check it has no INTERNET permission
-      (automatic protection, PLAY_STORE.md).
+- [x] **Upload the bundle**: 0.6.1, versionCode 12 (built from 6083813), on Internal testing since
+      9 Nov 2026 13:37, with Play App Signing (Google's key) and the owner alone on the testers list
+      so far. The APK Play makes from it (App bundle explorer › Downloads › signed universal APK)
+      has no INTERNET permission; automatic protection added only CHECK_LICENSE (PLAY_STORE.md).
 
 ## Later: test with friends, then launch with Pro
 
@@ -48,8 +47,9 @@ features are Pro is decided after the testing.
 - [ ] **The Play build on the phone.** First copy `Android/media/com.wm.stelli/Stelli` to the PC:
       a Play build can't update the debug build, and uninstalling deletes every session. The old
       StarCam build (0.5.0) may go: its sessions were copied to
-      `field-logs\phone-20261105\backup` on 5 Nov 2026. Then uninstall the debug build, roll out
-      the internal release and install Stelli from Play.
+      `field-logs\phone-20261105\backup` on 5 Nov 2026. Then uninstall the debug build and install
+      Stelli from Play. Open it once in airplane mode: automatic protection's check must not stop
+      it at a dark site without signal.
 - [ ] **Five friends test it.** Internal testing › Testers: an email list with their Google
       accounts, then send them the join link. Before the public launch: finished sessions on 5+
       phones from 3+ brands (a Pixel and a Samsung among them), the screen-off capture and the
