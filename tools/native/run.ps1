@@ -47,7 +47,10 @@ if (-not $NoBuild) {
 }
 
 if ($SelfTest) {
-    $report = (InBox @() 'mkdir -p /tmp/st && /build/selftest /tmp/st 2>/build/selftest.err') -join ''
+    # The engine's own log shares the output; the report is the line that starts the JSON.
+    $lines = InBox @() 'mkdir -p /tmp/st && /build/selftest /tmp/st 2>/build/selftest.err'
+    $lines | Set-Content (Join-Path $build 'selftest.log')
+    $report = "$($lines | Where-Object { $_ -like '{"pass":*' } | Select-Object -Last 1)"
     $ok = $report.StartsWith('{"pass":true')
     try {
         $r = $report | ConvertFrom-Json
@@ -55,7 +58,7 @@ if ($SelfTest) {
             Write-Host ('{0,-14} {1}  value {2}  limit {3}' -f $c.name, $(if ($c.pass) { 'PASS' } else { 'FAIL' }), $c.value, $c.limit)
         }
     } catch { Write-Host $report }
-    Write-Host $(if ($ok) { 'self-test passed' } else { 'self-test FAILED (build\native\selftest.err has the engine log)' })
+    Write-Host $(if ($ok) { 'self-test passed' } else { 'self-test FAILED (build\native\selftest.log has the engine log)' })
     if (-not $ok) { exit 1 }
 }
 
