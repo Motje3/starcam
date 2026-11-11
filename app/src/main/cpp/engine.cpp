@@ -1180,17 +1180,15 @@ std::string EngineSession::finalizeStack(const std::string& optionsJson,
                 SLOGE("finalize: the stars hook threw, carrying on without it");
             }
         }
-        // Where the sky is, for those gains (see sky_lit_mask): the sky-verified, measured stars at
-        // their RAW positions in the stack (the picture developed below, the single-frame
-        // comparison included) with the luma of their surroundings. Only stars the sky really
-        // carried along (more than 3 px, in a frame at least): where it hardly moved, a lamp
-        // follows it as well as a star does, and a lit wall with three lamps on it would count as
-        // sky. A session like that gets no star balance. The options' "skyStars" are in the upright
-        // master's coordinates, for the studio: not these.
+        // Where the sky is, for those gains (see sky_lit_mask): the stars that mark it (sky_point)
+        // at their RAW positions in the stack (the picture developed below, the single-frame
+        // comparison included) with the luma of their surroundings. A session whose sky hardly
+        // moved has none, and gets no star balance. The options' "skyStars" are the same stars in
+        // the upright master's coordinates, for the studio: not used here.
         pp.skyPts.clear();
         if (pp.wbR != 1.0f || pp.wbB != 1.0f) {
             for (const SkyStar& s : skyStars) {
-                if (!s.sky || !s.measured || s.staticTried < 1) continue;
+                if (!sky_point(s, starPhot)) continue;
                 pp.skyPts.push_back(2.0f * s.x + 0.5f);
                 pp.skyPts.push_back(2.0f * s.y + 0.5f);
                 pp.skyPts.push_back(0.25f * (s.bgRGB[0] + 2.0f * s.bgRGB[1] + s.bgRGB[2]));

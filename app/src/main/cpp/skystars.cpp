@@ -193,6 +193,12 @@ void measure_stars(const ImageF& stackRGB, const ImageF& stackLumaHalf, float fa
     }
 }
 
+bool sky_point(const SkyStar& s, const StarPhotometry& phot) {
+    if (!s.sky || !s.measured || s.staticTried < 1) return false;
+    if (phot.fwhm > 0.0f && !(s.fwhm >= 0.6f * phot.fwhm && s.fwhm <= 1.7f * phot.fwhm)) return false;
+    return true;
+}
+
 std::string stars_json(const std::vector<SkyStar>& stars, const StarPhotometry& phot, int stackW,
                        int stackH, int rotation, int framesUsed) {
     std::vector<size_t> order(stars.size());
@@ -223,7 +229,8 @@ std::string stars_json(const std::vector<SkyStar>& stars, const StarPhotometry& 
             .add("tried", s.tried)
             .add("moved", s.staticTried)
             .add("sat", s.sat)
-            .add("sky", s.sky);
+            .add("sky", s.sky)
+            .add("pt", sky_point(s, phot));
         if (k) arr += ",";
         arr += sb.build();
     }

@@ -67,11 +67,20 @@ std::vector<SkyStar> verify_sky_stars(const std::vector<FrameRecord>& frames, in
 void measure_stars(const ImageF& stackRGB, const ImageF& stackLumaHalf, float fallbackFwhmRaw,
                    std::vector<SkyStar>* stars, StarPhotometry* phot);
 
+// Whether a star marks the sky for the stars' white balance (sky_lit_mask's points): it followed
+// the sky, was measured, the sky really carried it along (more than 3 px, in a frame at least:
+// where the sky hardly moved, a lamp follows it as well as a star does) and it has a star's width,
+// 0.6 to 1.7 times the stars' median (when it is the phone that moves, a lamp moves with the sky
+// too: on 2026-10-31 the brightest "star" that followed it was 11.5 px wide, against 4.8).
+// finalizeStack takes its sky points by this, and stars.json carries it as "pt" for the studio.
+bool sky_point(const SkyStar& s, const StarPhotometry& phot);
+
 // out/stars.json. Positions on the finished upright picture's pixel grid (that of final_rgb.raw:
 // the stack turned by `rotation`), x right, y down, pixel centres at integers; every star, the
 // brightest first (measured ones by flux, then the rest). Per star, beside its light: "seen" of
 // "tried" frames, and "moved": in how many frames the sky had carried it more than 3 px from its
 // place. With "moved" 0 the sky hardly moved at all and "sky" says little: a lamp passes too.
+// "pt": sky_point above - the stars whose x, y and bg are the look's "skyStars".
 std::string stars_json(const std::vector<SkyStar>& stars, const StarPhotometry& phot, int stackW,
                        int stackH, int rotation, int framesUsed);
 
