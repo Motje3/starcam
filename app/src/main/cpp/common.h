@@ -302,6 +302,8 @@ inline void parallel_for(int begin, int end, const std::function<void(int)>& fn)
 }
 
 using ProgressFn = std::function<void(const char* stage, int percent)>;
+// finalizeStack's stars hook: given out/stars.json's text, returns a flat JSON answer ("" for none).
+using StarsFn = std::function<std::string(const std::string& starsJson)>;
 
 // ---------- Output rotation ----------
 
@@ -323,6 +325,16 @@ inline void rotated_source(int rotation, int w, int h, int ox, int oy, int* sx, 
         case 180: *sx = w - 1 - ox; *sy = h - 1 - oy; break;
         case 270: *sx = w - 1 - oy; *sy = ox; break;
         default: *sx = ox; *sy = oy; break;
+    }
+}
+// The other way, for a point: where source position (sx, sy) of the w x h image lands once turned
+// upright. Pixel centres at integers, so it holds for positions between pixels too.
+inline void rotated_point(int rotation, int w, int h, double sx, double sy, double* ox, double* oy) {
+    switch (rotation) {
+        case 90: *ox = (double)(h - 1) - sy; *oy = sx; break;
+        case 180: *ox = (double)(w - 1) - sx; *oy = (double)(h - 1) - sy; break;
+        case 270: *ox = sy; *oy = (double)(w - 1) - sx; break;
+        default: *ox = sx; *oy = sy; break;
     }
 }
 // The image edge that faces the ground once turned upright: 0 bottom, 1 left, 2 top, 3 right.

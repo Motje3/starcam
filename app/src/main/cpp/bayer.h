@@ -40,7 +40,9 @@ void subtract_dark_region(std::vector<uint16_t>& region, int rw, int rh, int x0,
 void dark_pedestal(const Image16& dark, float out[4]);
 
 // In-place on a copied region: replace listed hot pixels (full-frame indices y*fullW+x) that fall
-// inside the region with the mean of the nearest same-CFA-position neighbors (±2 px).
+// inside the region with the mean of the nearest same-CFA-position neighbors (±2 px) that are not
+// on the list themselves; with none left, the pixel stays as it is. Fastest with the list sorted
+// ascending (as find_hot_pixels / find_hot_pixels_lights return it).
 void fix_hot_pixels_region(std::vector<uint16_t>& region, int rw, int rh, int x0, int y0, int fullW,
                            int fullH, const std::vector<uint32_t>& hotIdx);
 

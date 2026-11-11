@@ -9,10 +9,12 @@ namespace starcam {
 
 namespace {
 
-// [src] box-averaged down by the whole factor that brings its long edge to at most [edge].
-ImageF box_down(const ImageF& src, int edge) {
+// [src] box-averaged down by the whole factor that brings its long edge to at most [edge]; the
+// factor goes to *factor.
+ImageF box_down(const ImageF& src, int edge, int* factor) {
     const int longEdge = std::max(src.w, src.h);
     const int f = std::max(1, (longEdge + std::max(64, edge) - 1) / std::max(64, edge));
+    *factor = f;
     const int w = std::max(1, src.w / f), h = std::max(1, src.h / f);
     ImageF out;
     out.init(w, h, 3);
@@ -44,8 +46,11 @@ Studio* Studio::open(const std::string& tiffPath, int previewLongEdge) {
         s->h_ = full.h;
         // Box-average down by a whole factor: cheap, and it keeps the preview's noise honest
         // (averaged, not aliased).
-        s->preview_ = box_down(full, previewLongEdge);
-        s->thumb_ = box_down(s->preview_, kThumbEdge);
+        int f1 = 1, f2 = 1;
+        s->preview_ = box_down(full, previewLongEdge, &f1);
+        s->thumb_ = box_down(s->preview_, kThumbEdge, &f2);
+        s->previewFactor_ = f1;
+        s->thumbFactor_ = f1 * f2;
         SLOG("studio: opened %s (%dx%d, preview %dx%d, thumb %dx%d)", tiffPath.c_str(), full.w, full.h,
              s->preview_.w, s->preview_.h, s->thumb_.w, s->thumb_.h);
         return s;
@@ -63,21 +68,26 @@ std::string Studio::info() const {
 }
 
 bool Studio::renderPreview(const PostParams& p, int rotation, uint32_t* argb, int outW, int outH) {
-    return render(preview_, p, rotation, argb, outW, outH);
+    return render(preview_, previewFactor_, p, rotation, argb, outW, outH);
 }
 
 bool Studio::renderThumb(const PostParams& p, int rotation, uint32_t* argb, int outW, int outH) {
-    return render(thumb_, p, rotation, argb, outW, outH);
+    return render(thumb_, thumbFactor_, p, rotation, argb, outW, outH);
 }
 
-bool Studio::render(const ImageF& src, const PostParams& p, int rotation, uint32_t* argb, int outW, int outH) {
+bool Studio::render(const ImageF& src, int factor, const PostParams& p, int rotation, uint32_t* argb,
+                    int outW, int outH) {
     try {
         std::lock_guard<std::mutex> lk(mu_);
         int rw, rh;
         rotated_size(rotation, src.w, src.h, &rw, &rh);
         if (!argb || outW != rw || outH != rh) return false;
         ImageF img = src;
-        postprocess(img, p, nullptr);
+        // The sky stars come in the full-size master's coordinates.
+        PostParams q = p;
+        q.skyPts = scale_sky_points(p.skyPts, factor);
+        q.skyReduce = factor;
+        postprocess(img, q, nullptr);
         parallel_for(0, outH, [&](int y) {
             uint32_t* dst = argb + (size_t)y * outW;
             for (int x = 0; x < outW; ++x) {

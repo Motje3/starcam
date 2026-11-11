@@ -13,12 +13,14 @@
 //       what the alignment did to them. Given the master TIFF the phone made of the same frames,
 //       that is measured too. <rotation> is the turn in the options, which every TIFF is written
 //       with. Writes sheet.bmp (and sheet_phone.bmp): the brightest star of each region, frame
-//       left, stack right.
+//       left, stack right; and stars.bmp: the finished photo at half size with the stars of
+//       out/stars.json ringed, green the sky-verified ones, red the rest.
 
 #include <dirent.h>
 #include <sys/stat.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -30,6 +32,7 @@
 #include "bayer.h"
 #include "common.h"
 #include "engine.h"
+#include "json_mini.h"
 #include "sraw.h"
 #include "stars.h"
 
@@ -268,10 +271,21 @@ bool engine_stack(const std::vector<std::string>& paths, const std::string& work
     cfg.livePreview = false;
     std::unique_ptr<EngineSession> e(EngineSession::create(cfg));
     if (!e) return false;
+    double addMs = 0.0, addMaxMs = 0.0;
+    int added = 0;
     for (size_t i = 0; i < paths.size(); ++i) {
         SrawReader r;
         if (!r.open(paths[i])) continue;
         const SrawHeader& h = r.header();
+        // Every page of the frame read once first, so the time below is addFrame's own work and
+        // not the file system's.
+        {
+            volatile uint32_t touch = 0;
+            const size_t n = (size_t)h.width * h.height;
+            for (size_t k = 0; k < n; k += 2048) touch = touch + r.data()[k];
+            (void)touch;
+        }
+        const auto ta = std::chrono::steady_clock::now();
         FrameMeta m;
         m.index = (int)i;
         m.exposureNs = (int64_t)h.exposureNs;
@@ -282,8 +296,16 @@ bool engine_stack(const std::vector<std::string>& paths, const std::string& work
         m.hasBlackLevel = true;
         for (int k = 0; k < 4; ++k) m.blackLevel[k] = h.blackLevel[k];
         m.sourcePath = paths[i];
-        printf("  add %zu: %s\n", i, e->addFrame(r.data(), (int)h.width, (int)h.height, (int)h.width, m).c_str());
+        const std::string stats = e->addFrame(r.data(), (int)h.width, (int)h.height, (int)h.width, m);
+        const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - ta).count();
+        addMs += ms;
+        addMaxMs = std::max(addMaxMs, ms);
+        ++added;
+        printf("  add %zu: %s\n", i, stats.c_str());
     }
+    if (added > 0)
+        printf("addFrame: %d frames, %.0f ms each on average, %.0f ms at most\n", added, addMs / added,
+               addMaxMs);
     *result = e->finalizeStack(options, [](const char*, int) {});
     return read_tiff16(workDir + "/out/master_linear16.tiff", tiff);
 }
@@ -339,6 +361,33 @@ Conc concentration(const ImageF& rgb, double cx, double cy) {
     return c;
 }
 
+// A 24-bit BMP from a top-down buffer of W x H pixels in B, G, R order.
+void write_bmp(const std::string& path, const std::vector<uint8_t>& img, int W, int H) {
+    if (W <= 0 || H <= 0 || img.size() < (size_t)W * H * 3) return;
+    const int rowBytes = (W * 3 + 3) & ~3;
+    FILE* f = fopen(path.c_str(), "wb");
+    if (!f) return;
+    uint8_t hdr[54] = {'B', 'M'};
+    auto put32 = [&hdr](int off, uint32_t v) {
+        for (int i = 0; i < 4; ++i) hdr[off + i] = (uint8_t)(v >> (8 * i));
+    };
+    put32(2, 54 + (uint32_t)rowBytes * H);
+    put32(10, 54);
+    put32(14, 40);
+    put32(18, (uint32_t)W);
+    put32(22, (uint32_t)H);
+    hdr[26] = 1;
+    hdr[28] = 24;
+    put32(34, (uint32_t)rowBytes * H);
+    fwrite(hdr, 1, 54, f);
+    std::vector<uint8_t> row((size_t)rowBytes, 0);
+    for (int y = H - 1; y >= 0; --y) {
+        memcpy(row.data(), &img[(size_t)y * W * 3], (size_t)W * 3);
+        fwrite(row.data(), 1, row.size(), f);
+    }
+    fclose(f);
+}
+
 // Contact sheet: per 3 x 3 region, the brightest star matched in both, crops side by side
 // (single left, stack right), 3x enlarged, the same asinh stretch for both.
 void write_sheet(const std::string& path, const ImageF& a, const ImageF& b,
@@ -368,28 +417,89 @@ void write_sheet(const std::string& path, const ImageF& a, const ImageF& b,
             }
         }
     }
-    const int rowBytes = (W * 3 + 3) & ~3;
-    FILE* f = fopen(path.c_str(), "wb");
-    if (!f) return;
-    uint8_t hdr[54] = {'B', 'M'};
-    auto put32 = [&hdr](int off, uint32_t v) {
-        for (int i = 0; i < 4; ++i) hdr[off + i] = (uint8_t)(v >> (8 * i));
-    };
-    put32(2, 54 + (uint32_t)rowBytes * H);
-    put32(10, 54);
-    put32(14, 40);
-    put32(18, (uint32_t)W);
-    put32(22, (uint32_t)H);
-    hdr[26] = 1;
-    hdr[28] = 24;
-    put32(34, (uint32_t)rowBytes * H);
-    fwrite(hdr, 1, 54, f);
-    std::vector<uint8_t> row((size_t)rowBytes, 0);
-    for (int y = H - 1; y >= 0; --y) {
-        memcpy(row.data(), &img[(size_t)y * W * 3], (size_t)W * 3);
-        fwrite(row.data(), 1, row.size(), f);
+    write_bmp(path, img, W, H);
+}
+
+// out/stars.json's star entries: each one is a flat object, which jsonmini reads; the file's own
+// top level (an array of objects) it does not, so the array is cut out here.
+std::vector<jsonmini::Obj> read_stars(const std::string& json) {
+    std::vector<jsonmini::Obj> out;
+    const size_t at = json.find("\"stars\":[");
+    if (at == std::string::npos) return out;
+    size_t i = at + 9;
+    while (true) {
+        const size_t a = json.find('{', i);
+        if (a == std::string::npos) break;
+        const size_t b = json.find('}', a);
+        if (b == std::string::npos) break;
+        jsonmini::Obj o;
+        if (jsonmini::Obj::parse(json.substr(a, b - a + 1), &o)) out.push_back(o);
+        i = b + 1;
     }
-    fclose(f);
+    return out;
+}
+
+// The stars of out/stars.json on the finished picture (final_rgb.raw, W x H u8 RGB, upright) at
+// half size: a green ring on each sky-verified star, a red one on each that is not - lit windows
+// and lamps should be red, stars green. Prints the counts.
+void star_overlay(const std::string& outDir, const std::string& result, const std::string& report) {
+    jsonmini::Obj res;
+    if (!jsonmini::Obj::parse(result, &res)) {
+        printf("sky stars: result not readable\n");
+        return;
+    }
+    // stack_report.json holds arrays of objects, which jsonmini does not read: the one number.
+    int staticStars = -1;
+    const size_t at = report.find("\"staticStars\":");
+    if (at != std::string::npos) staticStars = std::atoi(report.c_str() + at + 14);
+    const std::string starsPath = res.str("starsPath", "");
+    if (starsPath.empty()) {
+        printf("sky stars: no stars.json\n");
+        return;
+    }
+    const std::vector<jsonmini::Obj> stars = read_stars(read_file(starsPath));
+    int sky = 0, clear = 0;
+    for (const jsonmini::Obj& s : stars) {
+        if (!s.boolean("sky", false)) continue;
+        ++sky;
+        if (!s.boolean("sat", false) && s.num("snr", 0.0) >= 10.0) ++clear;
+    }
+    printf("sky stars: %zu reference stars, %d sky-verified, %d static; of the verified %d "
+           "unsaturated with snr >= 10\n",
+           stars.size(), sky, staticStars, clear);
+
+    const int W = res.numi("width", 0), H = res.numi("height", 0);
+    const std::string pic = read_file(res.str("finalRgbPath", ""));
+    if (W < 2 || H < 2 || pic.size() < (size_t)W * H * 3) return;
+    const int w = W / 2, h = H / 2;
+    std::vector<uint8_t> img((size_t)w * h * 3);
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            for (int c = 0; c < 3; ++c) {
+                int s = 0;
+                for (int dy = 0; dy < 2; ++dy)
+                    for (int dx = 0; dx < 2; ++dx)
+                        s += (uint8_t)pic[((size_t)(2 * y + dy) * W + 2 * x + dx) * 3 + c];
+                img[((size_t)y * w + x) * 3 + 2 - c] = (uint8_t)((s + 2) / 4);
+            }
+        }
+    }
+    const double R = 7.0;
+    for (const jsonmini::Obj& s : stars) {
+        const bool isSky = s.boolean("sky", false);
+        const double cx = (s.num("x", -100.0) - 0.5) / 2.0, cy = (s.num("y", -100.0) - 0.5) / 2.0;
+        for (int y = (int)std::floor(cy - R - 2); y <= (int)std::ceil(cy + R + 2); ++y) {
+            for (int x = (int)std::floor(cx - R - 2); x <= (int)std::ceil(cx + R + 2); ++x) {
+                if (x < 0 || y < 0 || x >= w || y >= h) continue;
+                if (std::fabs(std::hypot(x - cx, y - cy) - R) > 0.8) continue;
+                uint8_t* q = &img[((size_t)y * w + x) * 3];
+                q[0] = 0;                       // B
+                q[1] = isSky ? 255 : 0;         // G
+                q[2] = isSky ? 0 : 255;         // R
+            }
+        }
+    }
+    write_bmp(outDir + "/stars.bmp", img, w, h);
 }
 
 // A master TIFF written turned (rotation clockwise, as the app writes them) back in the sensor's
@@ -443,7 +553,9 @@ int run_stack(const std::string& cacheDir, const std::string& outDir, const std:
         return 3;
     }
     printf("result: %s\n", result.c_str());
-    printf("report: %s\n", read_file(outDir + "/stack/out/stack_report.json").c_str());
+    const std::string reportJson = read_file(outDir + "/stack/out/stack_report.json");
+    printf("report: %s\n", reportJson.c_str());
+    star_overlay(outDir, result, reportJson);
 
     // The reference the stack ended up in: the frame whose transform is the identity.
     int refIdx = 0;

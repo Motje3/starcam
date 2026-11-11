@@ -10,7 +10,10 @@ struct DetectParams {
     int minArea = 2;
     int maxArea = 120;
     float maxAspect = 2.5f; // reject elongated blobs (satellites, edges)
-    int maxStars = 300;     // keep brightest N
+    // Keep the brightest N. 500, not 300: in a town over half of the 300 brightest blobs were lit
+    // windows and lamps, and the sky-verified stars of 2026-10-31 went from 131 / 76 to 167 / 139.
+    // Alignment fits on its own 300 (AlignParams::refStars).
+    int maxStars = 500;
     int gridCells = 48;     // background grid resolution (gridCells x gridCells)
 };
 

@@ -250,6 +250,28 @@ void fix_hot_pixels_region(std::vector<uint16_t>& region, int rw, int rh, int x0
     static const int dx[4] = {-2, 2, 0, 0};
     static const int dy[4] = {0, 0, -2, 2};
 
+    // A neighbour on the list is hot itself and says nothing about the pixel: averaged in, it left
+    // the repair too bright (and which of two neighbouring hot pixels came first decided whether
+    // the other saw the raw or the repaired value). The lookup wants the list sorted, as
+    // find_hot_pixels and the lights' list return it; a list that is not is sorted here once, and
+    // without memory for that the check is skipped (the old repair).
+    const std::vector<uint32_t>* sorted = &hotIdx;
+    std::vector<uint32_t> sortedCopy;
+    if (!std::is_sorted(hotIdx.begin(), hotIdx.end())) {
+        try {
+            sortedCopy = hotIdx;
+            std::sort(sortedCopy.begin(), sortedCopy.end());
+            sorted = &sortedCopy;
+        } catch (...) {
+            sorted = nullptr;
+        }
+    }
+    auto isHot = [sorted, fullW, fullH](int fx, int fy) {
+        if (sorted == nullptr || fx < 0 || fy < 0 || fx >= fullW || fy >= fullH) return false;
+        return std::binary_search(sorted->begin(), sorted->end(),
+                                  (uint32_t)((size_t)fy * (size_t)fullW + (size_t)fx));
+    };
+
     for (uint32_t idx : hotIdx) {
         int hx = (int)(idx % (uint32_t)fullW);
         int hy = (int)(idx / (uint32_t)fullW);
@@ -264,9 +286,11 @@ void fix_hot_pixels_region(std::vector<uint16_t>& region, int rw, int rh, int x0
             int nx = rx + dx[k];
             int ny = ry + dy[k];
             if (nx < 0 || nx >= rw || ny < 0 || ny >= rh) continue;  // outside region: skip
+            if (isHot(hx + dx[k], hy + dy[k])) continue;             // hot itself: skip
             sum += rd[(size_t)ny * rw + nx];
             ++cnt;
         }
+        // No usable neighbour: the pixel is left as it is.
         if (cnt > 0) rd[(size_t)ry * rw + rx] = (uint16_t)((sum + cnt / 2) / cnt);
     }
 }

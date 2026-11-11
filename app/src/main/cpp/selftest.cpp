@@ -1,7 +1,10 @@
 // selftest.cpp — end-to-end synthetic validation of the StarCam stacking pipeline (PLAN.md §6.8).
 // Synthesizes 16 RGGB frames with known ground-truth transforms, noise, fixed hot pixels and a
 // satellite streak, runs the REAL modules (sraw/bayer/stars/align/stack/post — no EngineSession),
-// and validates alignment accuracy, hot-pixel rejection, streak suppression and stacked star FWHM.
+// and validates alignment accuracy, hot-pixel rejection, streak suppression and stacked star FWHM;
+// then hot pixels found from the lights alone (also with the stars standing still), sky-verified
+// stars and their photometry (a second, small sequence with lamps fixed in the frame), and the v2
+// look's white-balance gains.
 
 #include "selftest.h"
 
@@ -15,8 +18,10 @@
 #include "align.h"
 #include "bayer.h"
 #include "common.h"
+#include "hotpix.h"
 #include "json_mini.h"
 #include "post.h"
+#include "skystars.h"
 #include "sraw.h"
 #include "stack.h"
 #include "stars.h"
@@ -108,10 +113,12 @@ double dist_pt_seg(double px, double py, double ax, double ay, double bx, double
     return std::sqrt(ex * ex + ey * ey);
 }
 
-// Renders one synthetic frame into raw16 (fbuf = scratch, signal above black in counts).
-void synth_frame(int fi, const std::vector<SynthStar>& stars, const std::vector<HotPix>& hots,
-                 std::vector<float>& fbuf, std::vector<uint16_t>& raw16) {
-    const Transform T = truth_raw(fi);
+// Renders one synthetic frame into raw16 (fbuf = scratch, signal above black in counts): the stars
+// through T (reference RAW -> this frame's RAW), the satellite when fi is 6..11 and streak is on,
+// noise seeded by fi.
+void synth_frame(int fi, const Transform& T, bool streak, const std::vector<SynthStar>& stars,
+                 const std::vector<HotPix>& hots, std::vector<float>& fbuf,
+                 std::vector<uint16_t>& raw16) {
     const double cx = (kW - 1) * 0.5, cy = (kH - 1) * 0.5;
     const double invRmax2 = 1.0 / (cx * cx + cy * cy);
 
@@ -149,7 +156,7 @@ void synth_frame(int fi, const std::vector<SynthStar>& stars, const std::vector<
     }
 
     // Satellite streak: frames 6..11 each get one sixth of the sky-fixed line (moving satellite).
-    if (fi >= 6 && fi <= 11) {
+    if (streak && fi >= 6 && fi <= 11) {
         const double t0 = (double)(fi - 6) / 6.0, t1 = (double)(fi - 5) / 6.0;
         const double ax = kLineX0 + t0 * (kLineX1 - kLineX0), ay = kLineY0 + t0 * (kLineY1 - kLineY0);
         const double bx = kLineX0 + t1 * (kLineX1 - kLineX0), by = kLineY0 + t1 * (kLineY1 - kLineY0);
@@ -267,6 +274,107 @@ double corner_center_ratio(const ImageF& luma) {
     return (sum * 0.25) / c;
 }
 
+// The mean of r, g and b at RAW resolution: the luma the checks measure on.
+ImageF raw_luma(const ImageF& rgb) {
+    ImageF l;
+    l.init(rgb.w, rgb.h, 1);
+    parallel_for(0, rgb.h, [&rgb, &l](int y) {
+        const float* s = rgb.px(0, y);
+        float* d = l.px(0, y);
+        for (int x = 0; x < rgb.w; ++x)
+            d[x] = (s[3 * x] + s[3 * x + 1] + s[3 * x + 2]) * (1.0f / 3.0f);
+    });
+    return l;
+}
+
+// How many of the synthetic hot pixels a stack no longer shows: the brightest pixel of the 3 x 3
+// around each less than 5 noise sigmas over its local background (the hot_pixels criterion).
+int hot_suppressed(const ImageF& stackRGB, const std::vector<HotPix>& hots,
+                   std::vector<float>& scratch, float* worstSig) {
+    const ImageF l = raw_luma(stackRGB);
+    float sigma = stack_noise_sigma(l, scratch);
+    if (sigma < 1e-7f) sigma = 1e-7f;
+    int suppressed = 0;
+    *worstSig = 0.0f;
+    for (const HotPix& hp : hots) {
+        const float bg = local_bg_median(l, hp.x, hp.y, 10, 2, scratch);
+        const float ex = box3_max(l, hp.x, hp.y) - bg;
+        if (ex < 5.0f * sigma) ++suppressed;
+        else *worstSig = std::max(*worstSig, ex / sigma);
+    }
+    return suppressed;
+}
+
+// Of a hot-pixel list, how many sites are not synthetic hot pixels.
+int false_hot_sites(const std::vector<uint32_t>& found, const std::vector<HotPix>& hots) {
+    std::vector<uint32_t> truth;
+    for (const HotPix& hp : hots) truth.push_back((uint32_t)((size_t)hp.y * kW + hp.x));
+    std::sort(truth.begin(), truth.end());
+    int n = 0;
+    for (uint32_t i : found)
+        if (!std::binary_search(truth.begin(), truth.end(), i)) ++n;
+    return n;
+}
+
+// ---- the sky-star sequence: coloured stars drifting with the sky, lamps fixed in the frame ----
+constexpr int kSkyW = 1024;
+constexpr int kSkyH = 768;
+constexpr int kSkyFrames = 8;
+constexpr int kSkyStars = 160;
+constexpr int kLamps = 25;
+constexpr float kStarColour[3] = {1.15f, 1.0f, 0.7f};  // per CFA colour, on the stars' light
+constexpr float kLampColour[3] = {1.3f, 1.0f, 0.5f};
+constexpr double kLampSigmaRaw = 1.6;
+
+// Reference RAW -> frame fi's RAW: a turn of 0.04 degrees a frame about the centre and a slide of
+// (2.0, 1.2) px, so a star has moved more than 3 luma px from frame 3 on.
+Transform sky_motion(int fi) {
+    const double a = 0.04 * fi * M_PI / 180.0, c = std::cos(a), s = std::sin(a);
+    const double cx = (kSkyW - 1) * 0.5, cy = (kSkyH - 1) * 0.5;
+    return Transform::similarity(c, s, cx - c * cx + s * cy + 2.0 * fi, cy - s * cx - c * cy + 1.2 * fi);
+}
+
+void add_blob(std::vector<float>& fbuf, int w, int h, double sx, double sy, double flux,
+              double sigma, const float colour[3]) {
+    const double twoSig2 = 2.0 * sigma * sigma;
+    const double amp = flux / (2.0 * M_PI * sigma * sigma);
+    const int x0 = clampi((int)std::floor(sx) - 8, 0, w - 1), x1 = clampi((int)std::floor(sx) + 8, 0, w - 1);
+    const int y0 = clampi((int)std::floor(sy) - 8, 0, h - 1), y1 = clampi((int)std::floor(sy) + 8, 0, h - 1);
+    for (int y = y0; y <= y1; ++y) {
+        float* row = &fbuf[(size_t)y * w];
+        for (int x = x0; x <= x1; ++x) {
+            const double dx = x - sx, dy = y - sy;
+            const int c = cfaColorAt(CFA::RGGB, ((y & 1) << 1) | (x & 1));
+            row[x] += (float)(amp * colour[c] * std::exp(-(dx * dx + dy * dy) / twoSig2));
+        }
+    }
+}
+
+void synth_sky_frame(int fi, const std::vector<SynthStar>& stars, const std::vector<SynthStar>& lamps,
+                     std::vector<float>& fbuf, std::vector<uint16_t>& raw16) {
+    std::fill(fbuf.begin(), fbuf.end(), 120.0f);
+    const Transform T = sky_motion(fi);
+    for (const SynthStar& s : stars) {
+        double sx, sy;
+        T.apply(s.x, s.y, &sx, &sy);
+        if (sx < -10.0 || sy < -10.0 || sx > kSkyW + 10.0 || sy > kSkyH + 10.0) continue;
+        add_blob(fbuf, kSkyW, kSkyH, sx, sy, s.flux, kPsfSigmaRaw, kStarColour);
+    }
+    for (const SynthStar& l : lamps) add_blob(fbuf, kSkyW, kSkyH, l.x, l.y, l.flux, kLampSigmaRaw, kLampColour);
+    parallel_for(0, kSkyH, [&fbuf, &raw16, fi](int y) {
+        std::mt19937 rng(0xA11u + (uint32_t)fi * 2654435761u + (uint32_t)y * 40503u);
+        std::normal_distribution<float> g(0.0f, 1.0f);
+        const float* src = &fbuf[(size_t)y * kSkyW];
+        uint16_t* dst = &raw16[(size_t)y * kSkyW];
+        for (int x = 0; x < kSkyW; ++x) {
+            const float sig = src[x];
+            float n = 12.0f * g(rng);
+            if (sig > 200.0f) n += 0.7f * std::sqrt(sig - 200.0f) * g(rng);
+            dst[x] = (uint16_t)(clampf(kBlack + sig + n, 0.0f, (float)kWhite) + 0.5f);
+        }
+    });
+}
+
 std::string check_json(const char* name, bool pass, double value, double limit) {
     jsonmini::Builder b;
     b.add("name", name).add("pass", pass).add("value", value).add("limit", limit);
@@ -357,7 +465,7 @@ std::string run_impl(const std::string& tmpDir, std::vector<std::string>& paths)
     DetectParams dp;
     int minStars = 1 << 30, maxStars = 0;
     for (int fi = 0; fi < kFrames; ++fi) {
-        synth_frame(fi, stars, hots, fbuf, raw16);
+        synth_frame(fi, truth_raw(fi), true, stars, hots, fbuf, raw16);
 
         char name[48];
         snprintf(name, sizeof(name), "selftest_%04d.sraw", fi);
@@ -696,16 +804,500 @@ std::string run_impl(const std::string& tmpDir, std::vector<std::string>& paths)
             const bool onEdge = (down == 0 && sy == H - 1) || (down == 1 && sx == 0) ||
                                 (down == 2 && sy == 0) || (down == 3 && sx == W - 1);
             if (!onEdge) c7 = false;
+            // And a point back: rotated_point is rotated_source's inverse.
+            for (int oy = 0; oy < oh; ++oy) {
+                for (int ox = 0; ox < ow; ++ox) {
+                    rotated_source(rot, W, H, ox, oy, &sx, &sy);
+                    double px, py;
+                    rotated_point(rot, W, H, sx, sy, &px, &py);
+                    if (px != ox || py != oy) c7 = false;
+                }
+            }
         }
     }
     add_log(log, "check7 rotation mapping (%s)", c7 ? "PASS" : "FAIL");
+
+    auto frame_path = [&tmpDir](const char* stem, int i) {
+        char name[64];
+        snprintf(name, sizeof(name), "%s_%04d.sraw", stem, i);
+        std::string p = tmpDir;
+        if (!p.empty() && p.back() != '/' && p.back() != '\\') p += '/';
+        return p + name;
+    };
+    auto write_frame = [&](const std::string& path, int w, int h, const std::vector<uint16_t>& px) {
+        SrawHeader hdr;
+        hdr.width = (uint32_t)w;
+        hdr.height = (uint32_t)h;
+        hdr.cfa = CFA::RGGB;
+        hdr.whiteLevel = kWhite;
+        for (int i = 0; i < 4; ++i) { hdr.blackLevel[i] = kBlack; hdr.wbGain[i] = 1.0f; }
+        hdr.exposureNs = 8000000000ull;
+        hdr.iso = 800;
+        const bool ok = sraw_write(path, hdr, px.data(), w);
+        if (ok) paths.push_back(path);
+        return ok;
+    };
+
+    // ---- check 8: hot pixels from the light frames alone (no dark map) ----
+    // (a) the frames above: the list must catch the synthetic hot pixels, and the stack with it
+    //     suppress them as the dark's list does; (b) 8 frames in which the stars do not move at
+    //     all, so every star core is as persistent as a hot pixel: none may be taken for one.
+    double autoPct = 0.0;
+    int autoFalse = -1, staticFalse = -1;
+    {
+        HotLightsReport hr;
+        const std::vector<uint32_t> autoHot = find_hot_pixels_lights(frames, si, &hr);
+        autoFalse = false_hot_sites(autoHot, hots);
+        ImageF st;
+        float rj = 0.0f, worst = 0.0f;
+        ProgressFn quiet = [](const char*, int) {};
+        if (stack_frames(frames, si, noDark, autoHot, sp, &st, quiet, &abortFlag, &rj) &&
+            st.w == kW && st.h == kH) {
+            autoPct = 100.0 * hot_suppressed(st, hots, scratch, &worst) / (double)nHot;
+        } else {
+            add_log(log, "hot auto: restack FAILED");
+        }
+        add_log(log, "hot (lights only): %d listed (%d candidates, %d persistent, %d lit their "
+                "neighbours), %d not synthetic, %.1f%% suppressed, worst %.1f sigma",
+                (int)autoHot.size(), hr.candidates, hr.persistent, hr.shared, autoFalse, autoPct,
+                (double)worst);
+
+        std::vector<FrameRecord> still(8);
+        bool okStill = true;
+        for (int k = 0; k < (int)still.size() && okStill; ++k) {
+            synth_frame(100 + k, Transform(), false, stars, hots, fbuf, raw16);
+            const std::string p = frame_path("selftest_still", k);
+            okStill = write_frame(p, kW, kH, raw16);
+            still[k].srawPath = p;
+            still[k].meta.index = k;
+        }
+        if (okStill) {
+            HotLightsReport hs;
+            const std::vector<uint32_t> stillHot = find_hot_pixels_lights(still, si, &hs);
+            staticFalse = false_hot_sites(stillHot, hots);
+            // Of those, on a star (within 6 px of one): the sites this check is about.
+            int onStar = 0;
+            {
+                std::vector<uint32_t> truth;
+                for (const HotPix& hp : hots) truth.push_back((uint32_t)((size_t)hp.y * kW + hp.x));
+                std::sort(truth.begin(), truth.end());
+                for (uint32_t i : stillHot) {
+                    if (std::binary_search(truth.begin(), truth.end(), i)) continue;
+                    const double x = (double)(i % kW), y = (double)(i / kW);
+                    for (const SynthStar& s : stars) {
+                        if (std::hypot(s.x - x, s.y - y) < 6.0) {
+                            ++onStar;
+                            break;
+                        }
+                    }
+                }
+            }
+            add_log(log, "hot (lights only, stars standing still): %d listed (%d persistent, %d lit "
+                    "their neighbours), %d not synthetic, %d of them on a star",
+                    (int)stillHot.size(), hs.persistent, hs.shared, staticFalse, onStar);
+        } else {
+            add_log(log, "hot still frames: sraw_write FAILED");
+        }
+    }
+    const bool c8 = autoPct >= 95.0 && autoFalse >= 0 && autoFalse <= 10 && staticFalse >= 0 &&
+                    staticFalse <= 10;
+    add_log(log, "check8 hot pixels from lights (%s)", c8 ? "PASS" : "FAIL");
+
+    // ---- check 9: sky-verified stars and their photometry ----
+    // Coloured stars drifting with the sky and lamps fixed in the frame: the stars must come out
+    // sky-verified, the lamps not, and the stack's photometry must give the stars' colour back.
+    double skyFrac = 0.0, colourDev = 1.0;
+    int nTrue = 0, nTrueSky = 0, nLamp = 0, nLampSky = 0;
+    {
+        std::mt19937 rs(4242);
+        std::uniform_real_distribution<double> ux(30.0, kSkyW - 31.0), uy(30.0, kSkyH - 31.0);
+        std::uniform_real_distribution<double> uf(std::log(3000.0), std::log(40000.0));
+        std::uniform_real_distribution<double> ul(20000.0, 40000.0);
+        std::vector<SynthStar> sstars(kSkyStars), lamps;
+        for (SynthStar& s : sstars) {
+            s.x = ux(rs);
+            s.y = uy(rs);
+            s.flux = std::exp(uf(rs));
+        }
+        for (int tries = 0; (int)lamps.size() < kLamps && tries < 100000; ++tries) {
+            SynthStar l;
+            l.x = ux(rs);
+            l.y = uy(rs);
+            l.flux = ul(rs);
+            bool bad = false;
+            for (const SynthStar& s : sstars)
+                if (std::hypot(s.x - l.x, s.y - l.y) < 30.0) { bad = true; break; }
+            for (const SynthStar& o : lamps)
+                if (std::hypot(o.x - l.x, o.y - l.y) < 30.0) { bad = true; break; }
+            if (!bad) lamps.push_back(l);
+        }
+        SensorInfo ss = si;
+        ss.width = kSkyW;
+        ss.height = kSkyH;
+        std::vector<float> sb((size_t)kSkyW * kSkyH);
+        std::vector<uint16_t> sr((size_t)kSkyW * kSkyH);
+        std::vector<FrameRecord> sf(kSkyFrames);
+        bool ok = true;
+        for (int fi = 0; fi < kSkyFrames && ok; ++fi) {
+            synth_sky_frame(fi, sstars, lamps, sb, sr);
+            const std::string p = frame_path("selftest_sky", fi);
+            ok = write_frame(p, kSkyW, kSkyH, sr);
+            FrameRecord& fr = sf[fi];
+            fr.srawPath = p;
+            fr.meta.index = fi;
+            ImageF l;
+            superpixel_luma(sr.data(), kSkyW, kSkyH, kSkyW, ss, wb, &l);
+            SkyStats sk;
+            detect_stars(l, dp, &fr.stars, &sk);
+            fr.noiseSigma = sk.noiseSigma;
+        }
+        Transform prevT;
+        sf[0].aligned = true;
+        for (int fi = 1; fi < kSkyFrames && ok; ++fi) {
+            const AlignResult ar = align_frame(sf[0].stars, sf[fi].stars, prevT, ap);
+            sf[fi].aligned = ar.ok;
+            sf[fi].rejected = !ar.ok;
+            if (ar.ok) {
+                sf[fi].T = ar.T;
+                prevT = ar.T;
+            }
+        }
+        std::vector<SkyStar> ver = ok ? verify_sky_stars(sf, 0, kSkyW / 2, kSkyH / 2)
+                                      : std::vector<SkyStar>();
+        // Which reference entries are stars and which lamps: within 2 RAW px of one.
+        std::vector<int> kind(ver.size(), 0);  // 1 star, 2 lamp
+        for (size_t k = 0; k < ver.size(); ++k) {
+            const double rx = 2.0 * ver[k].x + 0.5, ry = 2.0 * ver[k].y + 0.5;
+            for (const SynthStar& s : sstars)
+                if (std::hypot(s.x - rx, s.y - ry) < 2.0) kind[k] = 1;
+            for (const SynthStar& l : lamps)
+                if (std::hypot(l.x - rx, l.y - ry) < 2.0) kind[k] = 2;
+            if (kind[k] == 1) { ++nTrue; if (ver[k].sky) ++nTrueSky; }
+            if (kind[k] == 2) { ++nLamp; if (ver[k].sky) ++nLampSky; }
+        }
+        skyFrac = nTrue > 0 ? (double)nTrueSky / nTrue : 0.0;
+        // Photometry on the stack of the sequence, as finalize measures it.
+        ImageF st;
+        float rj = 0.0f;
+        ProgressFn quiet = [](const char*, int) {};
+        std::vector<float> rg, bg;
+        StarPhotometry ph;
+        if (ok && stack_frames(sf, ss, noDark, noHot, sp, &st, quiet, &abortFlag, &rj) &&
+            st.w == kSkyW && st.h == kSkyH) {
+            ImageF sl;
+            stack_luma_half(st, &sl);
+            measure_stars(st, sl, (float)(2.0 * kInputFwhmLuma), &ver, &ph);
+            for (size_t k = 0; k < ver.size(); ++k) {
+                const SkyStar& s = ver[k];
+                if (kind[k] != 1 || !s.sky || !s.measured || s.sat || s.snr < 20.0f || !(s.g > 0.0))
+                    continue;
+                rg.push_back((float)(s.r / s.g));
+                bg.push_back((float)(s.b / s.g));
+            }
+            if (!rg.empty()) {
+                const double a = median_of(rg) / kStarColour[0], b = median_of(bg) / kStarColour[2];
+                colourDev = std::max(std::fabs(a - 1.0), std::fabs(b - 1.0));
+            }
+            const std::string js = stars_json(ver, ph, st.w, st.h, 90, kSkyFrames);
+            add_log(log, "sky stars: stars.json %zu bytes, aperture %.1f px (fwhm %.2f), sky bg %.5f",
+                    js.size(), (double)ph.radius, (double)ph.fwhm, (double)ph.skyBg[1]);
+        } else {
+            add_log(log, "sky stars: sequence or stack FAILED");
+        }
+        add_log(log, "sky stars: %zu reference, stars %d/%d sky-verified, lamps %d/%d; colour of %zu "
+                "stars off by %.2f%%", ver.size(), nTrueSky, nTrue, nLampSky, nLamp, rg.size(),
+                100.0 * colourDev);
+    }
+    const bool c9 = nTrue > 0 && skyFrac >= 0.90 && nLamp >= 20 && nLampSky <= 2 && colourDev < 0.05;
+    add_log(log, "check9 sky stars (%s)", c9 ? "PASS" : "FAIL");
+
+    // ---- check 10: white-balance gains on the sky in the v2 look ----
+    // The sky points are made as finalize makes them: each star's position and the luma of its
+    // surroundings (here the median of a ring 8-14 px out) in the picture itself.
+    // (a) gains of 1 change nothing; (b) on a dark sky with stars the gain weights are 1 away from
+    // clipped cores (the channels as multiplied beforehand), and in the look the stars come out as
+    // a premultiplied picture's would while the background stays as it is without gains (the
+    // look applies the gains to what stands above the background); (c) a bright starless area keeps its
+    // colour; (d) a clipped star core stays white; (e) under a sky over a black landscape (darker
+    // than the sky) the sky still gets the full gains; (f) with fewer than 10 sky points the gains
+    // change nothing; (g) a bright region of the sky with stars in it (a Milky Way core, 3 x the
+    // sky) gets the full gains, stars and background; (h) a sky twice as bright at the bottom as at
+    // the top gets the full gains everywhere.
+    double wbDiffA = 1.0, wbDiffB = 1.0, wbRect = 1.0, wbCore = 1.0, wbDark = 1.0, wbFew = 1.0;
+    double wbBg = 1.0;
+    double wbCoreMW = 1.0, wbGrad = 1.0;
+    int darkStarPx = 0, mwPts = 0;
+    {
+        const int w = 1024, h = 768;
+        const float sky = 0.005f;
+        const float gR = 1.7f, gB = 0.6f;
+        std::mt19937 rw(99);
+        std::normal_distribution<float> gn(0.0f, 0.0005f);
+        // A sky of the given level (luma; neutral) with noise.
+        auto skyOf = [&](const std::function<float(int, int)>& level) {
+            ImageF img;
+            img.init(w, h, 3);
+            for (int y = 0; y < h; ++y)
+                for (int x = 0; x < w; ++x) {
+                    const float l = level(x, y);
+                    float* q = img.px(x, y);
+                    for (int c = 0; c < 3; ++c) q[c] = l + gn(rw);
+                }
+            return img;
+        };
+        auto addStar = [](ImageF& img, double cx, double cy, double peak, double sigma, bool clip) {
+            for (int y = std::max(0, (int)cy - 12); y <= std::min(img.h - 1, (int)cy + 12); ++y) {
+                for (int x = std::max(0, (int)cx - 12); x <= std::min(img.w - 1, (int)cx + 12); ++x) {
+                    const double d2 = (x - cx) * (x - cx) + (y - cy) * (y - cy);
+                    float* q = img.px(x, y);
+                    for (int c = 0; c < 3; ++c) {
+                        float v = q[c] + (float)(peak * std::exp(-d2 / (2.0 * sigma * sigma)));
+                        if (clip) v = std::min(v, 1.0f);
+                        q[c] = v;
+                    }
+                }
+            }
+        };
+        // The sky points of the stars at `at` in img: x, y and the median luma of a ring 8-14 px out.
+        auto pointsOf = [](const ImageF& img, const std::vector<std::pair<double, double>>& at) {
+            std::vector<float> pts, ring;
+            for (const auto& s : at) {
+                ring.clear();
+                for (int y = (int)s.second - 14; y <= (int)s.second + 14; ++y)
+                    for (int x = (int)s.first - 14; x <= (int)s.first + 14; ++x) {
+                        if (x < 0 || y < 0 || x >= img.w || y >= img.h) continue;
+                        const double d = std::hypot(x - s.first, y - s.second);
+                        if (d < 8.0 || d > 14.0) continue;
+                        const float* q = img.px(x, y);
+                        ring.push_back(0.25f * (q[0] + 2.0f * q[1] + q[2]));
+                    }
+                pts.push_back((float)s.first);
+                pts.push_back((float)s.second);
+                pts.push_back(median_of(ring));
+            }
+            return pts;
+        };
+        auto premultiplied = [gR, gB](const ImageF& img) {
+            ImageF out = img;
+            for (size_t i = 0; i < out.d.size(); i += 3) {
+                out.d[i] *= gR;
+                out.d[i + 2] *= gB;
+            }
+            return out;
+        };
+        // The largest relative difference from the premultiplied picture, short of clipped cores.
+        auto fullGains = [&premultiplied](const ImageF& before, const ImageF& after) {
+            const ImageF ref = premultiplied(before);
+            double worst = 0.0;
+            for (size_t i = 0; i < before.d.size(); i += 3) {
+                if (std::max(before.d[i], std::max(before.d[i + 1], before.d[i + 2])) >= 0.75f) continue;
+                for (int c = 0; c < 3; ++c)
+                    worst = std::max(worst, (double)std::fabs(after.d[i + c] - ref.d[i + c]) /
+                                                std::max(1e-6, (double)std::fabs(ref.d[i + c])));
+            }
+            return worst;
+        };
+        std::uniform_real_distribution<double> px(20.0, w - 21.0), py(20.0, h - 21.0), pk(0.02, 0.5);
+
+        // The plain sky: 150 stars and 6 with clipped cores.
+        ImageF S = skyOf([sky](int, int) { return sky; });
+        std::vector<std::pair<double, double>> at;
+        for (int i = 0; i < 150; ++i) {
+            const double x = px(rw), y = py(rw);
+            addStar(S, x, y, pk(rw), 2.0, false);
+            at.push_back({x, y});
+        }
+        std::vector<std::pair<int, int>> clipped;
+        for (int i = 0; i < 6; ++i) {
+            const int cx = 100 + 150 * i, cy = 120 + 90 * (i % 3);
+            addStar(S, cx, cy, 3.0, 2.0, true);
+            clipped.push_back({cx, cy});
+            at.push_back({(double)cx, (double)cy});
+        }
+        const std::vector<float> ptsS = pointsOf(S, at);
+        ProgressFn quiet = [](const char*, int) {};
+        // (a)
+        {
+            ImageF a1 = stackImg, a2 = stackImg;
+            PostParams p1, p2;
+            p1.version = p2.version = 2;
+            p2.wbR = 1.0f;
+            p2.wbB = 1.0f;
+            postprocess_v2(a1, p1, quiet);
+            postprocess_v2(a2, p2, quiet);
+            wbDiffA = 0.0;
+            for (size_t i = 0; i < a1.d.size(); ++i)
+                wbDiffA = std::max(wbDiffA, (double)std::fabs(a1.d[i] - a2.d[i]));
+        }
+        // (b) the gain weights alone first (exactly the premultiplied values short of clipped
+        // cores), then the whole look: its stars against the look of the premultiplied picture
+        // (the two stretch a little differently: 0.04 of the range), its background against the
+        // look without gains (the mean, per channel, within 2 of 255: its noise takes the gains like
+        // any light, and the stretch is not a straight line)
+        double stepDiff = 1.0;
+        {
+            ImageF g = S;
+            apply_sky_white_balance(g, gR, gB, ptsS);
+            stepDiff = fullGains(S, g);
+        }
+        {
+            ImageF a = S, b = premultiplied(S), plain = S;
+            PostParams pa, pb, pc;
+            pa.version = pb.version = pc.version = 2;
+            pa.wbR = gR;
+            pa.wbB = gB;
+            pa.skyPts = ptsS;
+            postprocess_v2(a, pa, quiet);
+            postprocess_v2(b, pb, quiet);
+            postprocess_v2(plain, pc, quiet);
+            wbDiffB = 0.0;
+            double bgA[3] = {0, 0, 0}, bgP[3] = {0, 0, 0};
+            size_t nBg = 0;
+            for (int y = 0; y < h; ++y)
+                for (int x = 0; x < w; ++x) {
+                    bool near = false;
+                    for (const auto& c : clipped)
+                        near = near || (std::abs(x - c.first) <= 25 && std::abs(y - c.second) <= 25);
+                    if (near) continue;
+                    const float* s = S.px(x, y);
+                    const float lum = (s[0] + s[1] + s[2]) / 3.0f;
+                    if (lum > sky + 0.02f) {  // a star
+                        for (int c = 0; c < 3; ++c)
+                            wbDiffB = std::max(wbDiffB, (double)std::fabs(a.px(x, y)[c] - b.px(x, y)[c]));
+                    } else if (lum < 1.3f * sky) {  // the background
+                        for (int c = 0; c < 3; ++c) {
+                            bgA[c] += a.px(x, y)[c];
+                            bgP[c] += plain.px(x, y)[c];
+                        }
+                        ++nBg;
+                    }
+                }
+            wbBg = 0.0;
+            for (int c = 0; c < 3; ++c)
+                wbBg = std::max(wbBg, nBg > 0 ? std::fabs(bgA[c] - bgP[c]) / (double)nBg : 1.0);
+            if (stepDiff > 1e-5) wbDiffB = std::max(wbDiffB, stepDiff);
+        }
+        // (c), (d): a bright starless rectangle 200 px wide at 5 x the sky, and the clipped cores
+        {
+            ImageF g = S;
+            const int rx0 = 400, ry0 = 380, rw0 = 200, rh0 = 300;
+            for (int y = ry0; y < ry0 + rh0; ++y)
+                for (int x = rx0; x < rx0 + rw0; ++x) {
+                    float* q = g.px(x, y);
+                    q[0] = 6.0f * sky;
+                    q[1] = 5.0f * sky;
+                    q[2] = 4.0f * sky;
+                }
+            std::vector<std::pair<double, double>> outside;  // the rectangle hides its stars
+            for (const auto& s : at)
+                if (s.first < rx0 || s.first >= rx0 + rw0 || s.second < ry0 || s.second >= ry0 + rh0)
+                    outside.push_back(s);
+            const ImageF before = g;
+            apply_sky_white_balance(g, gR, gB, pointsOf(before, outside));
+            double s0[3] = {0, 0, 0}, s1[3] = {0, 0, 0};
+            for (int y = ry0 + 30; y < ry0 + rh0 - 30; ++y)
+                for (int x = rx0 + 30; x < rx0 + rw0 - 30; ++x)
+                    for (int c = 0; c < 3; ++c) {
+                        s0[c] += before.px(x, y)[c];
+                        s1[c] += g.px(x, y)[c];
+                    }
+            wbRect = std::max(std::fabs((s1[0] / s1[1]) / (s0[0] / s0[1]) - 1.0),
+                              std::fabs((s1[2] / s1[1]) / (s0[2] / s0[1]) - 1.0));
+            wbCore = 0.0;
+            for (const auto& c : clipped) {
+                const float* q = g.px(c.first, c.second);
+                wbCore = std::max(wbCore, std::max(std::fabs((double)q[0] / q[1] - 1.0),
+                                                   std::fabs((double)q[2] / q[1] - 1.0)));
+            }
+        }
+        // (e) the lower 40 % a landscape at 0.2 x the sky (it hides the stars there): every pixel
+        // short of a clipped core - sky, stars, the dark ground - gets exactly the gains.
+        {
+            ImageF g = S;
+            std::normal_distribution<float> gl(0.0f, 0.0002f);
+            const int top = (int)(0.6 * h);
+            for (int y = top; y < h; ++y)
+                for (int x = 0; x < w; ++x)
+                    for (int c = 0; c < 3; ++c) g.px(x, y)[c] = 0.2f * sky + gl(rw);
+            std::vector<std::pair<double, double>> above;
+            for (const auto& s : at)
+                if (s.second < top - 14) above.push_back(s);
+            const ImageF before = g;
+            apply_sky_white_balance(g, gR, gB, pointsOf(before, above));
+            wbDark = fullGains(before, g);
+            for (int y = 0; y < top; ++y)
+                for (int x = 0; x < w; ++x) {
+                    const float* q = before.px(x, y);
+                    if (q[1] > sky + 0.01f && std::max(q[0], std::max(q[1], q[2])) < 0.75f) ++darkStarPx;
+                }
+        }
+        // (f) fewer than 10 sky points: the output of gains 1, to the bit
+        {
+            ImageF a = S, b = S;
+            PostParams pa, pb;
+            pa.version = pb.version = 2;
+            pa.wbR = gR;
+            pa.wbB = gB;
+            pa.skyPts.assign(ptsS.begin(), ptsS.begin() + 9 * 3);
+            postprocess_v2(a, pa, quiet);
+            postprocess_v2(b, pb, quiet);
+            wbFew = 0.0;
+            for (size_t i = 0; i < a.d.size(); ++i)
+                wbFew = std::max(wbFew, (double)std::fabs(a.d[i] - b.d[i]));
+        }
+        // (g) a Milky Way core: a region 600 px wide at 3 x the sky with 20 of the sky's stars in it
+        {
+            const int mx0 = 212, my0 = 184, mx1 = 812, my1 = 584;
+            ImageF g = skyOf([=](int x, int y) {
+                return x >= mx0 && x < mx1 && y >= my0 && y < my1 ? 3.0f * sky : sky;
+            });
+            std::uniform_real_distribution<double> ix(mx0 + 20.0, mx1 - 21.0), iy(my0 + 20.0, my1 - 21.0);
+            std::vector<std::pair<double, double>> st;
+            while ((int)st.size() < 20) st.push_back({ix(rw), iy(rw)});
+            while ((int)st.size() < 150) {
+                const double x = px(rw), y = py(rw);
+                if (x > mx0 - 20 && x < mx1 + 20 && y > my0 - 20 && y < my1 + 20) continue;
+                st.push_back({x, y});
+            }
+            for (const auto& s : st) addStar(g, s.first, s.second, pk(rw), 2.0, false);
+            mwPts = 0;
+            for (const auto& s : st)
+                if (s.first >= mx0 && s.first < mx1 && s.second >= my0 && s.second < my1) ++mwPts;
+            const ImageF before = g;
+            apply_sky_white_balance(g, gR, gB, pointsOf(before, st));
+            wbCoreMW = fullGains(before, g);
+        }
+        // (h) the sky twice as bright at the bottom as at the top, stars all over
+        {
+            ImageF g = skyOf([=](int, int y) { return sky * (1.0f + (float)y / (float)(h - 1)); });
+            std::vector<std::pair<double, double>> st;
+            for (int i = 0; i < 150; ++i) {
+                st.push_back({px(rw), py(rw)});
+                addStar(g, st.back().first, st.back().second, pk(rw), 2.0, false);
+            }
+            const ImageF before = g;
+            apply_sky_white_balance(g, gR, gB, pointsOf(before, st));
+            wbGrad = fullGains(before, g);
+        }
+        add_log(log, "wb gains: (a) gains 1 diff %.2g; (b) stars against premultiplied %.2g, background "
+                "against no gains %.2g (gain weights %.2g); "
+                "(c) starless area colour %.3f%%; (d) clipped core %.3f%%; (e) over a dark landscape %.2g "
+                "(%d star pixels); (f) 9 sky points diff %.2g; (g) Milky Way core with %d stars %.2g; "
+                "(h) sky doubling %.2g",
+                wbDiffA, wbDiffB, wbBg, stepDiff, 100.0 * wbRect, 100.0 * wbCore, wbDark, darkStarPx, wbFew,
+                mwPts, wbCoreMW, wbGrad);
+    }
+    const bool c10 = wbDiffA == 0.0 && wbDiffB < 0.04 && wbBg < 0.008 && wbRect < 0.01 && wbCore < 0.01 &&
+                     wbDark < 1e-5 && darkStarPx > 0 && wbFew == 0.0 && mwPts >= 20 &&
+                     wbCoreMW < 1e-5 && wbGrad < 1e-5;
+    add_log(log, "check10 wb gains (%s)", c10 ? "PASS" : "FAIL");
 
     const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                         std::chrono::steady_clock::now() - tStart)
                         .count();
     add_log(log, "elapsed %lld ms", (long long)ms);
 
-    const bool pass = c1 && c2 && c3 && c4 && c5 && c6 && c7;
+    const bool pass = c1 && c2 && c3 && c4 && c5 && c6 && c7 && c8 && c9 && c10;
     std::string checks = "[";
     checks += check_json("alignment", c1, alignMed, 0.35);
     checks += ",";
@@ -720,6 +1312,15 @@ std::string run_impl(const std::string& tmpDir, std::vector<std::string>& paths)
     checks += check_json("post_v2", c6, v2Median, 0.40);
     checks += ",";
     checks += check_json("rotation", c7, c7 ? 1.0 : 0.0, 1.0);
+    checks += ",";
+    // Value: % suppressed (the false-site counts, limit 10 each, are in the log).
+    checks += check_json("hot_pixels_auto", c8, autoPct, 95.0);
+    checks += ",";
+    // Value: % of the true stars sky-verified (lamps and colour in the log).
+    checks += check_json("sky_stars", c9, 100.0 * skyFrac, 90.0);
+    checks += ",";
+    // Value: the stars' largest difference from the premultiplied picture's (the rest in the log).
+    checks += check_json("wb_gains", c10, wbDiffB, 0.04);
     checks += "]";
 
     jsonmini::Builder top;

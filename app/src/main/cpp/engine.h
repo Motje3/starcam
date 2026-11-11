@@ -64,13 +64,20 @@ public:
 
     // Runs the full pipeline per PLAN.md §4 for the session's mode. optionsJson = flat StackConfig
     // (see StackConfig.kt). Writes out/final_rgb.raw (u8 RGB, W*H*3), out/master_linear16.tiff,
-    // out/stack_report.json. Returns result JSON:
+    // out/stack_report.json and, unless TRAILS, out/stars.json (the reference's stars, which of
+    // them followed the sky, measured on the linear stack: skystars.h). Returns result JSON:
     // {"ok":bool,"error":"","width":w,"height":h,"finalRgbPath":"...","tiffPath":"...",
     //  "framesUsed":n,"framesTotal":n,"rejected":"idx:reason;idx:reason","rejectionPct":f,
-    //  "fwhmRef":f,"fwhmStack":f,"elapsedMs":n,"meteorCount":n}
+    //  "fwhmRef":f,"fwhmStack":f,"elapsedMs":n,"meteorCount":n,...,"starsPath":"..." ("" when
+    //  none was written)}
     // `progress` is called on the calling thread only, stages: "prepare","align","stack",
     // "foreground","post","write".
-    std::string finalizeStack(const std::string& optionsJson, const ProgressFn& progress);
+    // `starsFn` (optional) is called once, on the calling thread, with out/stars.json's text as soon
+    // as the stack's stars are measured - before the foreground composite and the look; its answer is
+    // a flat JSON object whose "wbR" / "wbB" (if any) replace the options' gains for the look and the
+    // single-frame comparison. Not called for TRAILS or when no star was measured.
+    std::string finalizeStack(const std::string& optionsJson, const ProgressFn& progress,
+                              const StarsFn& starsFn = nullptr);
 
     void abort();  // makes finalizeStack return early with ok=false,error="aborted"
 
