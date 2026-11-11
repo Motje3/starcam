@@ -108,8 +108,8 @@ as clean as one that did not.
   shows only at full zoom, and at screen size the brightest stars come out a quarter dimmer
   because the look clips their cores. On the whole frame it turns noise into 549 false stars.
   A kernel that does round them leaves ripples. The scripts and pictures are kept
-  (`rd_psf` in the session's scratch folder); an opt-in "sharpen stars" could come from it,
-  nothing automatic should.
+  (`field-logs\research\star-sharpening-src`, local only); an opt-in "sharpen stars" could come
+  from it, nothing automatic should.
 
 ### The engine and the app's own solver (11 Nov 2026)
 
@@ -119,4 +119,65 @@ as clean as one that did not.
   rms 1.1 px of the full picture, distortion k 0.0197) and 53 (RA 269.10, Dec +67.48), in 0.3 s
   each, no hint needed.
 
-(engine and app results are added below as each change lands)
+- **The pilot frame** (`fe1be88`). The real case of 31 Oct (ISO 800, sky 1.5 % of white) is now
+  corrected to ISO 1600 before the burst goes on; a dark site whose probe promised too much goes
+  to the camera's top stop; inside 2.5-8 % of white the pilot simply is frame 1. 18 unit tests
+  on the decision, and an emulator check (`exposure`) that runs a simulated session with a
+  biased probe (pilot dropped, ISO raised, 4 of 4 frames) and one where the first guess is right
+  (pilot kept, no extra exposure). On the phone itself: not yet (the emulator has no per-frame
+  black level).
+- **Hot pixels from the lights** (`9f024cc`). 2646 sites on the 8-frame session, 2915 on the
+  4-frame one, where no session had any repaired before. 85 % of one session's list shows up in
+  the other, taken 10 minutes earlier (16 % for random sites): a pattern of the sensor, not
+  noise. The stack is as sharp as before (peak share 0.94 to 0.98). The first design let star
+  cores through when the stars stand still and took lit window edges for hot pixels when the
+  phone moved; three more tests fixed both (`hotpix.cpp` says which, with the numbers).
+- **Stars that followed the sky** (`out/stars.json`). 158 real stars of 364 detections, 139 of
+  413: positions, light per channel, surroundings, width. Detection keeps 500 blobs instead of
+  300, so a town's lit windows leave room for stars; a frame's width and the choice of the
+  reference frame stay on the brightest 300, or the reference moved (frame 3 to 7) and with it
+  what the look made of the buildings. "Star size" is now measured on real stars: 2.2 px (luma),
+  not the 5.8 px of lit windows.
+- **The stars' white balance in the look.** Three tries on the real photo:
+  1. gains on every pixel that is not bright: under a dark sky the landscape is darker than the
+     sky, so a brightness of the frame cannot say what is sky;
+  2. gains where the picture is not "bright and starless", judged against the sky's level at
+     its own stars: right about the sky, but the look measures the sky's glow and background on
+     the balanced picture and takes them off the lit landscape too, which turned a lamp-lit
+     pillar cooler, and its landscape detection changed its mind about the houses;
+  3. **as built:** everything the look measures and removes stays exactly as it is without
+     gains; the gains act at the stretch on what stands above the sky's neutral background - a
+     star, the Milky Way - weighted by the same "not bright and starless" mask. On the real
+     photo the lit pillar comes out 169/157/119 with and without gains, the blinds the same,
+     and the stars go from all cyan to their colours (orange giants, white, blue).
+  The mask's sky points are the stars that followed the sky, were really carried along by it
+  and have a star's width (`sky_point`): where the sky hardly moves, a lamp follows it too, and
+  such a session gets no balance at all.
+- **Found on the way, not fixed: the look's landscape detection is fragile on lit scenes.** The
+  same session rendered with another reference frame was given a "landscape" of 3 % of the
+  frame along the bottom, drawn as dark blocks with hard edges over the lower houses. It is
+  the old one-horizon model (dark, starless land along one edge); a town through a window is
+  not that. The two-layer work below is the real answer.
+
+### Sky and ground as two layers: prototype (11 Nov 2026)
+
+Each frame aligned twice - with the sky, and with the ground's own motion - and a matte from
+which of the two each pixel agrees with over time, then a composite: sky from the frames where
+that pixel is sky, ground from the ground-aligned stack.
+- **On a synthetic tripod session it works.** Ground as sharp as a single frame (0.94-0.96 of
+  its edge sharpness, against 0.08-0.23 in today's star-aligned stack), matte right for 90-93 %
+  of the ground and 94-96 % of the sky at 8, 20 and 40 frames, no bright rim, sky noise at the
+  horizon a fifth of the plain stack's smear. It needs about 10 px of motion between sky and
+  ground over the session (8 frames are enough below declination 50; near the pole 18 and
+  more); with less, everything is called sky and the result is today's stack.
+- **On the real session it fails for the nearest things.** The phone moved in the window, so
+  the window frames a metre away moved by parallax like neither sky nor ground, and being out
+  of focus and featureless they were called sky. Houses, lit windows and the tree came out
+  right and visibly sharper than today.
+- **Not built yet.** It is a large port (registration, evidence, a geodesic fill, a second
+  stack) and the only real data is the one scene it cannot do. It wants a real session on a
+  tripod with a horizon first; then it is the next big thing. The prototype, its synthetic
+  scenes and the port-ready description are kept in `field-logs\research\two-layer-matte-src`
+  (local only).
+
+(app results are added below as each change lands)
