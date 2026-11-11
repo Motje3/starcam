@@ -1,5 +1,34 @@
 # Stelli: to do before Google Play
 
+## Next (written 11 Nov 2026, for the week after)
+
+Three things, in this order. The rest of this page has the details.
+
+1. **Upload 0.7.0 to Play.** Play Console › Internal testing › Create new release, upload
+   `Stelli-0.7.0-14.aab` from the Desktop (the same file as
+   `app/build/outputs/bundle/release/app-release.aab`; if it is gone,
+   `gradlew bundleRelease` makes it again), then Save and publish. Update Stelli on the phone
+   from the Play Store.
+2. **One session on a clear night.** Nothing of 0.7.0 has run on the phone yet, so this is its
+   first real check. Look at:
+   - the stars: white, orange and blue instead of all cyan, the sky and the landscape as before;
+   - the session's page: "What's in this photo" already answered, and under Details "From this
+     photo's stars";
+   - under a dark sky, whether the photo is brighter than before (the first frame is now
+     checked and the exposure corrected).
+   If the colours look wrong: Settings › Look › More options › Star colours off, then Re-stack.
+   Afterwards share the log (Settings › Advanced › Diagnostics › Share debug report).
+3. **Two sessions that unlock the next work**, when there is a chance, with Settings › Stacking ›
+   Keep working files on:
+   - on a tripod with a horizon in it, 20 frames or more: for a sharp sky and a sharp landscape
+     in one photo;
+   - under a dark sky with the Milky Way in it: for the Milky Way's own colour (0.7.0 corrects
+     the stars only).
+
+What 0.7.0 changed and how it was checked: the top of PROGRESS.md, and CORE_REVIEW.md for every
+number. Before and after on the two real photos of 31 Oct: `field-logs\real-stars\` on this PC
+(not in the repo).
+
 Updated 2026-11-11 on 0.7.0 (versionCode 14: the core reviewed on the phone's own sessions and
 rebuilt - exposure checked on the first frame, hot pixels without darks, the photo recognised
 while it is stacked, the stars' true colours - see PROGRESS.md and CORE_REVIEW.md). Everything that needed no
