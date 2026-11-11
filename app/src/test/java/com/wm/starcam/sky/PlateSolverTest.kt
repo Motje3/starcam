@@ -124,6 +124,37 @@ class PlateSolverTest {
     }
 
     @Test
+    fun aDeadlineEndsTheSearch() {
+        // The photo being stacked waits for the answer: a field with no sky in it must not cost
+        // every pair in full. Past its deadline the search stops and finds nothing...
+        val rnd = Random(77)
+        val noise = List(120) { ImageStar(rnd.nextFloat() * 4000, rnd.nextFloat() * 3000, rnd.nextFloat()) }
+        // (the pair index is made once per field of view: not part of what is timed)
+        PlateSolver.solve(noise.take(6), 4000, 3000, catalog, focalPx = 3000.0, scaleTolerance = 0.12)
+        val t0 = System.nanoTime()
+        assertNull(PlateSolver.solve(noise, 4000, 3000, catalog, focalPx = 3000.0, scaleTolerance = 0.12,
+            deadlineMs = System.currentTimeMillis() - 1))
+        val ms = (System.nanoTime() - t0) / 1e6
+        assertTrue("took $ms ms", ms < 500)
+        // ...also where there was something to find: a deadline is a deadline...
+        val t = Truth(84.0, 0.0, 3000.0, Math.toRadians(-100.0), false)
+        val stars = photo(t, 4000, 3000, 2)
+        assertNull(PlateSolver.solve(stars, 4000, 3000, catalog, focalPx = 2950.0, deadlineMs = System.currentTimeMillis() - 1))
+        // ...and one far off changes nothing.
+        assertSolved(PlateSolver.solve(stars, 4000, 3000, catalog, focalPx = 2950.0,
+            deadlineMs = System.currentTimeMillis() + 60_000), t, 4000, 3000)
+        // The run of guesses says which of the two it was.
+        val guesses = listOf(3000.0 to 0.12)
+        val late = SkySolve.solve(noise, 4000, 3000, catalog, guesses, mirrored = false, giveUpMs = 2000,
+            deadlineMs = System.currentTimeMillis() - 1)
+        assertNull(late.solution)
+        assertTrue(late.outOfTime)
+        val looked = SkySolve.solve(noise, 4000, 3000, catalog, guesses, mirrored = false, giveUpMs = 2000)
+        assertNull(looked.solution)
+        assertFalse(looked.outOfTime)
+    }
+
+    @Test
     fun aPhoneLensBendsTheCorners() {
         // Barrel distortion, uncorrected in RAW: 3 % at the corners of a wide field.
         val t = Truth(250.0, -30.0, 2900.0, Math.toRadians(170.0), false, k = -0.045)

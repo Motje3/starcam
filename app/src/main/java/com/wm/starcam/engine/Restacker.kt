@@ -25,6 +25,8 @@ object Restacker {
      * Blocking; call on a background dispatcher. Returns the engine result. [rejectIndices] are
      * capture indices to exclude again: the frames the gyro flagged as bumped and the ones the
      * autopilot left out during capture (the live stack left them out, so a re-stack must too).
+     * [callback] hears the reloading of the frames ("reload") and is finalizeStack's own: a
+     * [StackCallback] answers the engine's stars as a session's does.
      */
     fun restack(
         sessionDir: File,
@@ -32,7 +34,7 @@ object Restacker {
         options: StackConfig,
         modeOrdinal: Int,
         rejectIndices: Set<Int> = emptySet(),
-        onProgress: (stage: String, percent: Int) -> Unit,
+        callback: NativeEngine.ProgressCallback,
     ): EngineResult {
         // Callers should already exclude it, but never let the master dark stack as a light frame.
         val lights = cacheFiles.filter { it.name != MASTER_DARK_NAME }
@@ -55,9 +57,6 @@ object Restacker {
         }.toString()
         val handle = NativeEngine.createSession(config)
         if (handle == 0L) return EngineResult.fromJson("""{"ok":false,"error":"engine init failed"}""")
-        // Captured under a different name: inside the ProgressCallback object below, the plain name
-        // `onProgress` would resolve to the object's own member and recurse into itself.
-        val progressFn = onProgress
         try {
             val pixelBytes = first.width * first.height * 2
             val buffer = ByteBuffer.allocateDirect(pixelBytes)
@@ -93,15 +92,10 @@ object Restacker {
                 if (index in rejectIndices) {
                     NativeEngine.rejectFrame(handle, index, "left out at capture (bump or autopilot)")
                 }
-                progressFn("reload", (i + 1) * 100 / lights.size)
+                callback.onProgress("reload", (i + 1) * 100 / lights.size)
             }
             addMasterDark(handle, sessionDir, first, pixelBytes, buffer)
-            val resultJson = NativeEngine.finalizeStack(handle, options.toJson(),
-                object : NativeEngine.ProgressCallback {
-                    override fun onProgress(stage: String, percent: Int) {
-                        progressFn(stage, percent)
-                    }
-                })
+            val resultJson = NativeEngine.finalizeStack(handle, options.toJson(), callback)
             return EngineResult.fromJson(resultJson)
         } catch (t: Throwable) {
             AppLog.e("restack failed", t)

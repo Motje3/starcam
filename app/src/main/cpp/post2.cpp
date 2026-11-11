@@ -898,6 +898,166 @@ void apply_sky_white_balance(ImageF& rgb, float wbR, float wbB, const std::vecto
     if (litHalf != nullptr) *litHalf = std::move(a);
 }
 
+namespace {
+
+// Where a star may be, for the stars' white balance, at half resolution: what stands out of the
+// sky round it and is small.
+//  - Stands out: the half-res luma is more than 4 noise sigmas (the noise growing with the level,
+//    as light's own does) above the median of 16 pixels on a ring round it, a 170th of the long
+//    side away (24 px of the picture at 12 MP, outside a bright star's skirt). Inside anything
+//    wider than the ring - a lit wall, a window, a bank of cloud, the Milky Way's band - the ring
+//    lies on the thing itself and nothing stands out; on its edge half the ring does, and the
+//    median is the thing's level. (Blocks of the frame were tried for "the sky round it" first:
+//    along every roof and frame their medians mix sky and landscape, and the whole rim of a lit
+//    wall then stood out of them like a row of stars.)
+//  - Small: not part of anything a square 13 pixels across fits into here (26 px of the picture
+//    at 12 MP; a bright star's skirt is 20 across): a lamp's glare, a small lit window. Stars that
+//    touch each other in a rich field stay stars: no square fits into them.
+//  - Not long and thin: the lit edge of a roof against the sky, a cable (a piece longer than 12
+//    pixels here that is 3 times as long as wide, or fills under a third of its box, on the slant).
+//  - In the sky on every side: of the pixels round the piece's box, 3 away, fewer than a fifth
+//    (and fewer than 3) are bright against the piece's own sky without being a star's
+//    themselves. The corner of a lit window or a chimney's top stands out of its ring as a
+//    star does - three quarters of that ring are sky - but the rest of the window is right
+//    beside it.
+// A star's skirt (2 more pixels) is in.
+std::vector<uint8_t> star_like_mask(const float* img, int w, int h, int hw, int hh, float sigma, float skyLuma) {
+    std::vector<float> hl((size_t)hw * hh, 0.0f);
+    parallel_for(0, hh, [&](int hy) {
+        const int y0 = std::min(h - 1, hy * 2), y1 = std::min(h - 1, y0 + 1);
+        float* o = &hl[(size_t)hy * hw];
+        for (int hx = 0; hx < hw; ++hx) {
+            const int x0 = std::min(w - 1, hx * 2), x1 = std::min(w - 1, x0 + 1);
+            o[hx] = 0.25f * (lumaOf(img + ((size_t)y0 * w + x0) * 3) + lumaOf(img + ((size_t)y0 * w + x1) * 3) +
+                             lumaOf(img + ((size_t)y1 * w + x0) * 3) + lumaOf(img + ((size_t)y1 * w + x1) * 3));
+        }
+    });
+    const double ringR = std::max(5.0, (double)std::max(w, h) / 340.0);
+    int ringX[16], ringY[16];
+    for (int k = 0; k < 16; ++k) {
+        ringX[k] = (int)std::lround(ringR * std::cos(k * M_PI / 8.0));
+        ringY[k] = (int)std::lround(ringR * std::sin(k * M_PI / 8.0));
+    }
+    // Four pixels averaged carry about 0.7 of one pixel's noise (the demosaic shares it out).
+    const float sgH = 0.7f * sigma, skyL = std::max(skyLuma, kTiny);
+    auto standsOut = [sgH, skyL](float bg) { return 4.0f * sgH * std::sqrt(std::max(1.0f, bg / skyL)); };
+    // The sky round a pixel: the median of its ring. False in the frame's very corner, where
+    // there is too little of a ring to judge by.
+    auto skyRound = [&](int hx, int hy, float* bg) {
+        float v[16];
+        int n = 0;
+        for (int k = 0; k < 16; ++k) {
+            const int sx = hx + ringX[k], sy = hy + ringY[k];
+            if (sx < 0 || sy < 0 || sx >= hw || sy >= hh) continue;
+            v[n++] = hl[(size_t)sy * hw + sx];
+        }
+        if (n < 8) return false;
+        std::nth_element(v, v + n / 2, v + n);
+        *bg = v[n / 2];
+        return true;
+    };
+    std::vector<uint8_t> hot((size_t)hw * hh, 0);
+    parallel_for(0, hh, [&](int hy) {
+        uint8_t* o = &hot[(size_t)hy * hw];
+        for (int hx = 0; hx < hw; ++hx) {
+            float bg;
+            if (skyRound(hx, hy, &bg)) o[hx] = hl[(size_t)hy * hw + hx] - bg > standsOut(bg) ? 1 : 0;
+        }
+    });
+    // Small: the opening by a square 2r + 1 across (eroded through the complement, grown back,
+    // and 2 further so the rim of the thing is not left over), taken out.
+    const int r = std::max(4, (int)std::lround((double)std::max(w, h) / 680.0));
+    std::vector<uint8_t> inv(hot.size());
+    for (size_t i = 0; i < hot.size(); ++i) inv[i] = hot[i] ? 0 : 1;
+    std::vector<uint8_t> er = dilatedMask(inv, hw, hh, r);
+    inv.clear();
+    inv.shrink_to_fit();
+    for (size_t i = 0; i < er.size(); ++i) er[i] = er[i] ? 0 : 1;
+    const std::vector<uint8_t> broad = dilatedMask(er, hw, hh, r + 2);
+    er.clear();
+    er.shrink_to_fit();
+    for (size_t i = 0; i < hot.size(); ++i) hot[i] = hot[i] && !broad[i];
+    // Piece by piece (pixels that touch, corners included): judge(piece, x0, x1, y0, y1) says
+    // whether it goes; those that go are taken out once all have been judged, so that no piece
+    // is judged by what became of its neighbour.
+    auto dropPieces = [&](const std::function<bool(const std::vector<uint32_t>&, int, int, int, int)>& judge) {
+        std::vector<uint8_t> seen(hot.size(), 0);
+        std::vector<uint32_t> piece, todo, gone;
+        for (size_t s0 = 0; s0 < hot.size(); ++s0) {
+            if (!hot[s0] || seen[s0]) continue;
+            piece.clear();
+            todo.assign(1, (uint32_t)s0);
+            seen[s0] = 1;
+            int x0 = hw, x1 = -1, y0 = hh, y1 = -1;
+            while (!todo.empty()) {
+                const uint32_t i = todo.back();
+                todo.pop_back();
+                piece.push_back(i);
+                const int x = (int)(i % (uint32_t)hw), y = (int)(i / (uint32_t)hw);
+                x0 = std::min(x0, x);
+                x1 = std::max(x1, x);
+                y0 = std::min(y0, y);
+                y1 = std::max(y1, y);
+                for (int dy = -1; dy <= 1; ++dy) {
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        const int nx = x + dx, ny = y + dy;
+                        if (nx < 0 || ny < 0 || nx >= hw || ny >= hh) continue;
+                        const size_t j = (size_t)ny * hw + nx;
+                        if (!hot[j] || seen[j]) continue;
+                        seen[j] = 1;
+                        todo.push_back((uint32_t)j);
+                    }
+                }
+            }
+            if (judge(piece, x0, x1, y0, y1)) gone.insert(gone.end(), piece.begin(), piece.end());
+        }
+        for (uint32_t i : gone) hot[i] = 0;
+    };
+    // Not long and thin.
+    dropPieces([](const std::vector<uint32_t>& piece, int x0, int x1, int y0, int y1) {
+        const int a = std::max(x1 - x0 + 1, y1 - y0 + 1), b = std::min(x1 - x0 + 1, y1 - y0 + 1);
+        return a > 12 && (a >= 3 * b || 3 * piece.size() < (size_t)a * (size_t)b);
+    });
+    // In the sky on every side.
+    {
+        std::vector<float> bgs;
+        dropPieces([&](const std::vector<uint32_t>& piece, int x0, int x1, int y0, int y1) {
+            // The piece's own sky: the median of the sky round its pixels (64 of them at most).
+            bgs.clear();
+            const size_t stride = std::max<size_t>(1, piece.size() / 64);
+            for (size_t k = 0; k < piece.size(); k += stride) {
+                float bg;
+                if (skyRound((int)(piece[k] % (uint32_t)hw), (int)(piece[k] / (uint32_t)hw), &bg)) bgs.push_back(bg);
+            }
+            if (bgs.empty()) return true;
+            const float bg = median_of(bgs), lim = bg + standsOut(bg);
+            int around = 0, bright = 0;
+            auto look = [&](int x, int y) {
+                if (x < 0 || y < 0 || x >= hw || y >= hh) return;
+                ++around;
+                const size_t j = (size_t)y * hw + x;
+                if (!hot[j] && hl[j] > lim) ++bright;
+            };
+            for (int x = x0 - 3; x <= x1 + 3; ++x) {
+                look(x, y0 - 3);
+                look(x, y1 + 3);
+            }
+            for (int y = y0 - 2; y <= y1 + 2; ++y) {
+                look(x0 - 3, y);
+                look(x1 + 3, y);
+            }
+            return bright >= std::max(3, around / 5);
+        });
+    }
+    hl.clear();
+    hl.shrink_to_fit();
+    std::vector<uint8_t> out = dilatedMask(hot, hw, hh, 2);
+    for (size_t i = 0; i < out.size(); ++i) out[i] = out[i] && !broad[i];
+    return out;
+}
+
+}  // namespace
+
 void postprocess_v2(ImageF& rgb, const PostParams& p, const ProgressFn& progress) {
     try {
         auto report = [&progress](int pct) {
@@ -914,12 +1074,13 @@ void postprocess_v2(ImageF& rgb, const PostParams& p, const ProgressFn& progress
         float* img = rgb.d.data();
         report(0);
 
-        // ---------------- the stars' white balance: where it may act ----------------
-        // The gains (p.wbR, p.wbB: white as the stars themselves show it) are applied at the
-        // stretch, to what stands above the sky's own background. Here, before anything changes
-        // the picture, only where: wbLit is what is bright and starless - a lit landscape, which
-        // the camera's balance was right for - at half resolution. With gains of 1, or too few
-        // sky stars, there is no balance and not a bit of the look changes.
+        // ---------------- the stars' white balance: where it may not act ----------------
+        // The gains (p.wbR, p.wbB: white as the stars themselves show it) are applied just before
+        // the stretch, to a star's own light: what is small and stands out of the sky right beside
+        // it. Here, before anything changes the picture, where they may not act whatever stands
+        // out: wbLit is what is bright and starless - a lit landscape, which the camera's balance
+        // was right for - at half resolution. With gains of 1, or too few sky stars, there is no
+        // balance and not a bit of the look changes.
         const float wbGR = std::isfinite(p.wbR) ? clampf(p.wbR, 0.25f, 4.0f) : 1.0f;
         const float wbGB = std::isfinite(p.wbB) ? clampf(p.wbB, 0.25f, 4.0f) : 1.0f;
         std::vector<float> wbLit;
@@ -1538,6 +1699,127 @@ void postprocess_v2(ImageF& rgb, const PostParams& p, const ProgressFn& progress
         const float skyOut = std::asinh(kS * skyGap) * invSky;
         const float gndOut = std::asinh(kG * std::max(0.0f, gndLuma - gndBlack)) * invGnd;
         const float rimCap = std::max(skyOut, gndOut);
+
+        // ---------------- the stars' white balance ----------------
+        // The gains act on a star's own light: where a star may be (star_like_mask), on what
+        // stands out of the sky right beside the pixel - the median of 16 pixels on a ring round
+        // it that are no star's themselves - from 1.5 noise sigmas above that sky and fully from
+        // 4. A ring that lies on the star itself (a wide star, a small picture) is tried again
+        // further out, twice; a pixel with no sky within reach even then (the heart of a
+        // cluster) has nothing to be judged against and is left as it is.
+        //
+        // The first design scaled everything above the sky's one neutral level instead. On the
+        // phone's photo of 2026-10-31 that left the brightest lit walls alone but moved a third of
+        // the frame by 2-7 levels of 255: a sky is not one colour all over, so its glow went
+        // greener, its darkest part bluer, and dimly lit brick redder. Now the sky, its glow and
+        // the landscape come out as they do without gains, and only the stars take their colours;
+        // what is broad in the sky does too - the Milky Way's band keeps the camera's colour until
+        // there are dark-sky frames to judge it on.
+        //
+        // And only where the sky's own stars are around: within 3 times their usual distance from
+        // one another of a star that followed the sky (p.skyPts). A row of lit houses has small
+        // bright things all over it - a window's frame, a lamp, leaves in its light - and no such
+        // star for hundreds of pixels.
+        //
+        // Done here, before the stretch, as a pass of its own: everything measured above was
+        // measured without it, and a pixel that is read (never a star's) is never one that is
+        // written (always a star's), so the rows can go side by side.
+        if (litKnown) {
+            const float starSig = std::max(skySig, kTiny), skyLuma = std::max(lumaOf(skyMed), kTiny);
+            const std::vector<uint8_t> starLike = star_like_mask(img, w, h, hw, hh, starSig, skyLuma);
+            // Near a sky star, on a grid of cells a 128th of the long side across.
+            const int cell = std::max(4, (int)std::lround((double)std::max(w, h) / 128.0));
+            const int gw = (w + cell - 1) / cell, gh = (h + cell - 1) / cell;
+            std::vector<uint8_t> nearSky((size_t)gw * gh, 0);
+            {
+                std::vector<std::pair<float, float>> pts;
+                for (size_t i = 0; i + 2 < p.skyPts.size(); i += 3) {
+                    const float sx = p.skyPts[i], sy = p.skyPts[i + 1];
+                    if (sx >= 0.0f && sy >= 0.0f && sx < (float)w && sy < (float)h) pts.push_back({sx, sy});
+                }
+                std::vector<float> nn;
+                for (size_t i = 0; i < pts.size(); ++i) {
+                    float best = 1e30f;
+                    for (size_t j = 0; j < pts.size(); ++j) {
+                        if (j == i) continue;
+                        const float dx = pts[i].first - pts[j].first, dy = pts[i].second - pts[j].second;
+                        best = std::min(best, dx * dx + dy * dy);
+                    }
+                    if (best < 1e30f) nn.push_back(std::sqrt(best));
+                }
+                const float longSide = (float)std::max(w, h);
+                const float reach = clampf(3.0f * median_of(nn), longSide / 16.0f, longSide / 4.0f);
+                const int rc = (int)std::ceil(reach / (float)cell);
+                for (const auto& s : pts) {
+                    const int cx = (int)(s.first / (float)cell), cy = (int)(s.second / (float)cell);
+                    for (int gy = std::max(0, cy - rc); gy <= std::min(gh - 1, cy + rc); ++gy) {
+                        for (int gx = std::max(0, cx - rc); gx <= std::min(gw - 1, cx + rc); ++gx) {
+                            const float dx = ((float)gx + 0.5f) * (float)cell - s.first;
+                            const float dy = ((float)gy + 0.5f) * (float)cell - s.second;
+                            if (dx * dx + dy * dy <= reach * reach) nearSky[(size_t)gy * gw + gx] = 1;
+                        }
+                    }
+                }
+            }
+            if (starLike.size() == (size_t)hw * hh) {
+                const double ringR = std::max(10.0, (double)std::max(w, h) / 170.0);
+                constexpr int kRings = 3;
+                const double ringScale[kRings] = {1.0, 1.6, 2.5};
+                int ringX[kRings][16], ringY[kRings][16];
+                for (int g = 0; g < kRings; ++g) {
+                    for (int k = 0; k < 16; ++k) {
+                        ringX[g][k] = (int)std::lround(ringScale[g] * ringR * std::cos(k * M_PI / 8.0));
+                        ringY[g][k] = (int)std::lround(ringScale[g] * ringR * std::sin(k * M_PI / 8.0));
+                    }
+                }
+                auto starAt = [&](int x, int y) -> bool {
+                    return starLike[(size_t)std::min(hh - 1, y >> 1) * hw + std::min(hw - 1, x >> 1)] != 0;
+                };
+                parallel_for(0, h, [&](int y) {
+                    float* row = &img[(size_t)y * w * 3];
+                    const uint8_t* nearRow = &nearSky[(size_t)std::min(gh - 1, y / cell) * gw];
+                    for (int x = 0; x < w; ++x) {
+                        if (!starAt(x, y) || !nearRow[std::min(gw - 1, x / cell)]) continue;
+                        const float sky = 1.0f - groundFine(x, y);
+                        if (sky <= 0.0f) continue;
+                        float* q = row + (size_t)x * 3;
+                        // A clipped core stays white (wHi), its unclipped skirt takes the colour.
+                        const float wHi = 1.0f - smoothstepf(0.75f, 0.95f, std::max(q[0], std::max(q[1], q[2])));
+                        const float wgt = sky * (1.0f - litAt(x, y)) * wHi;
+                        if (!(wgt > 0.0f)) continue;
+                        float vr[16], vb[16], vl[16];
+                        int n = 0;
+                        for (int g = 0; g < kRings && n < 6; ++g) {
+                            n = 0;
+                            for (int k = 0; k < 16; ++k) {
+                                const int sx = x + ringX[g][k], sy = y + ringY[g][k];
+                                if (sx < 0 || sy < 0 || sx >= w || sy >= h || starAt(sx, sy)) continue;
+                                const float* s = img + ((size_t)sy * w + sx) * 3;
+                                vr[n] = s[0];
+                                vb[n] = s[2];
+                                vl[n] = lumaOf(s);
+                                ++n;
+                            }
+                        }
+                        if (n < 6) continue;
+                        std::nth_element(vr, vr + n / 2, vr + n);
+                        std::nth_element(vb, vb + n / 2, vb + n);
+                        std::nth_element(vl, vl + n / 2, vl + n);
+                        const float bgR = vr[n / 2], bgB = vb[n / 2], bgL = vl[n / 2];
+                        const float sg = starSig * std::sqrt(std::max(1.0f, bgL / skyLuma));
+                        const float star = wgt * smoothstepf(1.5f * sg, 4.0f * sg, lumaOf(q) - bgL);
+                        if (!(star > 0.0f)) continue;
+                        q[0] = bgR + (1.0f + star * (wbGR - 1.0f)) * (q[0] - bgR);
+                        q[2] = bgB + (1.0f + star * (wbGB - 1.0f)) * (q[2] - bgB);
+                    }
+                });
+                SLOG("postprocess_v2: star balance on what is small and stands out of the sky round it: "
+                     "%.2f%% of the frame (a ring of %.0f px)",
+                     100.0 * (double)std::count(starLike.begin(), starLike.end(), (uint8_t)1) / (double)starLike.size(),
+                     ringR);
+            }
+        }
+
         parallel_for(0, h, [&](int y) {
             float* row = &img[(size_t)y * w * 3];
             for (int x = 0; x < w; ++x) {
@@ -1546,19 +1828,6 @@ void postprocess_v2(ImageF& rgb, const PostParams& p, const ProgressFn& progress
                 // The neutralizing offsets are the sky's; the landscape keeps its own colour.
                 const float sky = 1.0f - g;
                 float in[3] = {q[0] - sky * off[0], q[1] - sky * off[1], q[2] - sky * off[2]};
-                if (litKnown && sky > 0.0f) {
-                    // The stars' white balance. The offsets have just made the sky's background
-                    // neutral; the gains act on what stands above it - a star, the Milky Way, a
-                    // glow - so the background itself, the landscape, and everything bright and
-                    // starless come out exactly as they do without gains. A clipped core stays
-                    // white (wHi), its unclipped skirt takes the colour.
-                    const float wHi = 1.0f - smoothstepf(0.75f, 0.95f, std::max(q[0], std::max(q[1], q[2])));
-                    const float wgt = sky * (1.0f - litAt(x, y)) * wHi;
-                    if (wgt > 0.0f) {
-                        in[0] = neutral + (1.0f + wgt * (wbGR - 1.0f)) * (in[0] - neutral);
-                        in[2] = neutral + (1.0f + wgt * (wbGB - 1.0f)) * (in[2] - neutral);
-                    }
-                }
                 for (int c = 0; c < 3; ++c) in[c] *= wb[c];
                 float out[3] = {0, 0, 0};
                 auto apply = [&in](float black, float k, float inv, float wgt, float cap, float* o) {
@@ -1617,9 +1886,16 @@ void postprocess_v2(ImageF& rgb, const PostParams& p, const ProgressFn& progress
         report(65);
 
         // ---------------- chroma denoise at 1/4 res, stars keep their own colour ----------------
+        // The colour a pixel is given is the average of its surroundings without the stars in
+        // them (each cell's own pixels that are no star's, the cells then smoothed by how many
+        // those are). With the stars in, every star lent its colour to a ring 10-14 px out: seen
+        // nowhere while all stars were the sky's own blue, a dull red ring round the brightest
+        // orange star (7-11 levels of red on a sky at 1) once the stars had their colours.
         if (p.chromaDenoise) {
             const int qw = std::max(1, (w + 3) / 4), qh = std::max(1, (h + 3) / 4);
-            std::vector<float> cbP((size_t)qw * qh), crP((size_t)qw * qh), tmpP((size_t)qw * qh);
+            std::vector<float> cbP((size_t)qw * qh), crP((size_t)qw * qh), wP((size_t)qw * qh), tmpP((size_t)qw * qh);
+            // Stars and a ring around them keep their own chroma, and lend it to nothing.
+            const std::vector<uint8_t> m3 = dilatedMask(maskRaw, hw, hh, 2);
             parallel_for(0, qh, [&](int qy) {
                 const int ys = qy * 4, ye = std::min(ys + 4, h);
                 for (int qx = 0; qx < qw; ++qx) {
@@ -1628,13 +1904,20 @@ void postprocess_v2(ImageF& rgb, const PostParams& p, const ProgressFn& progress
                     int n = 0;
                     for (int y = ys; y < ye; ++y) {
                         const float* q = &img[((size_t)y * w + xs) * 3];
-                        for (int x = xs; x < xe; ++x, q += 3) { sr += q[0]; sg2 += q[1]; sb += q[2]; ++n; }
+                        const uint8_t* mrow = &m3[(size_t)std::min(hh - 1, y >> 1) * hw];
+                        for (int x = xs; x < xe; ++x, q += 3) {
+                            if (mrow[std::min(hw - 1, x >> 1)]) continue;
+                            sr += q[0];
+                            sg2 += q[1];
+                            sb += q[2];
+                            ++n;
+                        }
                     }
-                    const float inv = n ? 1.0f / (float)n : 0.0f;
-                    const float R = sr * inv, G = sg2 * inv, B = sb * inv;
-                    const float Y = 0.299f * R + 0.587f * G + 0.114f * B;
-                    cbP[(size_t)qy * qw + qx] = 0.564f * (B - Y);
-                    crP[(size_t)qy * qw + qx] = 0.713f * (R - Y);
+                    // Sums, not means: the smoothing below weighs a cell by its pixels.
+                    const float Y = 0.299f * sr + 0.587f * sg2 + 0.114f * sb;
+                    cbP[(size_t)qy * qw + qx] = 0.564f * (sb - Y);
+                    crP[(size_t)qy * qw + qx] = 0.713f * (sr - Y);
+                    wP[(size_t)qy * qw + qx] = (float)n;
                 }
             });
             auto box3 = [&](std::vector<float>& plane) {
@@ -1654,12 +1937,9 @@ void postprocess_v2(ImageF& rgb, const PostParams& p, const ProgressFn& progress
             };
             box3(cbP); box3(cbP);
             box3(crP); box3(crP);
-            // Feathered star mask: stars and a ring around them keep their own chroma.
+            box3(wP); box3(wP);
             std::vector<float> keep((size_t)hw * hh);
-            {
-                const std::vector<uint8_t> m3 = dilatedMask(maskRaw, hw, hh, 2);
-                for (size_t i = 0; i < keep.size(); ++i) keep[i] = m3[i] ? 1.0f : 0.0f;
-            }
+            for (size_t i = 0; i < keep.size(); ++i) keep[i] = m3[i] ? 1.0f : 0.0f;
             parallel_for(0, h, [&](int y) {
                 const float fy = clampf((y + 0.5f) * 0.25f - 0.5f, 0.0f, (float)(qh - 1));
                 const int y0 = (int)fy, y1 = std::min(y0 + 1, qh - 1);
@@ -1677,9 +1957,12 @@ void postprocess_v2(ImageF& rgb, const PostParams& p, const ProgressFn& progress
                         return (P[(size_t)y0 * qw + x0] * (1 - wx) + P[(size_t)y0 * qw + x1] * wx) * (1 - wy) +
                                (P[(size_t)y1 * qw + x0] * (1 - wx) + P[(size_t)y1 * qw + x1] * wx) * wy;
                     };
+                    // Under a sixteenth of a pixel's worth of sky around: nothing to take a colour from.
+                    const float wsum = bil(wP);
+                    if (!(wsum > 0.0625f)) continue;
                     const float Y = lumaOf(q);
                     const float cbO = 0.564f * (q[2] - Y), crO = 0.713f * (q[0] - Y);
-                    const float cbv = k * cbO + (1 - k) * bil(cbP), crv = k * crO + (1 - k) * bil(crP);
+                    const float cbv = k * cbO + (1 - k) * bil(cbP) / wsum, crv = k * crO + (1 - k) * bil(crP) / wsum;
                     const float Rn = Y + crv * (1.0f / 0.713f), Bn = Y + cbv * (1.0f / 0.564f);
                     q[0] = std::max(0.0f, Rn);
                     q[2] = std::max(0.0f, Bn);

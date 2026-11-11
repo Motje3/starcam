@@ -1,6 +1,27 @@
 package com.wm.starcam.engine
 
+import com.wm.starcam.sky.SkyRecord
+import com.wm.starcam.sky.SkyStars
+import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
+
+/**
+ * The white balance a session's photo was developed with from its solved stars (meta/sky.json),
+ * and where the sky is for it: the stack's sky points ("pt" in out/stars.json) as x, y, bg, ...
+ * in the full-size master's pixels. The look applies the gains to the stars' own light only,
+ * and only where those points say the sky is.
+ */
+class StarBalance(val wbR: Double, val wbB: Double, val skyStars: DoubleArray) {
+    companion object {
+        /** The session's, or null when its photo took no balance from the stars (it then has none to keep). */
+        fun read(sessionDir: File): StarBalance? {
+            val colour = SkyRecord.read(sessionDir)?.colour ?: return null
+            val points = SkyStars.read(File(sessionDir, "out/stars.json"))?.skyPoints() ?: return null
+            return StarBalance(colour.wbR, colour.wbB, points)
+        }
+    }
+}
 
 /**
  * The editing studio's settings for one photo, as the user sees them. Saved beside the photo
@@ -39,9 +60,16 @@ data class EditParams(
 ) {
     /**
      * [masterUpright]: the master was written upright (sessions that recorded the phone's
-     * attitude), so the ground is at its bottom unless the user turned it.
+     * attitude), so the ground is at its bottom unless the user turned it. [stars]: the white
+     * balance the session's photo took from its stars, so that every develop of the master - the
+     * preview, the looks' pictures, the export - matches it; Warmth and Tint act on top of it.
      */
-    fun toOptionsJson(masterUpright: Boolean): String = JSONObject().apply {
+    fun toOptionsJson(masterUpright: Boolean, stars: StarBalance? = null): String = JSONObject().apply {
+        stars?.let { b ->
+            put("wbR", b.wbR)
+            put("wbB", b.wbB)
+            put("skyStars", JSONArray().apply { for (v in b.skyStars) put(v) })
+        }
         put("version", 2)
         put("skyLevel", sky.toDouble())
         put("contrastGap", (0.5f - 0.42f * contrast).toDouble())

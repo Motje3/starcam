@@ -12,6 +12,7 @@ import com.wm.starcam.camera.CaptureEngine
 import com.wm.starcam.camera.SurfaceGoneException
 import com.wm.starcam.camera.CaptureState
 import com.wm.starcam.engine.Restacker
+import com.wm.starcam.engine.StackCallback
 import com.wm.starcam.engine.StackConfig
 import com.wm.starcam.sensors.MotionMonitor
 import com.wm.starcam.sensors.ThermalMonitor
@@ -21,6 +22,8 @@ import com.wm.starcam.session.SessionRepository
 import com.wm.starcam.session.SessionSummary
 import com.wm.starcam.session.SettingsStore
 import com.wm.starcam.session.stackPhoto
+import com.wm.starcam.sky.SkyRecord
+import com.wm.starcam.sky.StarCatalog
 import com.wm.starcam.ui.SkyViewRequest
 import com.wm.starcam.util.AppLog
 import com.wm.starcam.util.DebugBundle
@@ -486,19 +489,38 @@ class StarCamViewModel(app: Application) : AndroidViewModel(app) {
                         }
                     }
                 }
-                // A re-stack is developed with the look chosen now (Settings › Look › Processing).
-                val cfg = adjust(base).copy(version = settingsStore.settings.value.look)
+                // A re-stack is developed with the look chosen now (Settings › Look › Processing, and
+                // Star colours with it): what was switched off since is off, also for an old session.
+                val now = settingsStore.settings.value
+                val cfg = adjust(base).copy(version = now.look, starColour = now.starColour)
                 AppLog.i(TAG, "re-stack ${dir.name}: ${repo.cacheFrames(dir).size} frames, " +
                     "${leftOut.size} left out at capture, options ${cfg.toJson()}")
-                val result = Restacker.restack(dir, repo.cacheFrames(dir), cfg, mode.ordinal, leftOut) {
-                    stage, percent -> _restack.value = _restack.value?.copy(stage = stage, percent = percent)
-                }
+                val hdr = repo.cacheFrames(dir).firstOrNull()?.let { Restacker.readHeader(it) }
+                // The stars answered as the session's were: its focal length, the camera's balance the
+                // frames were shot with. A re-stack does not teach the camera's balance again: it is
+                // the same session's stars.
+                val balance = hdr?.let { StackCallback.cameraBalance(it.wbGain, it.cfa) } ?: (1.0 to 1.0)
+                val callback = StackCallback(
+                    sessionDir = dir,
+                    catalog = runCatching { StarCatalog.load(getApplication()) }.getOrNull(),
+                    focalRawPx = header?.optDouble("focalPx", Double.NaN)?.takeIf { it.isFinite() && it > 0 },
+                    rawLong = header?.let { maxOf(it.optInt("rawWidth"), it.optInt("rawHeight")) }
+                        ?.takeIf { it > 0 } ?: hdr?.let { maxOf(it.width, it.height) } ?: 0,
+                    cameraR = balance.first,
+                    cameraB = balance.second,
+                    cameraId = header?.optString("cameraId")?.takeIf { it.isNotEmpty() },
+                    starColour = cfg.starColour && cfg.version >= 2,
+                    settings = settingsStore,
+                    learn = false,
+                ) { stage, percent -> _restack.value = _restack.value?.copy(stage = stage, percent = percent) }
+                // What the last stack's stars said is not this one's, even when the engine asks nothing.
+                File(dir, SkyRecord.FILE).delete()
+                val result = Restacker.restack(dir, repo.cacheFrames(dir), cfg, mode.ordinal, leftOut, callback)
                 if (!result.ok) error(result.error.ifEmpty { "re-stack failed" })
                 _restack.value = _restack.value?.copy(stage = "saving", percent = 99)
                 withContext(Dispatchers.IO) {
                     val out = File(dir, "out")
                     val jpg = stackPhoto(dir)
-                    val hdr = repo.cacheFrames(dir).firstOrNull()?.let { Restacker.readHeader(it) }
                     val saved = MediaSaver.saveFinal(
                         context = getApplication(),
                         rgbFile = File(result.finalRgbPath),
@@ -512,6 +534,8 @@ class StarCamViewModel(app: Application) : AndroidViewModel(app) {
                         recipe = recipe,
                     )
                     if (!saved.jpegWritten) error("the photo could not be written - the phone may be out of storage")
+                    // "What's in this photo" from the solution found while it was stacked.
+                    callback.writeWhatsIn(jpg)
                     if (result.singlePath.isNotEmpty()) {
                         MediaSaver.saveComparisonFrame(File(result.singlePath), result.singleWidth,
                             result.singleHeight, File(out, SINGLE_FRAME_JPG))

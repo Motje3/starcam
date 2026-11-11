@@ -15,6 +15,7 @@ import com.wm.starcam.engine.EngineResult
 import com.wm.starcam.engine.FrameStats
 import com.wm.starcam.engine.NativeEngine
 import com.wm.starcam.engine.AnalyzeStats
+import com.wm.starcam.engine.StackCallback
 import com.wm.starcam.sensors.MotionMonitor
 import com.wm.starcam.sensors.ThermalMonitor
 import com.wm.starcam.session.AppSettings
@@ -24,6 +25,7 @@ import com.wm.starcam.session.SINGLE_FRAME_JPG
 import com.wm.starcam.session.SessionPaths
 import com.wm.starcam.session.SessionRepository
 import com.wm.starcam.session.SettingsStore
+import com.wm.starcam.sky.StarCatalog
 import com.wm.starcam.util.AppLog
 import com.wm.starcam.util.Diagnostics
 import com.wm.starcam.util.Fmt
@@ -674,6 +676,8 @@ class CaptureEngine(
                     put("rawHeight", rawSize.height)
                     // For "What's in this photo": pixels to angles on the sky.
                     cam.focalPx(rawSize.width)?.let { put("focalPx", it) }
+                    // Which lens: a re-stack takes the star colours this camera measured before.
+                    put("cameraId", cam.cameraId)
                     put("exposureNs", d.exposureNs)
                     put("iso", d.iso)
                     put("plannedFrames", frames)
@@ -1365,19 +1369,31 @@ class CaptureEngine(
             var lastStage = ""
             val stackT0 = SystemClock.elapsedRealtime()
             AppLog.i(TAG, "stacking $captured frames (+$darksCaptured darks): $optionsJson")
-            val resultJson = NativeEngine.finalizeStack(
-                engineHandle, optionsJson,
-                object : NativeEngine.ProgressCallback {
-                    override fun onProgress(stage: String, percent: Int) {
-                        setState(CaptureState.Stacking(stage, percent))
-                        // Restart the clock on every stage change, so a stage that stalls shows
-                        // its own elapsed time instead of hiding inside the session total.
-                        if (stage != lastStage) {
-                            lastStage = stage
-                            beginBusy(stageLabel(stage))
-                        }
-                    }
-                })
+            // Between the stack and the look the engine asks about its stars: solved against the
+            // catalogue they give the photo its white balance (Settings › Look › Star colours) and
+            // "What's in this photo" its answer. A simulated sky teaches the camera nothing.
+            val (cameraR, cameraB) = StackCallback.cameraBalance(wbRaster, cam.cfa)
+            val stackCallback = StackCallback(
+                sessionDir = paths.dir,
+                catalog = runCatching { StarCatalog.load(context) }.getOrNull(),
+                focalRawPx = cam.focalPx(rawSize.width),
+                rawLong = maxOf(rawSize.width, rawSize.height),
+                cameraR = cameraR,
+                cameraB = cameraB,
+                cameraId = cam.cameraId,
+                starColour = stackCfg.starColour && stackCfg.version >= 2,
+                settings = settingsStore,
+                learn = skySim == null,
+            ) { stage, percent ->
+                setState(CaptureState.Stacking(stage, percent))
+                // Restart the clock on every stage change, so a stage that stalls shows
+                // its own elapsed time instead of hiding inside the session total.
+                if (stage != lastStage) {
+                    lastStage = stage
+                    beginBusy(stageLabel(stage))
+                }
+            }
+            val resultJson = NativeEngine.finalizeStack(engineHandle, optionsJson, stackCallback)
             AppLog.i(TAG, "stack finished in ${SystemClock.elapsedRealtime() - stackT0}ms: $resultJson")
             val result = EngineResult.fromJson(resultJson)
             if (!result.ok) {
@@ -1424,6 +1440,8 @@ class CaptureEngine(
             }
             if (saved.jpegWritten) {
                 AppLog.i(TAG, "saved ${paths.finalJpg.name} (gallery: ${saved.galleryUri ?: "FAILED"})")
+                // "What's in this photo" from the solution the stack's stars gave: no second solve.
+                stackCallback.writeWhatsIn(paths.finalJpg)
                 // The meteors cut out of their frames while the frames are still there.
                 if (s.mode == Mode.METEOR && result.meteorCount > 0) {
                     withContext(Dispatchers.Default) { runCatching { MeteorHighlights.make(paths.dir) } }

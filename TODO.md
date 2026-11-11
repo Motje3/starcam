@@ -1,7 +1,8 @@
 # Stelli: to do before Google Play
 
-Updated 2026-11-09 on 0.6.2 (versionCode 13: the owner's new design, the star alignment the
-phone's own sessions showed to be wrong, and finding you at once, see PROGRESS.md). Everything that needed no
+Updated 2026-11-11 on 0.7.0 (versionCode 14: the core reviewed on the phone's own sessions and
+rebuilt - exposure checked on the first frame, hot pixels without darks, the photo recognised
+while it is stacked, the stars' true colours - see PROGRESS.md and CORE_REVIEW.md). Everything that needed no
 decision is done: the upload key and the signed AAB, the privacy policy and terms of use (on the
 web and in the app), the reworded card for phones without RAW, the release build checked on the
 emulator, and the store listing texts and graphics (`store/`). What is left happens on GitHub, in
@@ -34,8 +35,28 @@ Easy: every answer is written down. In this order, as each Play Console step nee
       9 Nov 2026 13:37, with Play App Signing (Google's key) and the owner alone on the testers list
       so far. The APK Play makes from it (App bundle explorer › Downloads › signed universal APK)
       has no INTERNET permission; automatic protection added only CHECK_LICENSE (PLAY_STORE.md).
-- [ ] **Upload 0.6.2** (versionCode 13, with the new intro) the same way:
-      `app/build/outputs/bundle/release/app-release.aab` (13.9 MB, built 9 Nov 2026 22:44).
+- [x] **Upload 0.6.2** (versionCode 13, with the new intro): the owner made the release on
+      Internal testing on 9 or 10 Nov 2026 (the store page still said "item not found" right
+      after; whether the phone has it since is not recorded here).
+- [ ] **Upload 0.7.0** (versionCode 14) the same way: Internal testing › Create new release.
+      `app/build/outputs/bundle/release/app-release.aab` (14.1 MB, built 11 Nov 2026 13:42; a
+      copy is on the Desktop as `Stelli-0.7.0-14.aab`).
+      Release notes, if wanted: "Truer star colours: white is now set by the stars in your
+      photo. Cleaner photos: the sensor's hot pixels are removed without dark frames. The
+      first frame of a session is checked and the exposure corrected if needed. What's in this
+      photo is ready when your photo is."
+- [ ] **0.7.0 on the phone, the first clear night.** Nothing of it has run on the phone itself
+      (it runs the Play build, so only an upload gets it there). To look at after one session:
+      - the photo: stars in their colours, the sky and a lit landscape as before;
+      - the session's page: "What's in this photo" answered without asking; under Details,
+        "From this photo's stars" (how the star colours were set, the sky's brightness);
+      - the log (Settings › Advanced › Diagnostics › Share debug report): its `pilot:` line says
+        what the first frame measured and what was done about it, its `[stars]` line what the
+        stars gave;
+      - if the colours look wrong: Settings › Look › More options › Star colours off, Re-stack.
+- [ ] **One session on a tripod with a horizon in it** (20 frames or more, RAW frames kept): the
+      one thing the sky-and-landscape work needs before it can be built (CORE_REVIEW.md). A
+      session under a dark sky with the Milky Way in it would settle the Milky Way's colour too.
 
 ## Later: test with friends, then launch with Pro
 

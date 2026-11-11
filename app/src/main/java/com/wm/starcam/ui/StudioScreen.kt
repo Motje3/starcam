@@ -47,6 +47,7 @@ import com.wm.starcam.StarCamViewModel
 import com.wm.starcam.engine.EditParams
 import com.wm.starcam.engine.Look
 import com.wm.starcam.engine.NativeEngine
+import com.wm.starcam.engine.StarBalance
 import com.wm.starcam.session.stackPhoto
 import com.wm.starcam.ui.components.ScButton
 import com.wm.starcam.ui.components.ScButtonKind
@@ -107,16 +108,22 @@ private class Opened(
     val defaults: EditParams,
     val start: EditParams,
     val original: Bitmap?,
+    val stars: StarBalance?,
 )
 
-/** The preview developed with [p], or with [thumb] the much smaller picture a look shows. */
-private fun develop(s: StudioSession, info: StudioInfo, p: EditParams, upright: Boolean, thumb: Boolean = false): Bitmap? {
+/**
+ * The preview developed with [p], or with [thumb] the much smaller picture a look shows; [stars]
+ * the white balance the session's photo took from its stars (null: none).
+ */
+private fun develop(
+    s: StudioSession, info: StudioInfo, p: EditParams, upright: Boolean, stars: StarBalance?, thumb: Boolean = false,
+): Bitmap? {
     val w = if (thumb) info.thumbWidth else info.previewWidth
     val h = if (thumb) info.thumbHeight else info.previewHeight
     if (w <= 0 || h <= 0) return null
     val turned = p.rotation == 90 || p.rotation == 270
     val bmp = Bitmap.createBitmap(if (turned) h else w, if (turned) w else h, Bitmap.Config.ARGB_8888)
-    val json = p.toOptionsJson(upright)
+    val json = p.toOptionsJson(upright, stars)
     val ok = s.use {
         if (thumb) NativeEngine.studioRenderThumb(it, json, bmp) else NativeEngine.studioRender(it, json, bmp)
     } == true
@@ -145,6 +152,8 @@ fun StudioScreen(dir: File, vm: StarCamViewModel, onBack: () -> Unit) {
     var session by remember { mutableStateOf<StudioSession?>(null) }
     var info by remember { mutableStateOf<StudioInfo?>(null) }
     var upright by remember { mutableStateOf(false) }
+    // The star colours the photo was made with: every develop here keeps them.
+    var stars by remember { mutableStateOf<StarBalance?>(null) }
     var failed by remember { mutableStateOf<String?>(null) }
     var defaults by remember { mutableStateOf(EditParams()) }
     var params by remember { mutableStateOf(EditParams()) }
@@ -174,6 +183,7 @@ fun StudioScreen(dir: File, vm: StarCamViewModel, onBack: () -> Unit) {
                 // Star trails are finished without gradient removal (engine.cpp): so is their edit.
                 val dflt = if (header?.optString("mode") == "TRAILS") EditParams(gradient = 0f) else EditParams()
                 val saved = runCatching { EditParams.fromJson(JSONObject(editFile.readText())) }.getOrNull()
+                val balance = runCatching { StarBalance.read(dir) }.getOrNull()
                 val h = if (master.isFile) NativeEngine.studioOpen(master.absolutePath, PREVIEW_EDGE) else 0L
                 if (h == 0L) return@withContext null
                 val s = StudioSession(h).also { opened = it }
@@ -182,9 +192,11 @@ fun StudioScreen(dir: File, vm: StarCamViewModel, onBack: () -> Unit) {
                     io.optInt("thumbWidth"), io.optInt("thumbHeight"))
                 // "Before" is the photo the session made; developed defaults if it is gone.
                 val orig = stackPhoto(dir).takeIf { it.isFile }?.let { decodeDownsampled(it.absolutePath, PREVIEW_EDGE) }
-                    ?: develop(s, i, dflt, up)
-                AppLog.i("studio", "opened ${dir.name} (${io.optInt("width")}x${io.optInt("height")})")
-                Opened(s, i, up, dflt, saved ?: dflt, orig)
+                    ?: develop(s, i, dflt, up, balance)
+                AppLog.i("studio", "opened ${dir.name} (${io.optInt("width")}x${io.optInt("height")})" +
+                    (balance?.let { String.format(Locale.US, ", star colours wbR %.3f wbB %.3f on %d sky points",
+                        it.wbR, it.wbB, it.skyStars.size / 3) } ?: ""))
+                Opened(s, i, up, dflt, saved ?: dflt, orig, balance)
             }
             if (o == null) {
                 failed = if (master.isFile) "The photo's master could not be read." else
@@ -192,6 +204,7 @@ fun StudioScreen(dir: File, vm: StarCamViewModel, onBack: () -> Unit) {
                 return@LaunchedEffect
             }
             upright = o.upright
+            stars = o.stars
             defaults = o.defaults
             original = o.original
             info = o.info
@@ -209,7 +222,7 @@ fun StudioScreen(dir: File, vm: StarCamViewModel, onBack: () -> Unit) {
         val i = info ?: return@LaunchedEffect
         delay(80)
         developing = true
-        val img = withContext(Dispatchers.Default) { develop(s, i, params, upright) }
+        val img = withContext(Dispatchers.Default) { develop(s, i, params, upright, stars) }
         if (img != null) preview = img.asImageBitmap()
         developing = false
     }
@@ -222,7 +235,7 @@ fun StudioScreen(dir: File, vm: StarCamViewModel, onBack: () -> Unit) {
         val i = info ?: return@LaunchedEffect
         delay(300)
         for (look in Look.entries) {
-            val b = withContext(Dispatchers.Default) { develop(s, i, look.applyTo(untoned), upright, thumb = true) }
+            val b = withContext(Dispatchers.Default) { develop(s, i, look.applyTo(untoned), upright, stars, thumb = true) }
             if (b != null) thumbs = thumbs + (look to b.asImageBitmap())
         }
     }
@@ -244,7 +257,7 @@ fun StudioScreen(dir: File, vm: StarCamViewModel, onBack: () -> Unit) {
                     ?: return@withContext "Could not write the photo (storage full?)." to false
                 try {
                     val res = JSONObject(
-                        s.use { NativeEngine.studioExport(it, p.toOptionsJson(upright), rgb.absolutePath) }
+                        s.use { NativeEngine.studioExport(it, p.toOptionsJson(upright, stars), rgb.absolutePath) }
                             ?: """{"ok":false,"error":"closed"}"""
                     )
                     if (!res.optBoolean("ok")) {

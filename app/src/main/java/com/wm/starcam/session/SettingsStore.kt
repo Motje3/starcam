@@ -79,6 +79,11 @@ data class AppSettings(
      * "Classic" look, kept so the two can be compared.
      */
     val look: Int = 2,
+    /**
+     * White set by the stars once the photo is solved: only the stars take it, the sky and the
+     * landscape keep the camera's colours.
+     */
+    val starColour: Boolean = true,
     val foregroundComposite: Boolean = false,
     // Motion
     val gyroStillThreshold: Float = 0.006f,
@@ -121,6 +126,7 @@ data class AppSettings(
         starSharpen = starSharpen,
         style = style,
         version = look,
+        starColour = starColour,
         // Insane preset implies foreground compositing; elsewhere it follows the user toggle.
         // Suppressed at full-res: the composite holds the sky stack, the ground stack, the blend
         // and the mask simultaneously, which is ~2 GB at 50 MP and gets the app killed.
@@ -183,6 +189,23 @@ class SettingsStore(context: Context) {
 
     private fun probeOffsetKey(cameraId: String, probeIso: Int) = "probeOffset_${cameraId}_$probeIso"
 
+    /**
+     * This camera's own star balance (red, blue): the gains that make a solar-type star white,
+     * as the white balance of a session times the gains its solved stars gave
+     * ([com.wm.starcam.sky.StarColour.learn]); null until a session has solved. Per lens: it is
+     * the sensor's colour, not the night's.
+     */
+    fun starBalance(cameraId: String): Pair<Double, Double>? {
+        val r = prefs.getFloat("starBalanceR_$cameraId", Float.NaN)
+        val b = prefs.getFloat("starBalanceB_$cameraId", Float.NaN)
+        return if (r.isNaN() || b.isNaN() || r <= 0f || b <= 0f) null else r.toDouble() to b.toDouble()
+    }
+
+    fun saveStarBalance(cameraId: String, balance: Pair<Double, Double>) {
+        prefs.edit().putFloat("starBalanceR_$cameraId", balance.first.toFloat())
+            .putFloat("starBalanceB_$cameraId", balance.second.toFloat()).apply()
+    }
+
     private val _settings = MutableStateFlow(load())
     val settings: StateFlow<AppSettings> = _settings
 
@@ -239,6 +262,7 @@ class SettingsStore(context: Context) {
                 starSharpen = prefs.getBoolean("starSharpen", d.starSharpen),
                 style = prefs.getInt("style", d.style).coerceIn(0, 1),
                 look = prefs.getInt("look", d.look).coerceIn(1, 2),
+                starColour = prefs.getBoolean("starColour", d.starColour),
                 foregroundComposite = prefs.getBoolean("foregroundComposite", d.foregroundComposite),
                 gyroStillThreshold = prefs.getFloat("gyroStillThreshold", d.gyroStillThreshold),
                 gyroBumpThreshold = prefs.getFloat("gyroBumpThreshold", d.gyroBumpThreshold),
@@ -303,6 +327,7 @@ class SettingsStore(context: Context) {
             .putBoolean("starSharpen", s.starSharpen)
             .putInt("style", s.style)
             .putInt("look", s.look)
+            .putBoolean("starColour", s.starColour)
             .putBoolean("foregroundComposite", s.foregroundComposite)
             .putFloat("gyroStillThreshold", s.gyroStillThreshold)
             .putFloat("gyroBumpThreshold", s.gyroBumpThreshold)

@@ -5,16 +5,22 @@ On Google Play as **Stelli: Night Sky Camera** (app id `com.wm.stelli`). Called 
 
 A OnePlus-15-specific astrophotography camera app. One button — **ASTRO** — does the whole job:
 waits for tripod stillness → probes the sky and picks exposure/ISO → autofocuses **on the stars
-themselves** (FWHM sweep) → shoots a burst of manual RAW frames → star-aligns and sigma-clip-stacks
-them **on the phone** in native C++ → astro post-processing that finds the landscape and treats
-it apart from the sky (light-pollution removal on the sky only, a dark sky, the ground's own
-detail, star colour, wavelet noise reduction) → finished JPG in the gallery, upright the way the
-phone was held + 16-bit linear TIFF master + optional DNGs of every frame for PC stacking
-(Siril/PixInsight/Sequator).
+themselves** (FWHM sweep) → shoots a burst of manual RAW frames, the first of them checked against
+the plan and the exposure corrected if the sky came out darker or brighter → repairs the sensor's
+hot pixels (found in the frames themselves, no dark frames needed) → star-aligns and
+sigma-clip-stacks them **on the phone** in native C++ → astro post-processing that finds the
+landscape and treats it apart from the sky (light-pollution removal on the sky only, a dark sky,
+the ground's own detail, wavelet noise reduction, and the stars in their **true colours**: white
+is set by the photo's own stars, whose colours the catalogue knows) → finished JPG in the gallery,
+upright the way the phone was held + 16-bit linear TIFF master + optional DNGs of every frame for
+PC stacking (Siril/PixInsight/Sequator).
 
 **What's in this photo** names everything in a finished photo from its own stars - the
 constellations drawn in, the stars and how far away they are, the planets, the nebulae and
-galaxies, and how long their light was on its way - with a labelled copy to save and share.
+galaxies, and how long their light was on its way - with a labelled copy to save and share. The
+photo is recognised while it is stacked, from the stars that moved with the sky through the
+session (a town's lit windows and lamps do not), and the same stars measure how bright the sky
+was where the photo looks.
 
 A **sky calendar** lays out the next twelve months where you are - meteor showers rated for the
 Moon and your own sky, the Milky Way's nights and season, eclipses as seen from your place,

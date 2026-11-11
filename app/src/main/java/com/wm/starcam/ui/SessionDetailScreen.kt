@@ -64,6 +64,7 @@ import com.wm.starcam.session.SessionRepository
 import com.wm.starcam.session.sessionPhoto
 import com.wm.starcam.session.stackPhoto
 import com.wm.starcam.sky.SkyLabels
+import com.wm.starcam.sky.SkyRecord
 import com.wm.starcam.sky.StarCatalog
 import com.wm.starcam.ui.components.ScButton
 import com.wm.starcam.ui.components.ScButtonKind
@@ -149,6 +150,8 @@ private data class DetailData(
     val header: JSONObject? = null,
     /** "What's in this photo", when it was asked for this very photo before. */
     val whatsIn: WhatsInPhoto.Found? = null,
+    /** What the stack's stars said (meta/sky.json): the star colours and the sky, as Details lines. */
+    val skyRows: List<Pair<String, String>> = emptyList(),
 )
 
 /** Blocking; reads session.json, the photo and the file sizes. */
@@ -217,6 +220,7 @@ private fun loadDetail(dir: File, repo: SessionRepository, catalog: StarCatalog?
         } ?: emptyList(),
         header = header,
         whatsIn = if (jpg != null && catalog != null) WhatsInPhoto.cached(dir, jpg, catalog, startedAt) else null,
+        skyRows = SkyRecord.read(dir)?.detailRows() ?: emptyList(),
     )
 }
 
@@ -569,6 +573,13 @@ fun SessionDetailScreen(
                             "rejected", Modifier.weight(1f))
                         StatTile(ScIcons.Tripod, "${d.bumpedCount}", "bumped", Modifier.weight(1f))
                     }
+                    if (d.skyRows.isNotEmpty()) {
+                        ScCard(Modifier.fillMaxWidth()) {
+                            CardHead(ScIcons.Sparkles, "From this photo's stars")
+                            Spacer(Modifier.height(6.dp))
+                            d.skyRows.forEach { (label, value) -> SkyRow(label, value) }
+                        }
+                    }
                     if (d.autopilot.isNotEmpty()) AutopilotReport(d.autopilot)
                     ScCard(Modifier.fillMaxWidth()) {
                         CardHead(ScIcons.Log, "Files")
@@ -711,6 +722,16 @@ private fun FileRow(icon: ImageVector, label: String, value: String) {
         Spacer(Modifier.width(10.dp))
         Text(label, style = ScType.body, color = Sc.colors.text, modifier = Modifier.weight(1f))
         Text(value, style = ScType.dataLarge, color = Sc.colors.text2)
+    }
+}
+
+/** One thing the stack's stars measured: what, and the answer beside it. */
+@Composable
+private fun SkyRow(label: String, value: String) {
+    val c = Sc.colors
+    Row(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+        Text(label, style = ScType.bodySmall, color = c.text3, modifier = Modifier.width(116.dp))
+        Text(value, style = ScType.bodySmall, color = c.text, modifier = Modifier.weight(1f))
     }
 }
 

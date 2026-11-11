@@ -1422,6 +1422,11 @@ std::string EngineSession::finalizeStack(const std::string& optionsJson,
             .add("hotFromLights", hotFromLights)
             .add("skyStars", skyCount)
             .add("staticStars", staticCount)
+            // The stars' white balance the look was given (1 and 1: none) and the sky points it
+            // was held to: with fewer than 10 of them in the picture the look applies none.
+            .add("wbR", (double)pp.wbR)
+            .add("wbB", (double)pp.wbB)
+            .add("skyPoints", (int)(pp.skyPts.size() / 3))
             .add("darkFrames", darkFrames)
             .add("darkSource", std::string(darkSource))
             .add("lensShading", !shading.empty())

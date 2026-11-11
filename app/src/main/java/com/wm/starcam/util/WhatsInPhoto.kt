@@ -11,24 +11,32 @@ import android.net.Uri
 import android.provider.MediaStore
 import com.wm.starcam.sky.PhotoStars
 import com.wm.starcam.sky.PlateSolution
-import com.wm.starcam.sky.PlateSolver
 import com.wm.starcam.sky.SkyLabels
+import com.wm.starcam.sky.SkyRecord
+import com.wm.starcam.sky.SkySolve
+import com.wm.starcam.sky.SkyStars
 import com.wm.starcam.sky.StarCatalog
 import com.wm.starcam.ui.SkyLabelPainter
 import org.json.JSONObject
 import java.io.File
 import kotlin.math.max
-import kotlin.math.tan
 
 /**
  * "What's in this photo": the session's photo plate-solved from its own stars, and what that
- * puts in it - constellations, named stars, planets, nebulae and galaxies. Worked out on the
- * phone in a second or two; the answer is kept beside the session (meta/whats_in.json) for the
- * photo it was found for, so it comes back at once and goes when the photo is re-stacked or edited.
+ * puts in it - constellations, named stars, planets, nebulae and galaxies. A stacked photo is
+ * solved from the stars its stack verified against the sky's motion (out/stars.json) - usually
+ * already while it was stacked (StackCallback) - and any other from the stars found in the JPEG.
+ * Worked out on the phone in a second or two; the answer is kept beside the session
+ * (meta/whats_in.json) for the photo it was found for, so it comes back at once and goes when the
+ * photo is re-stacked or edited.
  */
 object WhatsInPhoto {
 
     private const val FILE = "whats_in.json"
+
+    /** whats_in.json's "source": solved from the stack's stars, or from the finished photo's. */
+    const val SOURCE_STACK = "stack"
+    const val SOURCE_PHOTO = "photo"
 
     /** The photo is solved at about this size: stars are a few pixels, the maths quick. */
     private const val SOLVE_EDGE = 2048
@@ -43,11 +51,7 @@ object WhatsInPhoto {
         val o = JSONObject(f.readText())
         if (o.optString("photo") != photo.name || o.optLong("modified") != photo.lastModified()) return null
         val s = o.optJSONObject("solution") ?: return Found(null, null, o.optInt("stars"), o.optLong("ms"))
-        val sol = PlateSolution(
-            s.getDouble("ra"), s.getDouble("dec"), s.getDouble("scale"), s.getDouble("angle"),
-            s.getBoolean("flipped"), s.getDouble("cx"), s.getDouble("cy"), s.getInt("matched"), s.getDouble("rms"),
-            s.optDouble("k", 0.0), s.optDouble("kReach2", Double.MAX_VALUE),
-        )
+        val sol = SkyRecord.solutionFrom(s)
         val labels = SkyLabels.build(sol, o.getInt("width"), o.getInt("height"), catalog, epochMs)
         Found(labels, sol, o.optInt("stars"), o.optLong("ms"))
     }.getOrNull()
@@ -57,6 +61,29 @@ object WhatsInPhoto {
      * length, the time). Blocking: run it off the main thread.
      */
     fun identify(dir: File, photo: File, header: JSONObject?, catalog: StarCatalog): Found {
+        val epochMs = header?.optLong("startedAt")?.takeIf { it > 0 }
+        // Solved while it was stacked: the answer is there already.
+        cached(dir, photo, catalog, epochMs)?.takeIf { it.labels != null }?.let { return it }
+        val bounds = bounds(photo) ?: return Found(null, null, 0, 0)
+        val sample = sampleFor(bounds.first, bounds.second, SOLVE_EDGE)
+        val focalRaw = header?.optDouble("focalPx", Double.NaN)?.takeIf { it.isFinite() && it > 0 }
+        val rawLong = header?.let { max(it.optInt("rawWidth"), it.optInt("rawHeight")) } ?: 0
+        // The stack's own stars, when they belong to this very picture.
+        stackStars(dir, photo, bounds.first, bounds.second)?.let { sky ->
+            val t0 = System.currentTimeMillis()
+            val w = (bounds.first + sample - 1) / sample
+            val h = (bounds.second + sample - 1) / sample
+            val stars = sky.imageStars(sky.forSolving(), w.toDouble() / sky.width)
+            val out = SkySolve.solve(stars, w, h, catalog, SkySolve.focalGuesses(focalRaw, rawLong, w, h),
+                mirrored = true, giveUpMs = 12_000L, t0Ms = t0)
+            val ms = System.currentTimeMillis() - t0
+            log(photo, "the stack's", stars.size, w, h, out, ms)
+            val sol = out.solution
+            if (sol != null) {
+                save(dir, photo, w, h, sol, stars.size, ms, SOURCE_STACK)
+                return Found(SkyLabels.build(sol, w, h, catalog, epochMs), sol, stars.size, ms)
+            }
+        }
         val t0 = System.currentTimeMillis()
         val bmp = decode(photo, SOLVE_EDGE) ?: return Found(null, null, 0, 0)
         val w = bmp.width
@@ -65,44 +92,51 @@ object WhatsInPhoto {
         bmp.getPixels(argb, 0, w, 0, 0, w, h)
         bmp.recycle()
         val stars = PhotoStars.find(argb, w, h)
-        val epochMs = header?.optLong("startedAt")?.takeIf { it > 0 }
-        var sol: PlateSolution? = null
-        var tried = ""
         // A photo of cloud costs every guess in full: the later guesses skip the mirrored search,
         // and after ~12 s the answer is no.
-        for ((i, guess) in focalGuesses(header, w, h).withIndex()) {
-            if (i > 0 && System.currentTimeMillis() - t0 > 12_000L) break
-            val (focal, tolerance) = guess
-            tried += String.format(java.util.Locale.US, " %.0f±%.0f%%", focal, tolerance * 100)
-            sol = PlateSolver.solve(stars, w, h, catalog, focal, tolerance, tryMirrored = i == 0)
-            if (sol != null) break
-        }
+        val out = SkySolve.solve(stars, w, h, catalog, SkySolve.focalGuesses(focalRaw, rawLong, w, h),
+            mirrored = true, giveUpMs = 12_000L, t0Ms = t0)
+        val sol = out.solution
         val ms = System.currentTimeMillis() - t0
-        AppLog.i("whatsin", "${photo.name}: ${stars.size} stars in ${w}x$h, focal tried$tried -> " +
-            (sol?.let {
+        log(photo, "the photo's", stars.size, w, h, out, ms)
+        save(dir, photo, w, h, sol, stars.size, ms, SOURCE_PHOTO)
+        return Found(sol?.let { SkyLabels.build(it, w, h, catalog, epochMs) }, sol, stars.size, ms)
+    }
+
+    private fun log(photo: File, whose: String, stars: Int, w: Int, h: Int, out: SkySolve.Outcome, ms: Long) {
+        AppLog.i("whatsin", "${photo.name}: $stars of $whose stars in ${w}x$h, focal tried${out.tried} -> " +
+            (out.solution?.let {
                 String.format(java.util.Locale.US, "ra %.2f dec %.2f, %.0f px focal, turn %.1f deg%s, %d matched, rms %.2f px, k %.3f",
                     it.raDeg, it.decDeg, it.scale, Math.toDegrees(it.angle), if (it.flipped) " MIRRORED" else "",
                     it.matched, it.rmsPx, it.k)
             } ?: "not recognised") + " in $ms ms")
-        save(dir, photo, w, h, sol, stars.size, ms)
-        return Found(sol?.let { SkyLabels.build(it, w, h, catalog, epochMs) }, sol, stars.size, ms)
     }
 
     /**
-     * Focal lengths to try (px at the solving size) and how sure each is: the camera's own, kept
-     * with the session since 0.5; for older sessions the fields a phone's main camera has.
+     * The session's out/stars.json, when it describes [photo] ([w] x [h]): the stack's own JPEG,
+     * or a studio edit of it that kept its turn - the same picture at one scale. Null for anything
+     * else (an edit turned in the studio, a session stacked before the stars were written, one not
+     * stacked at all).
      */
-    private fun focalGuesses(header: JSONObject?, w: Int, h: Int): List<Pair<Double, Double>> {
-        val long = max(w, h).toDouble()
-        val rawLong = header?.let { max(it.optInt("rawWidth"), it.optInt("rawHeight")) } ?: 0
-        val focalRaw = header?.optDouble("focalPx", Double.NaN) ?: Double.NaN
-        // The camera's own: nothing else to try (a photo it does not solve has no sky in it to find).
-        if (!focalRaw.isNaN() && focalRaw > 0 && rawLong > 0) return listOf(focalRaw * long / rawLong to 0.05)
-        // Across the long side: a main camera's ~74 deg, then the neighbours either way.
-        return listOf(74.0, 62.0, 86.0, 50.0).map { fov -> long / 2 / tan(Math.toRadians(fov / 2)) to 0.13 }
+    private fun stackStars(dir: File, photo: File, w: Int, h: Int): SkyStars? {
+        val sky = SkyStars.read(File(dir, "out/stars.json")) ?: return null
+        if (sky.scaleTo(w, h) == null) return null
+        if (photo.name.endsWith("_edit.jpg")) {
+            // Turned half round, it is the same size but not the same picture.
+            val turn = runCatching { JSONObject(File(dir, "out/edit.json").readText()).optInt("rotation", 0) }.getOrNull()
+            if (turn != 0) return null
+        }
+        return sky
     }
 
-    private fun save(dir: File, photo: File, w: Int, h: Int, sol: PlateSolution?, stars: Int, ms: Long) {
+    /**
+     * Keeps an answer found for [photo] elsewhere - while its stack was developed, from the
+     * stack's stars ([sol] at [w] x [h], from [stars] stars in [ms]) - as if it had been asked for.
+     */
+    fun keep(dir: File, photo: File, w: Int, h: Int, sol: PlateSolution, stars: Int, ms: Long, source: String) =
+        save(dir, photo, w, h, sol, stars, ms, source)
+
+    private fun save(dir: File, photo: File, w: Int, h: Int, sol: PlateSolution?, stars: Int, ms: Long, source: String) {
         runCatching {
             val o = JSONObject().apply {
                 put("photo", photo.name)
@@ -111,34 +145,32 @@ object WhatsInPhoto {
                 put("height", h)
                 put("stars", stars)
                 put("ms", ms)
-                if (sol != null) put("solution", JSONObject().apply {
-                    put("ra", sol.raDeg)
-                    put("dec", sol.decDeg)
-                    put("scale", sol.scale)
-                    put("angle", sol.angle)
-                    put("flipped", sol.flipped)
-                    put("cx", sol.cx)
-                    put("cy", sol.cy)
-                    put("matched", sol.matched)
-                    put("rms", sol.rmsPx)
-                    put("k", sol.k)
-                    if (sol.kReach2 < Double.MAX_VALUE) put("kReach2", sol.kReach2)
-                })
+                put("source", source)
+                if (sol != null) put("solution", SkyRecord.solutionJson(sol))
             }
             File(dir, "meta").mkdirs()
             File(dir, "meta/$FILE").writeText(o.toString())
         }.onFailure { AppLog.e("whatsin", "could not keep the answer", it) }
     }
 
+    private fun bounds(file: File): Pair<Int, Int>? = runCatching {
+        val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, o)
+        if (o.outWidth <= 0 || o.outHeight <= 0) null else o.outWidth to o.outHeight
+    }.getOrNull()
+
+    /** The power of two that brings a [w] x [h] picture to about [maxEdge] on its long side. */
+    private fun sampleFor(w: Int, h: Int, maxEdge: Int): Int {
+        var sample = 1
+        while (max(w, h) / (sample * 2) >= maxEdge) sample *= 2
+        return sample
+    }
+
     /** [file] decoded at about [maxEdge] px on its long side (halved until it fits), ARGB. */
     private fun decode(file: File, maxEdge: Int): Bitmap? = runCatching {
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(file.absolutePath, bounds)
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-        var sample = 1
-        while (max(bounds.outWidth, bounds.outHeight) / (sample * 2) >= maxEdge) sample *= 2
+        val (w, h) = bounds(file) ?: return null
         BitmapFactory.decodeFile(file.absolutePath, BitmapFactory.Options().apply {
-            inSampleSize = sample
+            inSampleSize = sampleFor(w, h, maxEdge)
             inPreferredConfig = Bitmap.Config.ARGB_8888
             inMutable = true
         })

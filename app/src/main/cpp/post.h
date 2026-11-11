@@ -36,8 +36,9 @@ struct PostParams {
     float starReduction = 0.0f;    // 0..1, stars made smaller and fainter
     float vignette = 0.0f;         // 0..1, the corners darkened
     // White-balance gains for red and blue (green 1) from the stars' own colour once the photo is
-    // solved; 1 = the camera's balance. [0.25, 4]. They act on the sky's light - what stands above
-    // its background - and not on a lit landscape: see sky_lit_mask and postprocess_v2's stretch.
+    // solved; 1 = the camera's balance. [0.25, 4]. They act on the stars' own light - what stands
+    // out of the sky beside it - and not on the sky's glow or a lit landscape: see sky_lit_mask
+    // and postprocess_v2's stretch.
     float wbR = 1.0f;
     float wbB = 1.0f;
     // Where the sky is, from its own stars: triples x, y, bg - a sky-verified star's position in the
@@ -66,7 +67,7 @@ bool sky_lit_mask(const ImageF& rgb, const std::vector<float>& skyPts, std::vect
 // The gains on a linear picture, pixel by pixel: gain_c = 1 + wSky * wHi * (g_c - 1) with
 // g = (wbR, 1, wbB), wSky = 1 - sky_lit_mask and wHi taking clipped highlights out (they stay
 // white, their unclipped skirts get the colour). The look does not call this: it applies the
-// same weights at its stretch, to what stands above the sky's background (postprocess_v2). Kept
+// same weights at its stretch, to what stands out of the sky beside it (postprocess_v2). Kept
 // for the self-test, which checks the weights through it. Nothing happens when both gains are 1
 // or the mask cannot be made; litHalf, when given, receives the mask (empty when nothing happened).
 void apply_sky_white_balance(ImageF& rgb, float wbR, float wbB, const std::vector<float>& skyPts,

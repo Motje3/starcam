@@ -61,6 +61,9 @@ object NativeEngine {
     /**
      * Runs the full stack + post pipeline. Blocking — call from a background dispatcher.
      * [callback] is invoked on the calling thread. Returns result JSON (see EngineResult).
+     * A callback that also has `fun onStars(starsJson: String): String` ([StackCallback]) is asked
+     * about the stack's stars before the look; jni_bridge.cpp finds it by name (proguard-rules.pro
+     * keeps it).
      */
     external fun finalizeStack(handle: Long, optionsJson: String, callback: ProgressCallback): String
 

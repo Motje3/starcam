@@ -12,7 +12,13 @@
 #   timelapse   that session's kept RAW frames developed into a timelapse video, kept and in the gallery
 #   meteors     a meteor watch with one meteor in it stacked: the meteor found and cut out of its frame
 #   whatsin     a session of the real sky (Orion, drawn from the star catalogue) stacked, then "What's
-#               in this photo": recognised as Orion the right way round, a labelled copy saved
+#               in this photo": recognised as Orion the right way round, a labelled copy saved;
+#               solved while it was stacked, from the stack's own stars (whats_in.json "source":
+#               "stack", meta/sky.json with a solution): on a release build, proof that R8 kept the
+#               engine's stars hook. The session's stars are drawn in their own colours under a
+#               white balance that does not suit them: the fit must find the gains they were drawn
+#               with, the engine's report must show the photo developed with them, and the studio
+#               must open with them
 #   tonight     the Tonight planner opened from the top row's moon, for a place set with geo fix; what
 #               is worth a shot tonight listed, the first opened in the sky view to be found
 #   sky         the sky view: from the top bar's Find (its list open), from the planner onto the
@@ -459,7 +465,7 @@ if (Wanted 'whatsin') {
     Tap 'Sessions gallery' | Out-Null
     Start-Sleep -Seconds 2
     $tile = Nodes | Where-Object { $_.text -match ('Today . ' + $wnow.ToString('HH:mm')) } | Select-Object -First 1
-    $stacked = $false; $found = $false; $orion = $false; $saved = $false
+    $stacked = $false; $found = $false; $orion = $false; $saved = $false; $studio = $false
     if ($tile) {
         $c = Center $tile
         A shell input tap $c[0] $c[1]
@@ -467,8 +473,9 @@ if (Wanted 'whatsin') {
         for ($k = 0; $k -lt 5 -and -not ((AllText) -match '\|Stack\|'); $k++) { A shell input swipe 636 2200 636 900 300; Start-Sleep -Milliseconds 700 }
         Tap 'Stack' | Out-Null
         $stacked = WaitFor 'Done: the photo above is updated' 600
-        # The card sits under the photo.
-        for ($k = 0; $k -lt 4 -and -not ((AllText) -match '\|Find out\|'); $k++) { A shell input swipe 636 2000 636 1300 300; Start-Sleep -Milliseconds 700 }
+        # The card sits under the photo. Solved while it was stacked, it shows the answer at once;
+        # otherwise Find out asks.
+        for ($k = 0; $k -lt 4 -and -not ((AllText) -match '\|Find out\||\|Orion'); $k++) { A shell input swipe 636 2000 636 1300 300; Start-Sleep -Milliseconds 700 }
         Tap 'Find out' | Out-Null
         # The answer starts at the top of the card; its count of stars may be below the fold.
         $found = WaitFor '\|Orion|stars recognised' 90
@@ -478,17 +485,63 @@ if (Wanted 'whatsin') {
         Shot 'whatsin-labels'
         for ($k = 0; $k -lt 5 -and -not ((AllText) -match '\|Save labelled\|'); $k++) { A shell input swipe 636 2000 636 1300 300; Start-Sleep -Milliseconds 700 }
         Tap 'Save labelled' | Out-Null
-        $saved = WaitFor 'Saved to the gallery, in Pictures/Stelli' 90
+        # The note comes under the buttons, which can stand at the foot of the screen (the re-stack's
+        # Done notice above the photo pushes them down): a short scroll brings it into sight.
+        $saved = WaitFor 'Saved to the gallery, in Pictures/Stelli' 20
+        if (-not $saved) {
+            A shell input swipe 636 2000 636 1600 800
+            Start-Sleep -Milliseconds 700
+            $saved = WaitFor 'Saved to the gallery, in Pictures/Stelli' 70
+        }
+        # The studio develops the master with the star colours the photo was made with: its log
+        # says so when it opens (the Edit card is under the photo, above the answer's card).
+        A shell logcat -c
+        for ($k = 0; $k -lt 6 -and -not ((AllText) -match '\|Edit\|'); $k++) { A shell input swipe 636 900 636 2200 300; Start-Sleep -Milliseconds 700 }
+        for ($k = 0; $k -lt 6 -and -not ((AllText) -match '\|Edit\|'); $k++) { A shell input swipe 636 2000 636 1200 300; Start-Sleep -Milliseconds 700 }
+        Tap 'Edit' | Out-Null
+        if (WaitFor 'Save as new photo' 90) {
+            Start-Sleep -Seconds 2
+            $studio = [bool]((A shell logcat -d -s StarCam:* 2>$null) -match '\[studio\] opened .* star colours wbR')
+            Back
+        }
     }
     # Solved the right way round (a mirrored solution would mean the pipeline flips photos).
     $wlocal = Join-Path $shots 'whats_in.json'
+    if (Test-Path $wlocal) { Remove-Item $wlocal }
     A pull "/sdcard/Android/media/com.wm.stelli/Stelli/sessions/$wname/meta/whats_in.json" $wlocal 2>&1 | Out-Null
     $solution = try { (Get-Content $wlocal -Raw | ConvertFrom-Json).solution } catch { $null }
     $upright = $solution -and -not $solution.flipped
     $matched = if ($solution) { [int]$solution.matched } else { 0 }
+    # From the stack's own stars, during the stack (the engine's hook): its answer and meta/sky.json.
+    $source = try { (Get-Content $wlocal -Raw | ConvertFrom-Json).source } catch { $null }
+    $slocal = Join-Path $shots 'sky.json'
+    if (Test-Path $slocal) { Remove-Item $slocal }
+    A pull "/sdcard/Android/media/com.wm.stelli/Stelli/sessions/$wname/meta/sky.json" $slocal 2>&1 | Out-Null
+    $sky = try { Get-Content $slocal -Raw | ConvertFrom-Json } catch { $null }
+    $skySolved = [bool]($sky -and $sky.solution)
+    # The stars' own colours: the session's catalogue stars are drawn as a sensor sees them (a star
+    # like the Sun white at red x 2.11, blue x 1.75) in frames balanced for the sky (2.45, 1.59),
+    # so the fit must come to 2.11 / 2.45 = 0.861 and 1.75 / 1.59 = 1.101, within 5 %...
+    $inv = [Globalization.CultureInfo]::InvariantCulture
+    $wbR = if ($sky -and $sky.colour) { [double]$sky.colour.wbR } else { 0.0 }
+    $wbB = if ($sky -and $sky.colour) { [double]$sky.colour.wbB } else { 0.0 }
+    $colour = $sky -and $sky.colour -and $sky.colour.source -eq 'stars' -and
+        [Math]::Abs($wbR / 0.861 - 1) -lt 0.05 -and [Math]::Abs($wbB / 1.101 - 1) -lt 0.05
+    # ...and the engine must have developed the photo with those gains, held to the sky's own
+    # points (its report): the answer came back through the hook.
+    $rlocal = Join-Path $shots 'stack_report.json'
+    if (Test-Path $rlocal) { Remove-Item $rlocal }
+    A pull "/sdcard/Android/media/com.wm.stelli/Stelli/sessions/$wname/out/stack_report.json" $rlocal 2>&1 | Out-Null
+    $rep = try { Get-Content $rlocal -Raw | ConvertFrom-Json } catch { $null }
+    $points = if ($rep -and $null -ne $rep.skyPoints) { [int]$rep.skyPoints } else { 0 }
+    $engine = $colour -and $rep -and [Math]::Abs([double]$rep.wbR - $wbR) -lt 0.002 -and
+        [Math]::Abs([double]$rep.wbB - $wbB) -lt 0.002 -and $points -ge 10
     $copy = (A shell ls /sdcard/Pictures/Stelli/ 2>$null) -match "stelli_${wname}_labelled"
-    Check 'whatsin' ($stacked -and $found -and $orion -and $upright -and $matched -ge 30 -and $saved -and [bool]$copy) `
-        "stacked=$stacked found=$found orion=$orion upright=$upright matched=$matched saved=$saved gallery=$([bool]$copy)"
+    Check 'whatsin' ($stacked -and $found -and $orion -and $upright -and $matched -ge 30 -and $source -eq 'stack' -and $skySolved -and
+        $colour -and $engine -and $studio -and $saved -and [bool]$copy) `
+        ("stacked=$stacked found=$found orion=$orion upright=$upright matched=$matched source=$source sky.json=$skySolved " +
+        "colour=$([bool]$colour) (wbR $($wbR.ToString('0.000', $inv)) wbB $($wbB.ToString('0.000', $inv))) engine=$([bool]$engine) " +
+        "($points sky points) studio=$studio saved=$saved gallery=$([bool]$copy)")
 }
 
 # ---- the Tonight planner from the top row's moon, with the emulator placed in Amsterdam

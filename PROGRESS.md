@@ -1,5 +1,76 @@
 # StarCam build progress (PLAN.md §10)
 
+## The core, reviewed on the phone's own frames and rebuilt (0.7.0, 2026-11-11)
+
+The owner asked for a hard look at the one thing the app is for: a burst of RAW frames turned
+into a photo of the night sky. `CORE_REVIEW.md` has the review, every number and what was tried
+and dropped; this is the short of it. All of it was measured on the two sessions the phone kept
+from 31 Oct (a town sky through a window) and on the engine built for the PC.
+
+**What those sessions showed**
+- The frames came out 3 to 5 times darker than the app had planned, and nothing noticed.
+- No session ever had a hot pixel repaired: the list came from dark frames only, and the
+  cover-the-lens step was skipped in the field.
+- "What's in this photo" did not recognise the real photo: it was given the JPEG's brightest
+  blobs, which in a town are lit windows.
+- Every star was cyan: the colours were the camera's guess at white on a one-second night frame.
+
+**What 0.7.0 does about it**
+- **A pilot frame.** The first light frame is measured at the real settings, and when the sky is
+  outside 2.5-8 % of white the ISO or the exposure is corrected once before the burst goes on.
+  Inside the band the pilot simply is frame 1. The probe's error is learnt per camera.
+- **Hot pixels from the light frames themselves.** A site far above its same-colour neighbours in
+  every frame, whose neighbours do not share its light, is the sensor's: 2,646 and 2,915 on the
+  real sessions, 85 % of one list the same sites as the other. Joined with the dark's list when
+  there is one.
+- **The engine knows its stars** (`out/stars.json`): the reference frame's stars that the sky's
+  own motion carried along, measured on the linear stack. 158 of 364 blobs on the real 8-frame
+  session, 139 of 413 on the other; the rest are windows and lamps.
+- **The photo is recognised while it is stacked.** Between the stack and the look the engine asks
+  the app about those stars (`StackCallback`): solved in a fifth of a second, both real sessions
+  (57 and 55 stars matched). "What's in this photo" has its answer when the photo appears.
+- **Star colours** (Settings › Look › More options, on). The catalogue knows each matched
+  star's colour, so the stars say what white is: red x 1.35, blue x 0.78 on both real sessions,
+  known to under 1 %. Only the stars take it: on the real photos the sky, its glow and the
+  houses come out as before (a quarter of a percent of the starless picture moves by more than
+  one level of 255), and the stars go from all cyan to white, with the orange and the blue ones
+  their own. The camera's own balance is remembered for a night that does not solve. The
+  studio develops with the same balance. Before and after, the two real photos:
+  `field-logs\real-stars\star-colours-before-after-*.png` (local only).
+- **No colour borrowed from the stars.** The chroma denoise took each pixel's colour from its
+  surroundings, stars included: a ring of the star's colour round every star, blue on blue
+  until the stars had their own. It now leaves the stars out.
+- **The sky's brightness, measured**: 17.4 mag per square arcsecond on both sessions, on the
+  session's Details with how the star colours were set.
+- **The engine on the PC** (`tools\native`): the self-test in 15 s, a real session re-stacked in
+  40 s, the look alone in a few seconds. No emulator needed to test the core.
+
+**Looked at and not built**
+- Sharpening stars with the lens's own blur: tighter, not rounder, and bright stars get dimmer.
+- Sky and landscape as two layers, each aligned by its own motion: works on a simulated tripod
+  session (the ground as sharp as one frame), fails on the window photos, where the phone itself
+  moved. It wants one real session on a tripod with a horizon first.
+- The stars' balance for the Milky Way's own glow: right in principle, but under a town it is
+  the sky's glow that takes the colour, and there is no dark-sky frame here to judge it on.
+- How faint the stack reached: neither way to say it was honest yet (CORE_REVIEW.md).
+- Known and not fixed: the look's landscape detection is fragile on lit town scenes.
+
+**How it was built.** The review, the designs and every decision by the lead; three long builds
+(capture, engine, app) by helper agents working to written briefs, each reviewed against the real
+data before it went in. The reviews changed things each time. The star balance took four designs:
+the third was passed on one measured wall, and measured over the whole frame it had moved a
+third of it, so the fourth changes the stars and nothing else. The app's first colour fit judged
+stars by their scatter where what counts is how well white is known, and listed a "faintest
+stars" figure that was the length of a list.
+
+Checked: 198 unit tests, the two real sessions' star lists among them; the native self-test,
+10 of 10; both real sessions re-stacked on the PC with and without the stars' balance and
+compared block by block; `emulator-test` on the debug build, 18 of 18 before the look's last
+change and the six checks it touches again after it (self-test, stack, studio, whatsin, exposure,
+autopilot); on the release build 15 of 15 (place, autopilot and exposure are for debug builds);
+the bundle signed with the upload key, versionCode 14, no INTERNET permission (aapt2). Not
+checked: anything on the phone itself.
+
 ## The intro, from the owner's five finished screens (0.6.2, 2026-11-09)
 
 The owner had GPT design the first-launch pages: five finished screens of 1080 × 2400 and five

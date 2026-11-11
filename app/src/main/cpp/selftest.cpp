@@ -1017,13 +1017,20 @@ std::string run_impl(const std::string& tmpDir, std::vector<std::string>& paths)
     // (a) gains of 1 change nothing; (b) on a dark sky with stars the gain weights are 1 away from
     // clipped cores (the channels as multiplied beforehand), and in the look the stars come out as
     // a premultiplied picture's would while the background stays as it is without gains (the
-    // look applies the gains to what stands above the background); (c) a bright starless area keeps its
+    // look applies the gains to a star's own light: what is small and stands out of the sky round
+    // it); (c) a bright starless area keeps its
     // colour; (d) a clipped star core stays white; (e) under a sky over a black landscape (darker
     // than the sky) the sky still gets the full gains; (f) with fewer than 10 sky points the gains
     // change nothing; (g) a bright region of the sky with stars in it (a Milky Way core, 3 x the
     // sky) gets the full gains, stars and background; (h) a sky twice as bright at the bottom as at
-    // the top gets the full gains everywhere.
+    // the top gets the full gains everywhere; (i) in the look only the stars change: a glow in
+    // the sky with a colour of its own, the lit edge of a roof, a window too dim for the lit mask
+    // and a row of lamps under a sky with no star near them all come out as they do without gains.
+    // ((c), (e), (g), (h) are of the weights alone: where the gains may act. What they act on
+    // there is the look's, checked by (b) and (i).)
     double wbDiffA = 1.0, wbDiffB = 1.0, wbRect = 1.0, wbCore = 1.0, wbDark = 1.0, wbFew = 1.0;
+    double wbOnly = 1.0, wbStarsMoved = 0.0;
+    int wbOnlyBlocks = 0, wbOnlyX = 0, wbOnlyY = 0;
     double wbBg = 1.0;
     double wbCoreMW = 1.0, wbGrad = 1.0;
     int darkStarPx = 0, mwPts = 0;
@@ -1279,6 +1286,102 @@ std::string run_impl(const std::string& tmpDir, std::vector<std::string>& paths)
             apply_sky_white_balance(g, gR, gB, pointsOf(before, st));
             wbGrad = fullGains(before, g);
         }
+        // (i) only the stars
+        {
+            ImageF g = skyOf([sky](int, int) { return sky; });
+            // A town's glow 350 px across, bluer than the sky.
+            for (int y = 0; y < h; ++y)
+                for (int x = 0; x < w; ++x) {
+                    const double d2 = (x - 500.0) * (x - 500.0) + (y - 300.0) * (y - 300.0);
+                    const float bump = (float)std::exp(-d2 / (2.0 * 150.0 * 150.0));
+                    float* q = g.px(x, y);
+                    q[0] += 0.6f * sky * bump;
+                    q[1] += 1.0f * sky * bump;
+                    q[2] += 1.5f * sky * bump;
+                }
+            // The lit edge of a roof: 6 px thick, 4 x the sky, yellow, across the frame on a slant.
+            for (int x = 60; x < 960; ++x) {
+                const int yc = 470 - (x - 60) / 12;
+                for (int y = yc - 3; y < yc + 3; ++y) {
+                    float* q = g.px(x, y);
+                    q[0] = 5.0f * sky;
+                    q[1] = 4.0f * sky;
+                    q[2] = 2.5f * sky;
+                }
+            }
+            // A window too dim for the lit mask: 60 px, 1.5 x the sky.
+            for (int y = 150; y < 210; ++y)
+                for (int x = 800; x < 860; ++x) {
+                    float* q = g.px(x, y);
+                    q[0] = 1.8f * sky;
+                    q[1] = 1.5f * sky;
+                    q[2] = 1.2f * sky;
+                }
+            // Stars over the upper part, clear of the roof and the window; lamps below, shaped
+            // like stars, with no star of the sky within 150 px.
+            std::vector<std::pair<double, double>> st, lamps;
+            std::uniform_real_distribution<double> sx(20.0, w - 21.0), sy(20.0, 380.0);
+            while ((int)st.size() < 150) {
+                const double x = sx(rw), y = sy(rw);
+                if (x > 770 && x < 890 && y > 120 && y < 240) continue;
+                st.push_back({x, y});
+                addStar(g, x, y, pk(rw), 2.0, false);
+            }
+            for (int i = 0; i < 24; ++i) {
+                lamps.push_back({40.0 + 40.0 * i, 640.0 + 30.0 * (i % 3)});
+                addStar(g, lamps.back().first, lamps.back().second, 0.1, 2.0, false);
+            }
+            ImageF a = g, plain = g;
+            PostParams pa, pc;
+            pa.version = pc.version = 2;
+            pa.wbR = gR;
+            pa.wbB = gB;
+            pa.skyPts = pointsOf(g, st);
+            postprocess_v2(a, pa, quiet);
+            postprocess_v2(plain, pc, quiet);
+            // Blocks of 16 px with no star within 14 px: their mean, per channel, against no gains.
+            wbOnly = 0.0;
+            wbOnlyBlocks = 0;
+            for (int by = 0; by + 16 <= h; by += 16)
+                for (int bx = 0; bx + 16 <= w; bx += 16) {
+                    bool star = false;
+                    for (const auto& s : st)
+                        star = star || (s.first > bx - 14 && s.first < bx + 30 && s.second > by - 14 && s.second < by + 30);
+                    if (star) continue;
+                    double ma[3] = {0, 0, 0}, mp[3] = {0, 0, 0};
+                    for (int y = by; y < by + 16; ++y)
+                        for (int x = bx; x < bx + 16; ++x)
+                            for (int c = 0; c < 3; ++c) {
+                                ma[c] += a.px(x, y)[c];
+                                mp[c] += plain.px(x, y)[c];
+                            }
+                    for (int c = 0; c < 3; ++c) {
+                        const double d = std::fabs(ma[c] - mp[c]) / 256.0;
+                        if (d > wbOnly) {
+                            wbOnly = d;
+                            wbOnlyX = bx;
+                            wbOnlyY = by;
+                        }
+                    }
+                    ++wbOnlyBlocks;
+                }
+            // And the stars did take the gains: red against green at their cores, with and without.
+            double ra = 0.0, rp = 0.0;
+            int nCore = 0;
+            for (const auto& s : st) {
+                const int x = (int)std::lround(s.first), y = (int)std::lround(s.second);
+                const float* qa = a.px(x, y);
+                const float* qp = plain.px(x, y);
+                if (qp[1] < 0.2f || qp[1] > 0.9f || qa[1] <= 0.0f) continue;  // faint, or clipped
+                ra += qa[0] / qa[1];
+                rp += qp[0] / qp[1];
+                ++nCore;
+            }
+            wbStarsMoved = nCore > 0 && rp > 0.0 ? ra / rp : 0.0;
+        }
+        add_log(log, "wb gains: (i) only the stars: starless blocks against no gains %.2g (%d blocks, the "
+                "worst at %d, %d), the stars' red over green x %.2f",
+                wbOnly, wbOnlyBlocks, wbOnlyX, wbOnlyY, wbStarsMoved);
         add_log(log, "wb gains: (a) gains 1 diff %.2g; (b) stars against premultiplied %.2g, background "
                 "against no gains %.2g (gain weights %.2g); "
                 "(c) starless area colour %.3f%%; (d) clipped core %.3f%%; (e) over a dark landscape %.2g "
@@ -1289,7 +1392,8 @@ std::string run_impl(const std::string& tmpDir, std::vector<std::string>& paths)
     }
     const bool c10 = wbDiffA == 0.0 && wbDiffB < 0.04 && wbBg < 0.008 && wbRect < 0.01 && wbCore < 0.01 &&
                      wbDark < 1e-5 && darkStarPx > 0 && wbFew == 0.0 && mwPts >= 20 &&
-                     wbCoreMW < 1e-5 && wbGrad < 1e-5;
+                     wbCoreMW < 1e-5 && wbGrad < 1e-5 &&
+                     wbOnly < 0.004 && wbOnlyBlocks > 1000 && wbStarsMoved > 1.25;
     add_log(log, "check10 wb gains (%s)", c10 ? "PASS" : "FAIL");
 
     const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(

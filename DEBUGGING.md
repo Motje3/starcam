@@ -203,6 +203,31 @@ recents crash in the emulator's graphics (system_server restarts): drive it with
 app, take screenshots with `adb emu screenrecord screenshot <dir>` and dump the UI to
 `/data/local/tmp`.
 
+## The engine on the PC: tools\native
+
+The engine has no Android code outside `jni_bridge.cpp`, so it also builds for Linux in a small
+Docker image and runs on the PC, with the repo mounted: no emulator, no adb, and several times
+faster. `tools\native\run.ps1` (its head lists every option):
+
+- `-SelfTest`: the engine's own end-to-end check, 15 s.
+- `-Session <folder> [-Set key=value,key=value] [-Keep] [-Out <folder>]`: what stacklab does
+  below, here (40 s for 8 frames of 12 MP). A session whose options name no `version` (the test
+  sessions `make-test-session.ps1` writes) gets the classic look: `-Set version=2` gives it
+  today's. `-Set wbR=1.35,wbB=0.78` develops it with a white balance from the stars, as the app
+  would have answered.
+- `-PostTiff <master_linear16.tiff> -PostArgs 'v2 down=0 --full'`: the look alone on a kept
+  master, in a second or two (postlab below, here). `wbr=`, `wbb=` and `skypts=/in/<file>` (one
+  "x y bg" per line, the "pt" stars of `out\stars.json`, beside the master) for the stars' balance.
+
+Do not pipe its output into `Select-Object -First`: that ends the script before it has written
+`final.png`.
+
+**Judging a change to the look.** Develop the same master with and without it and compare the
+two pictures over the whole frame: in blocks away from what the change is meant to touch, by
+brightness, with a map of where they differ. One region that comes out the same proves nothing:
+the stars' white balance was passed on one lit wall while a third of the frame had moved
+(CORE_REVIEW.md).
+
 ## Judging the processing: tools\postlab
 
 `tools\postlab\run.ps1` builds the engine's post-processing (post.cpp, post2.cpp) as a
@@ -274,6 +299,8 @@ then the message. Tags:
 | `life` | activity lifecycle, screen on/off, power/doze, memory pressure |
 | `diag`, `exit`, `crash` | startup info, why the previous run ended, crashes |
 | `vm`, `service`, `thermal`, `ui`, `bundle` | camera open/lost, foreground service, heat, navigation, debug bundle |
+| `stars` | the stack's stars, between the stack and the look: how many to solve, where the photo points, the white balance their colours gave and how well it is known, the sky's brightness, whether it was applied, how long it took |
+| `whatsin`, `studio` | "What's in this photo" (which stars it was solved from), the editing studio (the star colours it develops with) |
 
 Each frame also gets a condition snapshot: battery, temperature, thermal status, free RAM, heap,
 native memory, free storage, screen on/off, and whether the app was in the foreground.

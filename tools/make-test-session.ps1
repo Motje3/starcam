@@ -15,7 +15,11 @@
 #
 # -Sky orion (or -Sky "ra,dec" in degrees) draws the real sky instead of a random field: the star
 # catalogue's stars around that place at a 1500 px focal length (63 x 50 deg), with fainter stars
-# it does not have, and records the focal length - for "What's in this photo".
+# it does not have, and records the focal length - for "What's in this photo". The catalogue's
+# stars have their colours (from B-V, as a sensor sees them), and the frames' white balance is the
+# sky's, not the stars': a star like the Sun is white at red x 2.11 and blue x 1.75, the frames say
+# 2.45 and 1.59. Solved, the stars must give the photo wbR 2.11 / 2.45 = 0.861 and wbB 1.75 / 1.59
+# = 1.101 (emulator-test.ps1 checks that).
 #
 # -Mode METEOR records the session as a meteor watch and puts one meteor in frame 6 (a short bright
 # streak, in that frame only) in place of the satellite - for the meteor highlights.
@@ -45,8 +49,9 @@ public static class StarCamTestSession {
     const uint WHITE = 1023;
     const float BLACK = 64f;
 
-    // The real sky's stars (-Sky): RAW px and brightness; null for a random field.
-    public static double[] SkyX, SkyY, SkyA;
+    // The real sky's stars (-Sky): RAW px and brightness; null for a random field. SkyR, SkyB:
+    // each star's red and blue against its green on the sensor, before any white balance.
+    public static double[] SkyX, SkyY, SkyA, SkyR, SkyB;
     // A meteor watch (-Mode METEOR): a meteor in frame 6 instead of the satellite in frame 5.
     public static bool Meteor;
 
@@ -79,27 +84,40 @@ public static class StarCamTestSession {
             sy[i] = 40 + rs.NextDouble() * (H - 80);
             sa[i] = 25 + 900 * Math.Pow(rs.NextDouble(), 3.0);   // a few bright, many faint
         }
-        if (SkyX != null) {
-            // The catalogue's stars, and fainter ones it does not have scattered among them.
-            int faint = 300, n = SkyX.Length + faint;
-            double[] x2 = new double[n], y2 = new double[n], a2 = new double[n];
-            for (int i = 0; i < SkyX.Length; i++) { x2[i] = SkyX[i]; y2[i] = SkyY[i]; a2[i] = SkyA[i]; }
-            for (int i = SkyX.Length; i < n; i++) {
-                x2[i] = sx[i % nStars]; y2[i] = sy[i % nStars]; a2[i] = 8 + 14 * rs.NextDouble();
-            }
-            nStars = n; sx = x2; sy = y2; sa = a2;
-        }
-        int nHot = 300;
-        int[] hx = new int[nHot], hy = new int[nHot];
-        for (int i = 0; i < nHot; i++) { hx[i] = rs.Next(W); hy[i] = rs.Next(H); }
         // White balance in raster order (B, G, G, R); the raw sky is tinted so that it comes out
         // roughly neutral after these gains.
         float[] wb = { 1.59f, 1.0f, 1.0f, 2.45f };
         double[] skyTint = { 1.0 / 1.59, 1.0, 1.0, 1.0 / 2.45 };
+        // Each star's red and blue against its green: tinted like the sky, so the stars come out
+        // white after white balance (untinted they were raw-white, i.e. magenta once balanced)...
+        double[] sr = new double[nStars], sb = new double[nStars];
+        for (int i = 0; i < nStars; i++) { sr[i] = skyTint[3]; sb[i] = skyTint[0]; }
+        if (SkyX != null) {
+            // The catalogue's stars, and fainter ones it does not have scattered among them.
+            int faint = 300, n = SkyX.Length + faint;
+            double[] x2 = new double[n], y2 = new double[n], a2 = new double[n];
+            double[] r2 = new double[n], b2 = new double[n];
+            // ...but the catalogue's in their own colours, which the frames' balance does not suit.
+            for (int i = 0; i < SkyX.Length; i++) {
+                x2[i] = SkyX[i]; y2[i] = SkyY[i]; a2[i] = SkyA[i]; r2[i] = SkyR[i]; b2[i] = SkyB[i];
+            }
+            for (int i = SkyX.Length; i < n; i++) {
+                x2[i] = sx[i % nStars]; y2[i] = sy[i % nStars]; a2[i] = 8 + 14 * rs.NextDouble();
+                r2[i] = skyTint[3]; b2[i] = skyTint[0];
+            }
+            nStars = n; sx = x2; sy = y2; sa = a2; sr = r2; sb = b2;
+        }
+        int nHot = 300;
+        int[] hx = new int[nHot], hy = new int[nHot];
+        for (int i = 0; i < nHot; i++) { hx[i] = rs.Next(W); hy[i] = rs.Next(H); }
         double sigma = 1.35;                          // PSF sigma, RAW px
 
+        // One generator for the noise of all frames. A new Random(1000 + f) per frame gave frames
+        // whose noise was not independent (this Random's numbers run in step for seeds next to
+        // each other): thousands of sites stood above their neighbours in every frame, and the
+        // engine rightly took them for hot pixels - 2583 where 300 were drawn.
+        var r = new Random(1000);
         for (int f = 0; f < frames; f++) {
-            var r = new Random(1000 + f);
             var img = new double[W * H];
             for (int y = 0; y < H; y++)
                 for (int x = 0; x < W; x++) {
@@ -116,10 +134,10 @@ public static class StarCamTestSession {
                 for (int y = Math.Max(0, y0); y <= Math.Min(H - 1, y1); y++)
                     for (int x = Math.Max(0, x0); x <= Math.Min(W - 1, x1); x++) {
                         double d2 = (x - px) * (x - px) + (y - py) * (y - py);
-                        // Tinted like the sky, so the stars come out white after white balance
-                        // (untinted they were raw-white, i.e. magenta once balanced).
+                        // BGGR: blue at 0, red at 3 of the 2 x 2 raster.
+                        int pos = ((y & 1) << 1) | (x & 1);
                         img[y * W + x] += sa[i] * Math.Exp(-d2 / (2 * sigma * sigma)) *
-                            skyTint[((y & 1) << 1) | (x & 1)];
+                            (pos == 0 ? sb[i] : pos == 3 ? sr[i] : 1.0);
                     }
             }
             if (f == 5 && !Meteor)
@@ -219,6 +237,11 @@ if ($Sky) {
     $xs = New-Object 'System.Collections.Generic.List[double]'
     $ys = New-Object 'System.Collections.Generic.List[double]'
     $amps = New-Object 'System.Collections.Generic.List[double]'
+    $reds = New-Object 'System.Collections.Generic.List[double]'
+    $blues = New-Object 'System.Collections.Generic.List[double]'
+    # The sensor's own star balance (a star like the Sun, B-V 0.65, is white at these gains) and
+    # how ln(r/g) and ln(b/g) run with B-V: as the phone of 31 Oct 2026 measured them.
+    $sunR = 2.11; $sunB = 1.75; $slopeR = 0.30; $slopeB = -0.42
     foreach ($line in [IO.File]::ReadAllLines((Join-Path $project 'app\src\main\assets\sky\stars.txt'))) {
         if ($line.StartsWith('#') -or -not $line.Trim()) { continue }
         $p = $line.Trim() -split ' '
@@ -234,10 +257,17 @@ if ($Sky) {
         if ($x -lt 10 -or $y -lt 10 -or $x -gt 1846 -or $y -gt 1382) { continue }
         $xs.Add($x); $ys.Add($y)
         $amps.Add([Math]::Min(950, [Math]::Max(10, 900 * [Math]::Pow(10, -0.4 * ([double]$p[3] - 0.5)))))
+        # A star without a known colour is taken for one like the Sun.
+        $bv = 0.65
+        if ($p.Count -ge 5) { $v = 0.0; if ([double]::TryParse($p[4], [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$v)) { $bv = $v } }
+        $reds.Add([Math]::Exp($slopeR * ($bv - 0.65)) / $sunR)
+        $blues.Add([Math]::Exp($slopeB * ($bv - 0.65)) / $sunB)
     }
     [StarCamTestSession]::SkyX = $xs.ToArray()
     [StarCamTestSession]::SkyY = $ys.ToArray()
     [StarCamTestSession]::SkyA = $amps.ToArray()
+    [StarCamTestSession]::SkyR = $reds.ToArray()
+    [StarCamTestSession]::SkyB = $blues.ToArray()
     Write-Host "sky: $($xs.Count) catalogue stars around $spec"
 }
 

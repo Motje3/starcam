@@ -66,7 +66,7 @@ changes stacking options, `-Keep` keeps the linear master and the finished pictu
 | 1 | **A pilot frame.** The first light frame is measured at the real settings; when the sky is more than about 2/3 stop off the target band the ISO (or exposure) is corrected before the burst goes on. The pilot is kept as frame 1 when nothing changes. The probe's offset is learnt per camera, so the first guess gets better. | `AutoExposure`, `CaptureEngine`, `SkySim` | unit tests with the numbers of 31 Oct; the simulated sky made to depend on exposure and ISO; emulator check |
 | 2 | **Hot pixels from the lights.** A pixel far above its same-colour neighbours in every frame, with neighbours that do not share its light, is hot: no darks needed. Joined with the dark's list when there is one. | `engine.cpp`, `bayer.cpp` | self-test without a dark map; the real sessions' reports |
 | 3 | **Sky-verified stars.** The engine writes the stars that followed the sky through the session, measured on the linear stack (`out/stars.json`); the plate solver uses those instead of the JPEG's blobs. | `engine.cpp`, `WhatsInPhoto` | the real sessions solve, as a unit test |
-| 4 | **Colour calibrated on the stars.** Matched catalogue stars give the white balance (a solar-type star is white); the finished picture is developed with it, and the camera's calibrated balance is remembered for nights that do not solve. | `post2.cpp` (gains), Kotlin (fit) | unit tests; star colour against B-V on the real sessions |
+| 4 | **Colour calibrated on the stars.** Matched catalogue stars give the white balance (a solar-type star is white); the stars of the finished picture are developed with it, and the camera's calibrated balance is remembered for nights that do not solve. | `post2.cpp` (gains), Kotlin (fit) | unit tests; star colour against B-V on the real sessions; the real photos with and without, block by block; a test session drawn to a known answer, on the emulator |
 | 5 | Research first: stars sharpened with the lens's own blur, measured from the stars; sky and ground as two layers, each with its own motion. Built only if the prototypes hold up on the real frames. | prototypes | pictures and numbers from the real session |
 
 The dark-frame step stays as it is: the owner's design. Change 2 makes a session that skipped it
@@ -129,30 +129,58 @@ as clean as one that did not.
 - **Hot pixels from the lights** (`9f024cc`). 2646 sites on the 8-frame session, 2915 on the
   4-frame one, where no session had any repaired before. 85 % of one session's list shows up in
   the other, taken 10 minutes earlier (16 % for random sites): a pattern of the sensor, not
-  noise. The stack is as sharp as before (peak share 0.94 to 0.98). The first design let star
-  cores through when the stars stand still and took lit window edges for hot pixels when the
-  phone moved; three more tests fixed both (`hotpix.cpp` says which, with the numbers).
+  noise. The stack is as sharp as before (peak share 0.93 on the 8-frame session, where it was
+  0.94, and 0.96 on the 4-frame one; an earlier text here said 0.98, which was measured against
+  another reference frame). The first design let star cores through when the stars stand still
+  and took lit window edges for hot pixels when the phone moved; three more tests fixed both
+  (`hotpix.cpp` says which, with the numbers).
 - **Stars that followed the sky** (`out/stars.json`). 158 real stars of 364 detections, 139 of
   413: positions, light per channel, surroundings, width. Detection keeps 500 blobs instead of
   300, so a town's lit windows leave room for stars; a frame's width and the choice of the
   reference frame stay on the brightest 300, or the reference moved (frame 3 to 7) and with it
   what the look made of the buildings. "Star size" is now measured on real stars: 2.2 px (luma),
   not the 5.8 px of lit windows.
-- **The stars' white balance in the look.** Three tries on the real photo:
+- **The stars' white balance in the look.** Four tries on the real photo:
   1. gains on every pixel that is not bright: under a dark sky the landscape is darker than the
      sky, so a brightness of the frame cannot say what is sky;
   2. gains where the picture is not "bright and starless", judged against the sky's level at
      its own stars: right about the sky, but the look measures the sky's glow and background on
      the balanced picture and takes them off the lit landscape too, which turned a lamp-lit
      pillar cooler, and its landscape detection changed its mind about the houses;
-  3. **as built:** everything the look measures and removes stays exactly as it is without
-     gains; the gains act at the stretch on what stands above the sky's neutral background - a
-     star, the Milky Way - weighted by the same "not bright and starless" mask. On the real
-     photo the lit pillar comes out 169/157/119 with and without gains, the blinds the same,
-     and the stars go from all cyan to their colours (orange giants, white, blue).
+  3. everything the look measures and removes left as it is without gains, the gains acting at
+     the stretch on what stands above the sky's one neutral level, weighted by the same "not
+     bright and starless" mask. The lit pillar came out 169/157/119 with and without gains, and
+     that was taken for proof. Measured over the whole frame, in blocks of 16 px away from
+     every star, it was not: 48 % of those blocks moved by more than a level of 255, the
+     mid-tones by 7 (red up, blue down), dimly lit brick from 90 to 101 in red, the row of
+     houses by 5, the sky's glow went greener (17/50/66 to 14/50/61) and its darkest part
+     bluer. A sky is not one colour all over, so "above its neutral level" is the glow, the
+     gradient's leftovers and every wall too dim for the mask;
+  4. **as built: only the stars.** The gains act on a star's own light: on what stands out of
+     the sky right beside it (the median of a ring of 16 pixels round it), is small (nothing a
+     square of 26 px fits into), is not long and thin (a roof's lit edge), stands in the sky on
+     every side (the corner of a lit window does not) and has stars that followed the sky
+     around it (a row of lit houses has none). The same photo: 0.25 % of the starless blocks
+     move by more than a level, the houses and the window frames by 0.00, the pillar by 0.1,
+     the brick by 0.9 (specks of mortar on the wall's edge against the sky); 0.55 % of all
+     pixels change by more than 2 levels, and those are the stars. Their red over green goes from 0.30 to
+     0.63 and blue over green from 1.43 to 1.20 (the 4-frame session: 0.51 to 0.89, 1.28 to
+     1.06): from all cyan to white, with the orange and the blue ones their own.
+  What is broad in the sky is left too: the Milky Way's band keeps the camera's colour. Try 3
+  would give it the stars' balance and is right for it in principle, but there is no dark-sky
+  frame here to judge it on, and under a town it is the glow that takes the colour.
+  The self-test holds it to this (`wb_gains`, case i: a glow with a colour of its own, a roof's
+  edge, a dim window and a row of lamps come out as without gains, to a millionth of the range,
+  while the stars' red over green rises 1.47 times).
   The mask's sky points are the stars that followed the sky, were really carried along by it
   and have a star's width (`sky_point`): where the sky hardly moves, a lamp follows it too, and
   such a session gets no balance at all.
+- **A halo the stars always had.** With their colours right, the brightest orange star had a
+  dull red ring 10-14 px out (7-11 levels of red on a sky at 1). Nothing in the linear picture
+  is there: the chroma denoise gave each pixel the average colour of its surroundings, stars
+  included, so every star lent its colour to a ring round it - blue on blue until now. The
+  average is now taken without the stars; the ring is gone, and so is the blue one in a photo
+  developed without the stars' balance (blue 22-26 down to 21, the sky's own, at that star).
 - **Found on the way, not fixed: the look's landscape detection is fragile on lit scenes.** The
   same session rendered with another reference frame was given a "landscape" of 3 % of the
   frame along the bottom, drawn as dark blocks with hard edges over the lower houses. It is
@@ -180,4 +208,68 @@ that pixel is sky, ground from the ground-aligned stack.
   scenes and the port-ready description are kept in `field-logs\research\two-layer-matte-src`
   (local only).
 
-(app results are added below as each change lands)
+### The app: the stars put to work (11 Nov 2026)
+
+Between the stack and the look the engine hands the app its star list and waits for an answer
+(`StackCallback.onStars`, found by name through JNI; `proguard-rules.pro` keeps it in the release
+build). There the photo is solved from the stars that followed the sky, the catalogue's stars are
+found on them, their colours give the white balance and their light the sky's brightness; all of
+it is kept in `meta/sky.json`.
+
+- **Both real sessions, from the star lists their stacks wrote** (`RealSkyTest`, on the PC):
+  solved blind in 0.2 s (57 and 55 stars matched, 1.1 and 1.4 px rms of the full picture).
+  White: R x 1.353, B x 0.778 from 56 stars, and R x 1.361, B x 0.777 from 52; as the sensor's own
+  balance R 2.138 / B 1.786 and R 2.137 / B 1.756, two sessions and two pointings 0.05 % and 1.7 %
+  apart. (Blue is 5 % above the prototype's 0.74, probably the other aperture.) The sky: 17.45
+  and 17.39 mag per square arcsecond.
+- **Which stars, and when a fit is used.** The first version took every star of snr 10 and more
+  and refused a fit whose stars scatter more than 15 %. Both were wrong:
+  - What matters is how well the white point is known, not how much single stars scatter: ninety
+    faint stars that scatter 15 % each fix it to 2 %, a dozen do not. A fit is now used when the
+    standard error of the white point is under 3 % (the real sessions: 0.5-0.9 %), with a held
+    slope's own doubt added when the stars' colours all lie to one side of the Sun's.
+  - The engine's "snr" is the star's green light over the noise of single pixels. A demosaiced,
+    aligned stack shares its noise between neighbours, so the light in an aperture is two to
+    three times less sure than that says (red and blue more): simulated stars of snr 20-27
+    scatter 0.16 in ln(r/g), three times what that number would give. And the logarithm of a
+    noisy ratio leans one way: with the stars of snr 20-30 in, the simulated sky's red came out
+    3.6 % off; from the stars of snr 30 and more, 0.1 % (blue 1.1 %). So the best-measured stars
+    are asked first (snr 30+, then 20+), fainter ones never. Every star the catalogue has in the
+    real photos is at 24 or more.
+- **The camera's own balance is remembered** per lens (the session's camera gains times what its
+  stars said, smoothed over sessions) and used on a night that does not solve or whose stars are
+  too poor. A re-stack and a simulated sky teach it nothing. No balance is applied, or claimed
+  on the session's page, when fewer than 10 stars mark the sky for the look.
+- **"What's in this photo" has its answer when the stack ends** (`whats_in.json`, "source":
+  "stack"); asked later, a stacked photo is solved from `out/stars.json`, any other photo from its
+  JPEG as before.
+- **The studio develops with the same balance** (the gains of `sky.json`, the sky's points of
+  `stars.json`), so the preview, the looks and a saved edit match the photo. A re-stack takes the
+  Star colours setting of the day, as it takes the look.
+- **The solver stops at a deadline.** A field with no sky in it costs every pair of stars in
+  full (2.4 s on the emulator's release build by the build's own log, more on a phone). The photo
+  waits 4 s at most; the first version ran the solver on a second thread and left it running
+  beside the look after that. The search now ends by itself and checks what it had found.
+- **Not shown: how faint the stack reached.** Two ways to say it were both wrong. The faintest
+  stars of the list are magnitude 6.0: that is where a list of the 500 brightest blobs ends, not
+  the photo. From the engine's noise a 5 sigma star would be magnitude 7.8 (8 frames) and 7.2
+  (4 frames), about a magnitude too deep for the reason above. It wants the engine to measure the
+  scatter of empty apertures; until then the session's Details show the star colours and the
+  sky's brightness only.
+- **Checked end to end against a known answer.** The test session's catalogue stars are now drawn
+  in their own colours (a star like the Sun white at red x 2.11 and blue x 1.75, redder and bluer
+  by B-V) in frames balanced for the sky (2.45, 1.59): the stars must give 0.861 and 1.101.
+  On the PC: 0.847 and 1.086 from 48 stars, slopes +0.30 and -0.40 (drawn: +0.30, -0.42), and
+  developed with them the stars' red over green changes 0.80 times and blue over green 1.08
+  times while no starless block moves (the worst by 0.12 of a level).
+  On the emulator, debug and release builds alike: the session re-stacked from its page, solved
+  from its own stars while it was stacked (94 matched), white 0.845 and 1.104 from 41 stars of
+  snr 30 and more (known to 1.3 % and 0.9 %, slopes +0.29 and -0.43), the engine's report
+  showing the photo developed with those gains by 101 sky points, and the studio opening with
+  them. On the release build that is also the proof that R8 kept the hook.
+- **Found on the way: the test sessions' noise was not independent from frame to frame.** Each
+  frame had its own `new Random(1000 + f)`, and this Random's numbers run in step for seeds next
+  to each other: thousands of sites stood above their neighbours in every frame. The engine
+  took them for hot pixels, rightly: 2583 (its cap) where 300 were drawn. With one generator for
+  all frames it finds 298 of the 300, and its threshold is the 6.0 DN the noise predicts.
+- **Not yet on the phone.** The phone runs the Play build; all of this reaches it with 0.7.0.

@@ -107,7 +107,9 @@ object PlateSolver {
      * length in pixels as far as it is known, [scaleTolerance] how far it may be off. [hint]: the
      * centre's rough place (ra, dec deg) from the phone's sensors, or null to search the whole
      * sky. A mirrored photo is only looked for when a normal one is not found. Returns null when
-     * nothing convincing is found.
+     * nothing convincing is found. [deadlineMs] (a System.currentTimeMillis time): the search for
+     * rotations stops there and only what it had found by then is checked - for a caller that
+     * cannot wait out a field with no sky in it, which costs every pair in full.
      */
     fun solve(
         stars: List<ImageStar>,
@@ -119,10 +121,12 @@ object PlateSolver {
         hint: Pair<Double, Double>? = null,
         hintRadiusDeg: Double = 30.0,
         tryMirrored: Boolean = true,
+        deadlineMs: Long = Long.MAX_VALUE,
     ): PlateSolution? {
         if (stars.size < 6) return null
-        val search = Search(stars, width, height, catalog, focalPx, scaleTolerance, hint, hintRadiusDeg)
-        return search.run(false) ?: if (tryMirrored) search.run(true) else null
+        val search = Search(stars, width, height, catalog, focalPx, scaleTolerance, hint, hintRadiusDeg, deadlineMs)
+        return search.run(false)
+            ?: if (tryMirrored && System.currentTimeMillis() <= deadlineMs) search.run(true) else null
     }
 
     /** How many of the photo's brightest stars the rotations are built from... */
@@ -139,6 +143,7 @@ object PlateSolver {
     private class Search(
         val stars: List<ImageStar>, val width: Int, val height: Int, val catalog: StarCatalog,
         val focalPx: Double, val scaleTolerance: Double, hint: Pair<Double, Double>?, hintRadiusDeg: Double,
+        val deadlineMs: Long = Long.MAX_VALUE,
     ) {
         val cx = width / 2.0
         val cy = height / 2.0
@@ -156,7 +161,9 @@ object PlateSolver {
             val kept = ArrayList<Hypothesis>()
             // Pairs closer than this fix the turn too loosely to be worth trying.
             val minPairPx = 0.24 * halfDiagPx
-            for (i in bright.indices) for (j in i + 1 until bright.size) {
+            pairs@ for (i in bright.indices) for (j in i + 1 until bright.size) {
+                // Out of time: what was kept so far is still checked below (that is quick).
+                if (System.currentTimeMillis() > deadlineMs) break@pairs
                 val a = bright[i]
                 val b = bright[j]
                 if (hypot((a.x - b.x).toDouble(), (a.y - b.y).toDouble()) < minPairPx) continue

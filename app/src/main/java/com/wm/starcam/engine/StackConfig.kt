@@ -38,6 +38,13 @@ data class StackConfig(
      * it was held before, and the processing does not take the ground's edge from it.
      */
     val rotationGuessed: Boolean = false,
+    /**
+     * White set by the solved stars (Settings › Look › Star colours). Not an engine option: the
+     * app's answer to the engine's stars hook (StackCallback) is empty when it is off. Kept with
+     * the session as what its photo was made with; a re-stack takes the setting of the day, as it
+     * takes the look (StarCamViewModel.startRestack).
+     */
+    val starColour: Boolean = true,
 ) {
     fun toJson(): String = JSONObject().apply {
         put("sigmaFirst", sigmaFirst)
@@ -55,6 +62,7 @@ data class StackConfig(
         put("version", version)
         if (rotation >= 0) put("rotation", rotation)
         if (rotationGuessed) put("rotationGuessed", true)
+        put("starColour", starColour)
     }.toString()
 
     companion object {
@@ -78,6 +86,7 @@ data class StackConfig(
                 version = o.optInt("version", 1),
                 rotation = o.optInt("rotation", -1),
                 rotationGuessed = o.optBoolean("rotationGuessed", false),
+                starColour = o.optBoolean("starColour", d.starColour),
             )
         }
     }

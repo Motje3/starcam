@@ -558,6 +558,14 @@ private val Defs: List<Def> = listOf(
         select = { s, _, i -> s.copy(look = if (i == 1) 1 else 2) },
         more = true,
     ),
+    Toggle(
+        SettingsTab.Look, "Star colours",
+        "White is set by the stars in your photo: their true colours are known. Only the stars " +
+            "change; the sky and the landscape keep the camera's colours.",
+        get = { it.starColour },
+        set = { s, v -> s.copy(starColour = v) },
+        more = true,
+    ),
     Slide(
         SettingsTab.Look, "Colour saturation",
         "Star colour is real information, not decoration — hot stars are genuinely blue and cool " +
