@@ -48,8 +48,11 @@ changes stacking options, `-Keep` keeps the linear master and the finished pictu
    B-V colour of each star to magnitude 5: once the photo is solved, the stars themselves say what
    white is.
 5. **Star shapes are the lens's, not the stacking's.** The stack keeps 0.94 of a single frame's
-   sharpness. But a single frame's stars are 6-7 RAW px wide and, on one side of the frame, twice
-   as long as wide (9-16 px, the same direction in every frame: coma, not trailing).
+   sharpness. A real star is about 4.4 x 3.1 RAW px (6-7 px by plain moments), 1.25 to 1.65 times
+   as long as wide, the direction turning across the field: the lens, not trailing. (My first
+   reading of "9-16 px, twice as long as wide on one side" was house lights: 86 of 108 detections
+   in that third fail the motion test. The app's own "Star size" has the same flaw: it measures
+   the 30 brightest blobs, which in a town are lit windows.)
 6. **The landscape.** With the phone leaning in a window the camera itself moved between frames
    (the view jumped 12 px, then crept), so neither "the ground stands still" nor one mask from
    brightness holds. The look found no landscape in a photo that is half buildings.
@@ -98,5 +101,22 @@ as clean as one that did not.
 - **Lens distortion does not limit this alignment.** A homography between undistorted star
   positions fits no better than a plain one (0.45 px either way, 27 px of motion). Over a session
   of tens of minutes the sky moves several times further; untested, no data.
+
+- **Sharpening the stars with the lens's own blur: not built.** A blur measured from 87 real
+  stars (it changes over about 200 px of the frame) and Richardson-Lucy on the stars alone makes
+  the brighter fifth of them tighter (4.2 x 3.1 px to 2.9 x 2.0) but no rounder (1.36 to 1.51),
+  shows only at full zoom, and at screen size the brightest stars come out a quarter dimmer
+  because the look clips their cores. On the whole frame it turns noise into 549 false stars.
+  A kernel that does round them leaves ripples. The scripts and pictures are kept
+  (`rd_psf` in the session's scratch folder); an opt-in "sharpen stars" could come from it,
+  nothing automatic should.
+
+### The engine and the app's own solver (11 Nov 2026)
+
+- **The app's plate solver, given the engine's star lists, solves both real photos blind.** With
+  every detected blob (lit windows included), as it was fed until now: not recognised, either
+  session. With the sky-verified stars only: 57 catalogue stars matched (RA 285.70, Dec +68.69,
+  rms 1.1 px of the full picture, distortion k 0.0197) and 53 (RA 269.10, Dec +67.48), in 0.3 s
+  each, no hint needed.
 
 (engine and app results are added below as each change lands)
