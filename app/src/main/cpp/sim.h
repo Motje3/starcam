@@ -12,7 +12,9 @@ struct SimParams {
     int drift = 0;           // the sky turns and slides a little with every step
     uint32_t seed = 1;       // noise, one per capture
     int stars = 700;
-    float sky = 0.04f;       // background, share of the range above black
+    float sky = 0.04f;       // background, share of the range above black (the frame's exposure in it)
+    float starGain = 1.0f;   // star brightness against the field's own, for the frame's exposure x ISO
+    float pedestal = 0.0f;   // DN added to every pixel with no light in it (a readout offset)
     float cloud = 0.0f;      // 0 clear .. 1 overcast: starlight lost, sky lifted by the clouds
     float blurPx = 0.0f;     // extra PSF sigma in RAW px (focus error)
     bool dark = false;       // lens covered: no light, only dark current and hot pixels

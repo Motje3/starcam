@@ -4,8 +4,6 @@ import android.hardware.camera2.CaptureResult
 import com.wm.starcam.engine.AnalyzeStats
 import com.wm.starcam.engine.NativeEngine
 import com.wm.starcam.util.AppLog
-import org.json.JSONArray
-import org.json.JSONObject
 
 /**
  * Star autofocus (PLAN.md §5.2): sweep LENS_FOCUS_DISTANCE, measure real star FWHM per position
@@ -37,13 +35,13 @@ object FocusSweep {
      * Coarse 7 points over [0, 0.30] diopters, then 3-point fine pass around the vertex.
      * [isCancelled] is polled between exposures so tapping Cancel doesn't wait out the whole
      * ~30 s sweep. [simulate] (debug: [SkySim]) supplies the pixels measured at a focus position
-     * instead of the camera's.
+     * (and the frame's exposure and ISO) instead of the camera's.
      */
     suspend fun run(
         controller: CameraController,
         wb: WbLock?,
         isCancelled: () -> Boolean = { false },
-        simulate: ((Float) -> RawPixels)? = null,
+        simulate: ((diopters: Float, exposureNs: Long, iso: Int) -> RawPixels)? = null,
         onProgress: (step: Int, total: Int, label: String) -> Unit,
     ): Result {
         val cam = controller.cam
@@ -103,7 +101,7 @@ object FocusSweep {
         wb: WbLock?,
         around: Float,
         isCancelled: () -> Boolean = { false },
-        simulate: ((Float) -> RawPixels)? = null,
+        simulate: ((diopters: Float, exposureNs: Long, iso: Int) -> RawPixels)? = null,
         onProgress: (step: Int, total: Int, label: String) -> Unit,
     ): Result {
         val measured = ArrayList<Pair<Float, AnalyzeStats>>()
@@ -171,7 +169,7 @@ object FocusSweep {
 
     private suspend fun measureAt(
         controller: CameraController, diopters: Float, wb: WbLock?,
-        simulate: ((Float) -> RawPixels)? = null,
+        simulate: ((diopters: Float, exposureNs: Long, iso: Int) -> RawPixels)? = null,
     ): AnalyzeStats? {
         val cam = controller.cam
         return runCatching {
@@ -187,9 +185,11 @@ object FocusSweep {
                     label = "focus %.3f settle".format(diopters),
                 ).close()
             }.onFailure { AppLog.w("focus", "settle frame at $diopters failed: ${it.message}") }
+            val exposureNs = EXPOSURE_NS.coerceIn(cam.exposureRangeNs.lower, cam.exposureRangeNs.upper)
+            val iso = ISO.coerceIn(cam.isoRange.lower, cam.isoRange.upper)
             var shot = controller.captureRaw(
-                exposureNs = EXPOSURE_NS.coerceIn(cam.exposureRangeNs.lower, cam.exposureRangeNs.upper),
-                iso = ISO.coerceIn(cam.isoRange.lower, cam.isoRange.upper),
+                exposureNs = exposureNs,
+                iso = iso,
                 focusDistance = diopters,
                 wb = wb,
                 label = "focus %.3f".format(diopters),
@@ -198,22 +198,17 @@ object FocusSweep {
                 AppLog.i("focus", "%.3f dpt: the lens was still moving — measuring again".format(diopters))
                 shot.close()
                 shot = controller.captureRaw(
-                    exposureNs = EXPOSURE_NS.coerceIn(cam.exposureRangeNs.lower, cam.exposureRangeNs.upper),
-                    iso = ISO.coerceIn(cam.isoRange.lower, cam.isoRange.upper),
+                    exposureNs = exposureNs,
+                    iso = iso,
                     focusDistance = diopters,
                     wb = wb,
                     label = "focus %.3f again".format(diopters),
                 )
             }
             try {
-                val px = simulate?.invoke(diopters) ?: shot.pixels()
-                val gains = CamMeta.rasterWbGains(wb?.gains, cam.cfa)
-                val meta = JSONObject().apply {
-                    put("cfa", cam.cfa)
-                    put("whiteLevel", cam.whiteLevel)
-                    put("blackLevel", JSONArray(cam.blackLevelRaster.map { it.toDouble() }))
-                    put("wbGains", JSONArray(gains.map { it.toDouble() }))
-                }.toString()
+                val px = simulate?.invoke(diopters, exposureNs, iso) ?: shot.pixels()
+                // Measured against this frame's own black level, as the light frames are.
+                val meta = CamMeta.analyzeMeta(cam, wb, shot.result)
                 val json = NativeEngine.analyzeFrame(px.buffer, px.width, px.height, px.rowStride, meta)
                 AnalyzeStats.fromJson(json).also {
                     AppLog.i("focus", "%.3f dpt: %d stars, fwhm %.2f px, bg %.2f%%".format(

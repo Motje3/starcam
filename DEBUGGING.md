@@ -157,8 +157,12 @@ Every frame of that session (probe, star focus, lights, darks) is replaced by a 
 field before the engine sees it: `frames`/`exp` override the plan, `clouds` lists light attempts
 under cloud (checks included), `drift=N:D` moves the lens's sharpest focus by D dioptres from
 attempt N, `dawn=N` brightens the sky 60% a frame from attempt N, `darks=auto|skip` answers the
-cover-the-lens question (`ask` leaves it to a tap). The emulator suite's `autopilot` check uses
-it; the session log says "SIMULATED SKY" at the top.
+cover-the-lens question (`ask` leaves it to a tap). The sky and stars are as bright as each frame's
+exposure x ISO makes them (as before at the emulator's 0.3 s x ISO 1600); `sky=P` sets the sky to P%
+of white at 1 s x ISO 3200, `ped=D` adds D DN of offset at ISO 3200 (in proportion to the ISO), and
+`probe=MS` shortens the probe frame (the emulator cannot expose longer than 0.3 s, so without it the
+probe and the lights are the same exposure). The emulator suite's `autopilot` and `exposure` checks
+use it; the session log says "SIMULATED SKY" at the top.
 
 **Every screen as pictures**, for a design review: `tools\screen-tour.ps1 -Clean -Out <folder>`
 walks a debug build on the emulator through each screen and state (each mode, a session's steps

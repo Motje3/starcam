@@ -410,7 +410,7 @@ JNIEXPORT jstring JNICALL Java_com_wm_starcam_engine_NativeEngine_analyzeFrame(
 
 // ---------- simulateSky (debug builds: SkySim.kt) ----------
 
-// paramsJson: {cfa, black, white, drift, seed, stars, sky, cloud, blurPx, dark}
+// paramsJson: {cfa, black, white, drift, seed, stars, sky, starGain, pedestal, cloud, blurPx, dark}
 JNIEXPORT jboolean JNICALL Java_com_wm_starcam_engine_NativeEngine_simulateSky(
         JNIEnv* env, jobject /*thiz*/, jobject buffer, jint width, jint height, jint rowStrideBytes,
         jstring paramsJson) {
@@ -433,6 +433,8 @@ JNIEXPORT jboolean JNICALL Java_com_wm_starcam_engine_NativeEngine_simulateSky(
         p.seed = (uint32_t)o.num("seed", 1.0);
         p.stars = o.numi("stars", 700);
         p.sky = (float)o.num("sky", 0.04);
+        p.starGain = (float)o.num("starGain", 1.0);
+        p.pedestal = (float)o.num("pedestal", 0.0);
         p.cloud = (float)o.num("cloud", 0.0);
         p.blurPx = (float)o.num("blurPx", 0.0);
         p.dark = o.boolean("dark", false);

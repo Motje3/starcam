@@ -26,6 +26,7 @@ import com.wm.starcam.session.SessionRepository
 import com.wm.starcam.session.SettingsStore
 import com.wm.starcam.util.AppLog
 import com.wm.starcam.util.Diagnostics
+import com.wm.starcam.util.Fmt
 import com.wm.starcam.util.ImageRotation
 import com.wm.starcam.util.MediaSaver
 import com.wm.starcam.util.MeteorHighlights
@@ -393,6 +394,9 @@ class CaptureEngine(
         val s = settingsStore.settings.value
         val cam = controller.cam
         var paths: SessionPaths? = null
+        // The pilot frame when it is kept as light 1: held until the burst takes it (closed in finally
+        // if the session ends first).
+        var keptPilot: PilotShot? = null
         val sessionStart = SystemClock.elapsedRealtime()
         _sessionStartedAtMs.value = sessionStart
         recoveryCount = 0
@@ -449,7 +453,11 @@ class CaptureEngine(
 
             // ---- Probe frame: exposure decision + white balance lock ----
             setState(CaptureState.Probing)
-            val probeExp = minOf(1_000_000_000L, cam.exposureRangeNs.upper)
+            // A simulated sky may ask for a shorter probe: the emulator's camera cannot expose its
+            // lights any longer than its 1 s probe would be, so an offset in the probe would not show.
+            val probeExp = skySim?.scenario?.probeMs
+                ?.let { (it * 1_000_000L).coerceIn(cam.exposureRangeNs.lower, cam.exposureRangeNs.upper) }
+                ?: minOf(1_000_000_000L, cam.exposureRangeNs.upper)
             val probeIso = 3200.coerceIn(cam.isoRange.lower, cam.isoRange.upper)
             val focusForProbe =
                 if (s.focusMode == FocusMode.MANUAL) s.manualFocusDiopters else 0f
@@ -486,11 +494,14 @@ class CaptureEngine(
                 wbLock = if (gains != null) WbLock(gains, transform) else null
                 ccm = CamMeta.ccmToFloatArray(transform)
                 if (s.lensShading) shading = CamMeta.shadingMap(cam, probeShot.result)
-                val px = skySim?.render(SkySim.Kind.PROBE, focusForProbe) ?: probeShot.pixels()
+                val px = skySim?.render(SkySim.Kind.PROBE, focusForProbe, probeActualExp, probeActualIso)
+                    ?: probeShot.pixels()
                 beginBusy("measuring the sky")
-                probeStats = AnalyzeStats.fromJson(
-                    NativeEngine.analyzeFrame(px.buffer, px.width, px.height, px.rowStride, analyzeMetaJson(cam, wbLock))
-                )
+                // Against the probe's own black level, as the light frames are measured: the static
+                // one is the sensor's average, and the probe's sky is only a few DN above black.
+                probeStats = AnalyzeStats.fromJson(NativeEngine.analyzeFrame(
+                    px.buffer, px.width, px.height, px.rowStride, CamMeta.analyzeMeta(cam, wbLock, probeShot.result),
+                ))
             } finally {
                 probeShot.close()
             }
@@ -501,7 +512,14 @@ class CaptureEngine(
             if (stopRequested()) return finishCancelled()
 
             // ---- Exposure decision ----
-            val decided = if (s.manualExposure || s.mode == Mode.PRO) {
+            // Manual settings stand as they are; only the app's own choice is checked by a pilot.
+            val autoExposure = !(s.manualExposure || s.mode == Mode.PRO)
+            // What this lens's probe reads above the sky, as earlier pilots measured it. Not for a
+            // simulated sky: its offset is the scenario's, not the camera's.
+            val learntOffset = if (autoExposure && skySim == null) settingsStore.probeOffset(cam.cameraId, probeIso) else null
+            if (learntOffset != null) AppLog.i(TAG, "probe offset learnt for camera %s at ISO %d: %.2f%% of white"
+                .format(cam.cameraId, probeIso, learntOffset * 100))
+            val decided = if (!autoExposure) {
                 AutoExposure.Decision(
                     s.exposureNs.coerceIn(cam.exposureRangeNs.lower, cam.exposureRangeNs.upper),
                     s.iso.coerceIn(cam.isoRange.lower, cam.isoRange.upper),
@@ -514,10 +532,11 @@ class CaptureEngine(
                 AutoExposure.decide(
                     probeStats, probeActualExp, probeActualIso, cam,
                     baseFrames = s.effectiveFrames(), trailCapSec = cap,
+                    probeOffset = learntOffset ?: 0.0,
                 )
             }
             // A simulated sky may ask for its own frame count and exposure, to keep tests short.
-            val decision = skySim?.scenario?.let { sc ->
+            val fromProbe = skySim?.scenario?.let { sc ->
                 decided.copy(
                     exposureNs = sc.exposureMs?.let { (it * 1_000_000L).coerceIn(cam.exposureRangeNs.lower, cam.exposureRangeNs.upper) }
                         ?: decided.exposureNs,
@@ -525,35 +544,37 @@ class CaptureEngine(
                     reasoning = "simulated sky · " + decided.reasoning,
                 )
             } ?: decided
-            _decision.value = decision
-            AppLog.i(TAG, "exposure decision: ${decision.reasoning}")
+            _decision.value = fromProbe
+            AppLog.i(TAG, "exposure decision: ${fromProbe.reasoning}")
 
             // The autopilot's "Shoot for": as many frames as fit in the time (it stops on time).
             val autopilotOn = s.mode == Mode.ASTRO && s.autopilot
             val timeBudgetMs = if (autopilotOn) s.autopilotMinutes * 60_000L else 0L
-            // Long modes ignore the frame preset: frames = duration / exposure.
-            val requestedFrames = when (s.mode) {
-                Mode.TRAILS -> ((s.trailsMinutes * 60.0) / (decision.exposureNs / 1e9)).toInt()
+            // Long modes ignore the frame preset: frames = duration / exposure. Worked out again
+            // when the pilot frame changes the exposure.
+            fun framesFor(d: AutoExposure.Decision): Int = when (s.mode) {
+                Mode.TRAILS -> ((s.trailsMinutes * 60.0) / (d.exposureNs / 1e9)).toInt()
                     .coerceIn(10, 900)
-                Mode.METEOR -> ((s.meteorMinutes * 60.0) / (decision.exposureNs / 1e9)).toInt()
+                Mode.METEOR -> ((s.meteorMinutes * 60.0) / (d.exposureNs / 1e9)).toInt()
                     .coerceIn(10, 900)
                 else -> if (timeBudgetMs > 0L) {
-                    val perFrameSec = decision.exposureNs / 1e9 + s.cooldownSec + FRAME_OVERHEAD_SEC
-                    ((timeBudgetMs / 1000.0) / perFrameSec).toInt().coerceIn(decision.frames, 900)
-                } else decision.frames
+                    val perFrameSec = d.exposureNs / 1e9 + s.cooldownSec + FRAME_OVERHEAD_SEC
+                    ((timeBudgetMs / 1000.0) / perFrameSec).toInt().coerceIn(d.frames, 900)
+                } else d.frames
             }
-            // Every light frame writes a full-res raw cache file (and optionally a DNG). A 2-hour
-            // meteor session would otherwise try to write tens of GB and fill the phone.
-            val totalFrames = capFramesToDisk(requestedFrames, rawSize, s.saveDngs)
-            if (totalFrames < MIN_FRAMES_TO_STACK) {
+            fun outOfStorage(sessionDir: File?) {
                 val needMb = (bytesPerFrame(rawSize, s.saveDngs) * MIN_FRAMES_TO_STACK * 100L / 60L +
                     outputReserve(rawSize)) / (1L shl 20)
                 AppLog.e(TAG, "not enough storage for a session: ${freeBytes() / (1L shl 20)} MB free")
                 setState(CaptureState.Error(
                     "The phone is almost out of storage (${freeBytes() / (1L shl 20)} MB free; a session " +
-                        "needs about $needMb MB). Free up some space and try again.", null))
-                return
+                        "needs about $needMb MB). Free up some space and try again.", sessionDir))
             }
+            val plannedRequested = framesFor(fromProbe)
+            // Every light frame writes a full-res raw cache file (and optionally a DNG). A 2-hour
+            // meteor session would otherwise try to write tens of GB and fill the phone.
+            val plannedTotal = capFramesToDisk(plannedRequested, rawSize, s.saveDngs)
+            if (plannedTotal < MIN_FRAMES_TO_STACK) return outOfStorage(null)
 
             // ---- Focus ----
             var focusDistance = 0f
@@ -599,7 +620,7 @@ class CaptureEngine(
                     } else {
                         val res = FocusSweep.run(
                             controller, wbLock, isCancelled = { stopRequested() },
-                            simulate = skySim?.let { sim -> { d: Float -> sim.render(SkySim.Kind.FOCUS, d) } },
+                            simulate = skySim?.let { sim -> { d: Float, e: Long, iso: Int -> sim.render(SkySim.Kind.FOCUS, d, e, iso) } },
                         ) { stepIdx, total, label ->
                             setState(CaptureState.Focusing(stepIdx, total, label))
                             // Each sweep point is a 2 s exposure plus a native measure. Without a
@@ -637,32 +658,144 @@ class CaptureEngine(
             repo.markRunning(paths)
             AppLog.attachSessionLog(File(paths.meta, "session.log"), logMark)
             AppLog.i(TAG, "session folder: ${paths.dir.absolutePath}")
-            repo.writeHeader(paths, JSONObject().apply {
-                put("mode", s.mode.name)
-                if (s.mode == Mode.ASTRO) put("quality", s.quality.name)
-                // What this session was stacked with, so a later re-stack starts from the same
-                // options (an INSANE foreground blend, a changed hot-pixel setting) and not defaults.
-                put("stackConfig", JSONObject(stackCfg.toJson()))
-                put("startedAt", System.currentTimeMillis())
-                put("rawWidth", rawSize.width)
-                put("rawHeight", rawSize.height)
-                // For "What's in this photo": pixels to angles on the sky.
-                cam.focalPx(rawSize.width)?.let { put("focalPx", it) }
-                put("exposureNs", decision.exposureNs)
-                put("iso", decision.iso)
-                put("plannedFrames", totalFrames)
-                put("focusDiopters", focusDistance.toDouble())
-                put("focusMode", s.focusMode.name)
-                put("reasoning", decision.reasoning)
-                put("probe", JSONObject().apply {
-                    put("bgFrac", probeStats.bgFrac.toDouble())
-                    put("starCount", probeStats.starCount)
-                    put("fwhm", probeStats.medianFwhm.toDouble())
+            val sessionPaths: SessionPaths = paths
+            val startedAt = System.currentTimeMillis()
+            // Written now with the probe's settings, so a session cut off during the pilot frame is
+            // a session like any other; written again once the pilot has had its say.
+            fun writeHeader(d: AutoExposure.Decision, frames: Int, pilotJson: JSONObject?) =
+                repo.writeHeader(sessionPaths, JSONObject().apply {
+                    put("mode", s.mode.name)
+                    if (s.mode == Mode.ASTRO) put("quality", s.quality.name)
+                    // What this session was stacked with, so a later re-stack starts from the same
+                    // options (an INSANE foreground blend, a changed hot-pixel setting) and not defaults.
+                    put("stackConfig", JSONObject(stackCfg.toJson()))
+                    put("startedAt", startedAt)
+                    put("rawWidth", rawSize.width)
+                    put("rawHeight", rawSize.height)
+                    // For "What's in this photo": pixels to angles on the sky.
+                    cam.focalPx(rawSize.width)?.let { put("focalPx", it) }
+                    put("exposureNs", d.exposureNs)
+                    put("iso", d.iso)
+                    put("plannedFrames", frames)
+                    put("focusDiopters", focusDistance.toDouble())
+                    put("focusMode", s.focusMode.name)
+                    put("reasoning", d.reasoning)
+                    put("probe", JSONObject().apply {
+                        put("bgFrac", probeStats.bgFrac.toDouble())
+                        put("starCount", probeStats.starCount)
+                        put("fwhm", probeStats.medianFwhm.toDouble())
+                        put("exposureNs", probeActualExp)
+                        put("iso", probeActualIso)
+                        learntOffset?.let { put("offset", it) }
+                    })
+                    // The settings the probe chose (the pilot's) beside the ones the burst used (above).
+                    pilotJson?.let { put("pilot", it) }
+                    put("device", android.os.Build.MODEL)
+                    put("appVersion", appVersion())
                 })
-                put("device", android.os.Build.MODEL)
-                put("appVersion", appVersion())
-            })
+            writeHeader(fromProbe, plannedTotal, null)
             repo.writeShadingMap(paths, shading)
+
+            // ---- Pilot frame: the decision checked on a frame shot with it ----
+            // The probe guesses from a short frame at a high ISO, and on both real nights that guess
+            // was 3-5 times too dark (CORE_REVIEW.md, finding 1). The first light frame measures the
+            // real thing: inside the band it simply is frame 1; outside it the ISO (or exposure) is
+            // corrected once and the burst starts at the new settings without it.
+            var refinement: AutoExposure.Refinement? = null
+            if (autoExposure) {
+                val pilotStart = SystemClock.elapsedRealtime()
+                setState(CaptureState.CapturingLights(
+                    1, plannedTotal, fromProbe.exposureNs, fromProbe.iso, null, 0,
+                    cappedByStorage = plannedTotal < plannedRequested, frameStartedAtMs = pilotStart,
+                ))
+                val shot = try {
+                    captureFrame(
+                        "light 1/$plannedTotal (pilot)", fromProbe.exposureNs, fromProbe.iso,
+                        focusDistance, wbLock, rawSize, s,
+                        busyLabel = "exposing frame 1/$plannedTotal",
+                        expectedMs = fromProbe.exposureNs / 1_000_000L,
+                        wantShadingMap = s.lensShading && s.debugShadingEveryFrame,
+                        onAttempt = { motion.startWindow() },
+                    )
+                } catch (t: Throwable) {
+                    if (t is CancellationException) throw t
+                    motion.endWindow()
+                    if (cancelRequested) return finishCancelled()
+                    // As a first light frame that failed: nothing to stack, and said so.
+                    val failure = describeFailure(t)
+                    AppLog.e(TAG, "camera could not be recovered at light 1; 0 good frame(s) on disk — " +
+                        controller.dumpState(), t)
+                    repo.writeIssue(paths, "camera failed at light 1: $failure")
+                    buzz(longArrayOf(0, 200, 100, 200))
+                    setState(CaptureState.Error("The camera failed on frame 1: $failure. No frames were captured.",
+                        paths.dir, 0))
+                    return
+                }
+                val window = motion.endWindow()
+                val px = skySim?.render(SkySim.Kind.LIGHT, focusDistance, fromProbe.exposureNs, fromProbe.iso)
+                    ?: shot.pixels()
+                val measured = try {
+                    beginBusy("measuring the sky")
+                    AnalyzeStats.fromJson(NativeEngine.analyzeFrame(
+                        px.buffer, px.width, px.height, px.rowStride, CamMeta.analyzeMeta(cam, wbLock, shot.result),
+                    ))
+                } catch (t: Throwable) {
+                    shot.close()
+                    throw t
+                }
+                if (cancelRequested) {
+                    shot.close()
+                    return finishCancelled()
+                }
+                val pilotExp = shot.result.get(CaptureResult.SENSOR_EXPOSURE_TIME)?.takeIf { it > 0L } ?: fromProbe.exposureNs
+                val pilotIso = shot.result.get(CaptureResult.SENSOR_SENSITIVITY)?.takeIf { it > 0 } ?: fromProbe.iso
+                // "Finish now" during the pilot: it is the one frame this session gets, so it stays
+                // frame 1 as any first light frame would.
+                val r = if (finishEarlyRequested) AutoExposure.Refinement(
+                    fromProbe, keepPilot = true, pilotBg = measured.bgFrac.toDouble(), pilotStars = measured.starCount,
+                    predictedBg = measured.bgFrac.toDouble(), note = "stopped on the first frame",
+                ) else AutoExposure.refine(fromProbe, measured.bgFrac, measured.starCount, cam)
+                refinement = r
+                AppLog.i(TAG, ("pilot: probe sky %.2f%% at %s ISO %d · pilot sky %.2f%%, %d stars at %s ISO %d -> " +
+                    "%s ISO %d ×%d, sky %.2f%% expected · pilot %s").format(
+                    probeStats.bgFrac * 100, Fmt.exposure(probeActualExp), probeActualIso,
+                    measured.bgFrac * 100, measured.starCount, Fmt.exposure(pilotExp), pilotIso,
+                    Fmt.exposure(r.decision.exposureNs), r.decision.iso, r.decision.frames, r.predictedBg * 100,
+                    if (r.keepPilot) "kept as frame 1" else "dropped"))
+                // What the probe read beyond the sky, by this pilot: learnt for the next session.
+                val implied = AutoExposure.impliedProbeOffset(
+                    probeStats.bgFrac.toDouble(), probeActualExp, probeActualIso,
+                    measured.bgFrac.toDouble(), pilotExp, pilotIso, measured.starCount,
+                )
+                if (implied != null) {
+                    if (skySim == null) {
+                        val stored = AutoExposure.learnOffset(learntOffset, implied)
+                        settingsStore.saveProbeOffset(cam.cameraId, probeIso, stored)
+                        AppLog.i(TAG, "probe offset: %.2f%% of white by this pilot, now %.2f%% for camera %s at ISO %d"
+                            .format(implied * 100, stored * 100, cam.cameraId, probeIso))
+                    } else {
+                        AppLog.i(TAG, "probe offset: %.2f%% of white by this pilot (simulated sky: not kept)"
+                            .format(implied * 100))
+                    }
+                }
+                if (r.keepPilot) keptPilot = PilotShot(shot, px, window, pilotStart) else shot.close()
+            }
+            val decision = refinement?.decision ?: fromProbe
+            _decision.value = decision
+            val requestedFrames = framesFor(decision)
+            val totalFrames = if (requestedFrames == plannedRequested) plannedTotal
+            else capFramesToDisk(requestedFrames, rawSize, s.saveDngs)
+            if (totalFrames < MIN_FRAMES_TO_STACK) return outOfStorage(paths.dir)
+            refinement?.let { r ->
+                writeHeader(decision, totalFrames, JSONObject().apply {
+                    put("bgFrac", r.pilotBg)
+                    put("stars", r.pilotStars)
+                    put("exposureNs", fromProbe.exposureNs)
+                    put("iso", fromProbe.iso)
+                    put("kept", r.keepPilot)
+                    put("expectedBgFrac", r.predictedBg)
+                })
+            }
 
             // Dark library: a recent master dark at exactly this exposure and ISO means the
             // "cover the lens" prompt can be skipped entirely. Installed as the session's own
@@ -762,7 +895,8 @@ class CaptureEngine(
             }
             var i = 0
             while (i < planned) {
-                if (cancelRequested || finishEarlyRequested) break
+                // A kept pilot is a frame already exposed: "Finish now" during it still keeps it.
+                if (cancelRequested || (finishEarlyRequested && keptPilot == null)) break
                 // Battery floor: finishing with a stacked image beats dying mid-session. Darks and
                 // stacking still need headroom, so bail out of the burst at 12% - unless the
                 // phone is on a power bank, where the floor only cut every session to 4 frames.
@@ -784,7 +918,7 @@ class CaptureEngine(
                 }
                 val cooldown = if (isTrails) 0f
                 else s.cooldownSec + if (thermal.needsCooldown) 2f else 0f
-                val frameStart = SystemClock.elapsedRealtime()
+                val frameStart = keptPilot?.startedAtMs ?: SystemClock.elapsedRealtime()
                 // While the autopilot waits for cloud to pass, an exposure is only a check.
                 val checking = pilot?.waiting == true
                 setState(CaptureState.CapturingLights(
@@ -813,7 +947,10 @@ class CaptureEngine(
                 }
 
                 val exposureMs = decision.exposureNs / 1_000_000L
-                val shot = try {
+                // The pilot, when it was kept, is this frame: exposed and in hand already.
+                val kept = keptPilot
+                keptPilot = null
+                val shot = kept?.shot ?: try {
                     captureFrame(
                         if (checking) "cloud check ${pilot!!.checks + 1}" else "light ${i + 1}/$planned",
                         decision.exposureNs, decision.iso,
@@ -836,14 +973,15 @@ class CaptureEngine(
                     buzz(longArrayOf(0, 200, 100, 200))
                     break
                 }
-                val motionWindow = motion.endWindow()
+                val motionWindow = kept?.motion ?: motion.endWindow()
                 val peak = motionWindow.peak
                 val rms = motionWindow.rms
                 val bumped = motionWindow.bumped
                 if (motion.hasGyro && motionWindow.samples == 0) {
                     AppLog.w(TAG, "light ${i + 1}: no gyro readings during the exposure — bumps cannot be detected")
                 }
-                val px = skySim?.render(SkySim.Kind.LIGHT, focusDistance) ?: shot.pixels()
+                val px = kept?.px ?: skySim?.render(SkySim.Kind.LIGHT, focusDistance, decision.exposureNs, decision.iso)
+                    ?: shot.pixels()
                 val metaJson = JSONObject().apply {
                     put("index", i)
                     put("exposureNs", decision.exposureNs)
@@ -854,11 +992,7 @@ class CaptureEngine(
                     put("gyroRms", rms.toDouble())
                     // Dynamic black level: drifts as the sensor warms; engine prefers it over
                     // the static characteristics value when present.
-                    shot.result.get(CaptureResult.SENSOR_DYNAMIC_BLACK_LEVEL)?.let { dyn ->
-                        if (dyn.size >= 4) {
-                            put("blackLevel", JSONArray(dyn.take(4).map { it.toDouble() }))
-                        }
-                    }
+                    CamMeta.frameBlackLevel(shot.result)?.let { put("blackLevel", JSONArray(it.map { v -> v.toDouble() })) }
                 }.toString()
 
                 if (checking) {
@@ -1004,7 +1138,7 @@ class CaptureEngine(
                         val before = focusDistance
                         val res = FocusSweep.refine(
                             controller, wbLock, focusDistance, isCancelled = { stopRequested() },
-                            simulate = skySim?.let { sim -> { d: Float -> sim.render(SkySim.Kind.FOCUS, d) } },
+                            simulate = skySim?.let { sim -> { d: Float, e: Long, iso: Int -> sim.render(SkySim.Kind.FOCUS, d, e, iso) } },
                         ) { k, n, _ -> beginBusy("refocusing $k/$n", FocusSweep.STEP_DURATION_MS) }
                         AppLog.i(TAG, "autopilot: ${res.message}")
                         if (res.ok) {
@@ -1159,10 +1293,11 @@ class CaptureEngine(
                         }
                         var lit = false
                         try {
-                            val px = skySim?.render(SkySim.Kind.DARK, focusDistance) ?: shot.pixels()
+                            val px = skySim?.render(SkySim.Kind.DARK, focusDistance, decision.exposureNs, decision.iso)
+                                ?: shot.pixels()
                             beginBusy("checking dark frame ${d + 1}")
                             val check = AnalyzeStats.fromJson(NativeEngine.analyzeFrame(
-                                px.buffer, px.width, px.height, px.rowStride, analyzeMetaJson(cam, wbLock),
+                                px.buffer, px.width, px.height, px.rowStride, CamMeta.analyzeMeta(cam, wbLock, shot.result),
                             ))
                             lit = check.bgFrac > litAbove
                             if (lit) {
@@ -1183,11 +1318,7 @@ class CaptureEngine(
                                     put("gyroRms", 0.0)
                                     // The dark's own black level, as for a light: the master
                                     // dark is subtracted relative to it, not the light's.
-                                    shot.result.get(CaptureResult.SENSOR_DYNAMIC_BLACK_LEVEL)?.let { dyn ->
-                                        if (dyn.size >= 4) {
-                                            put("blackLevel", JSONArray(dyn.take(4).map { it.toDouble() }))
-                                        }
-                                    }
+                                    CamMeta.frameBlackLevel(shot.result)?.let { put("blackLevel", JSONArray(it.map { v -> v.toDouble() })) }
                                 }.toString()
                                 beginBusy("ingesting dark frame ${d + 1}")
                                 NativeEngine.addDarkFrame(engineHandle, px.buffer, px.width, px.height, px.rowStride, metaJson)
@@ -1273,7 +1404,7 @@ class CaptureEngine(
             // ---- Save final image ----
             val totalExposure = result.framesUsed * (decision.exposureNs / 1e9)
             val recipe = "Stelli ${s.mode.name}: ${result.framesUsed}x" +
-                com.wm.starcam.util.Fmt.exposure(decision.exposureNs) +
+                Fmt.exposure(decision.exposureNs) +
                 " ISO ${decision.iso}, winsorized sigma-clip stack" +
                 if (result.foreground.isNotEmpty()) ", foreground ${result.foreground}" else ""
             // The bar hit 100% here but a 12.6 MP JPEG encode + gallery insert still had to
@@ -1316,6 +1447,7 @@ class CaptureEngine(
             AppLog.e(TAG, "session failed — ${controller.dumpState()}", t)
             setState(CaptureState.Error(t.message ?: "unknown failure (${t.javaClass.simpleName})", paths?.dir, captured))
         } finally {
+            keptPilot?.shot?.close()
             _busy.value = null
             _sessionStartedAtMs.value = 0L
             _calibration.value = null
@@ -1494,12 +1626,16 @@ class CaptureEngine(
         return requested
     }
 
-    private fun analyzeMetaJson(cam: CamInfo, wb: WbLock?): String = JSONObject().apply {
-        put("cfa", cam.cfa)
-        put("whiteLevel", cam.whiteLevel)
-        put("blackLevel", JSONArray(cam.blackLevelRaster.map { it.toDouble() }))
-        put("wbGains", JSONArray(CamMeta.rasterWbGains(wb?.gains, cam.cfa).map { it.toDouble() }))
-    }.toString()
+    /**
+     * The pilot frame kept as light 1: the capture (still open), its pixels (the camera's, or the
+     * simulated sky's) and the gyro's account of its exposure.
+     */
+    private class PilotShot(
+        val shot: CapturedRaw,
+        val px: RawPixels,
+        val motion: MotionMonitor.Window,
+        val startedAtMs: Long,
+    )
 
     companion object {
         private const val TAG = "session"

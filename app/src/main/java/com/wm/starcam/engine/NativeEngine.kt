@@ -78,7 +78,8 @@ object NativeEngine {
 
     /**
      * Debug builds: renders a synthetic night sky as RAW16 into the direct [buffer] (see
-     * camera/SkySim.kt). paramsJson: {cfa, black, white, drift, seed, stars, sky, cloud, blurPx, dark}.
+     * camera/SkySim.kt). paramsJson: {cfa, black, white, drift, seed, stars, sky, starGain, pedestal,
+     * cloud, blurPx, dark}.
      */
     external fun simulateSky(
         buffer: ByteBuffer, width: Int, height: Int, rowStrideBytes: Int, paramsJson: String

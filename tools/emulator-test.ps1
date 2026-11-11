@@ -26,6 +26,10 @@
 #   autopilot   two sessions under a simulated sky (SkySim): cloud left out, waited out and
 #               replaced, a focus drift refocused, the planned 12 good frames stacked; then dawn
 #               ending a session early
+#   exposure    the pilot frame, two sessions under a simulated sky: a probe with an offset in it
+#               chooses too low an ISO, the first frame measures it, is dropped, and the burst runs
+#               at the right ISO with its planned frames; then a sky the probe reads right, where the
+#               first frame is kept as frame 1 and nothing extra is exposed
 #   background  Home releases the camera, coming back reopens it
 #   swipe       swiping the app out of recents mid-session leaves the session running
 #
@@ -718,6 +722,8 @@ if ($Release -and (Wanted 'autopilot')) {
     Launch | Out-Null
     A shell am start -n com.wm.stelli/com.wm.starcam.MainActivity --ez session true --es sim "'frames=12;exp=300;clouds=5-8;drift=13:0.06;darks=auto'" 2>&1 | Out-Null
     $done = WaitFor 'Saved to Gallery|Couldn''t stack' 300
+    # The report is folded under Details, below the photo: scrolled to.
+    for ($k = 0; $k -lt 4 -and -not ((AllText) -match 'What the autopilot did'); $k++) { A shell input swipe 636 1800 636 900 300; Start-Sleep -Milliseconds 700 }
     $said = (AllText) -match 'What the autopilot did'
     Shot 'autopilot'
     $s = NewestSession
@@ -738,6 +744,53 @@ if ($Release -and (Wanted 'autopilot')) {
     Back
     $ok = $done -and $said -and $edit -and $used -eq 12 -and $cloud -eq 2 -and $soft -eq 2 -and $refocused -eq 1 -and $checks -ge 2 -and $dawn -and $dawnUsed -lt 16
     Check 'autopilot' $ok "done=$done said=$said edit=$edit used=$used cloud=$cloud soft=$soft refocused=$refocused checks=$checks dawn=$dawn dawnUsed=$dawnUsed"
+}
+
+# ---- the pilot frame under a simulated sky (camera/SkySim.kt). The emulator's camera exposes 0.3 s at
+# most, so the probe is shortened to 0.1 s (probe=100) to sit, as on a phone, shorter than the lights.
+# sky=20: 1.0% of white in the probe, 3% in a 0.3 s light at ISO 1600. ped=80: 40 DN of offset at
+# ISO 1600, which the probe reads as sky: it chooses ISO 800, where the first frame has about 2%.
+function ExposureRun([string]$sim) {
+    $sessions = '/sdcard/Android/media/com.wm.stelli/Stelli/sessions'
+    Launch | Out-Null
+    A shell am start -n com.wm.stelli/com.wm.starcam.MainActivity --ez session true --es sim "'$sim'" 2>&1 | Out-Null
+    $done = WaitFor 'Saved to Gallery|Couldn''t stack' 300
+    $name = ((A shell ls -t $sessions) | Select-Object -First 1).Trim()
+    $json = try { ((A shell cat "$sessions/$name/meta/session.json") -join '') | ConvertFrom-Json } catch { $null }
+    $log = (A shell cat "$sessions/$name/meta/session.log") -join "`n"
+    Back
+    # Every light exposure the camera was asked for, the pilot's included.
+    $lights = ([regex]::Matches($log, '#\d+ light \d+/\d+( \(pilot\))?: submit')).Count
+    $frames = @($json.frames)
+    [pscustomobject]@{
+        done = $done
+        pilot = $json.header.pilot
+        iso = [int]$json.header.iso
+        planned = [int]$json.header.plannedFrames
+        frames = $frames.Count
+        atIso = @($frames | Where-Object { [int]$_.iso -eq [int]$json.header.iso }).Count
+        measured = @($frames | Where-Object { $null -ne $_.bgFrac }).Count
+        used = $json.result.framesUsed
+        lights = $lights
+        said = $log -match 'pilot: .*pilot (kept as frame 1|dropped)'
+    }
+}
+if ($Release -and (Wanted 'exposure')) {
+    Write-Host ("{0,-11} {1}" -f 'exposure', 'left out: the simulated sky is for debug builds only')
+} elseif (Wanted 'exposure') {
+    # The probe misled by its offset: ISO 800 planned, the pilot dropped, the burst at ISO 1600.
+    $a = ExposureRun 'frames=4;exp=300;probe=100;sky=20;ped=80;darks=skip'
+    $aOk = $a.done -and $a.said -and $null -ne $a.pilot -and -not $a.pilot.kept -and [int]$a.pilot.iso -eq 800 -and
+        $a.iso -eq 1600 -and $a.planned -eq 4 -and $a.frames -eq 4 -and $a.atIso -eq 4 -and $a.measured -eq 4 -and
+        $a.used -eq 4 -and $a.lights -eq 5
+    # The same sky without the offset: ISO 1600 at once, the pilot is frame 1, four exposures in all.
+    $b = ExposureRun 'frames=4;exp=300;probe=100;sky=20;darks=skip'
+    $bOk = $b.done -and $b.said -and $null -ne $b.pilot -and $b.pilot.kept -and [int]$b.pilot.iso -eq 1600 -and
+        $b.iso -eq 1600 -and $b.planned -eq 4 -and $b.frames -eq 4 -and $b.used -eq 4 -and $b.lights -eq 4
+    $aPilot = if ($a.pilot) { "ISO $($a.pilot.iso) sky $([math]::Round([double]$a.pilot.bgFrac * 100, 2))% kept=$($a.pilot.kept)" } else { 'none' }
+    $bPilot = if ($b.pilot) { "ISO $($b.pilot.iso) sky $([math]::Round([double]$b.pilot.bgFrac * 100, 2))% kept=$($b.pilot.kept)" } else { 'none' }
+    Check 'exposure' ($aOk -and $bOk) ("offset: done=$($a.done) pilot=($aPilot) burst ISO $($a.iso) frames=$($a.frames)/$($a.planned) used=$($a.used) exposures=$($a.lights) | " +
+        "right: done=$($b.done) pilot=($bPilot) burst ISO $($b.iso) frames=$($b.frames)/$($b.planned) used=$($b.used) exposures=$($b.lights)")
 }
 
 # ---- Home releases the camera, return reopens it

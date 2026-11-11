@@ -11,6 +11,8 @@ import android.hardware.camera2.params.RggbChannelVector
 import android.util.Range
 import android.util.Size
 import com.wm.starcam.util.AppLog
+import org.json.JSONArray
+import org.json.JSONObject
 import kotlin.math.abs
 
 /**
@@ -248,6 +250,28 @@ object CamMeta {
         val approx = whiteLevel * 0.06f
         return floatArrayOf(approx, approx, approx, approx)
     }
+
+    /**
+     * This frame's own black level in 2x2 raster order, or null when the HAL does not report one.
+     * It drifts as the sensor warms; the engine prefers it over the static pattern. Camera2 lists
+     * it in the CFA's channel order (RGGB, GRBG, ...), which is raster order.
+     */
+    fun frameBlackLevel(result: CaptureResult?): FloatArray? {
+        val dyn = runCatching { result?.get(CaptureResult.SENSOR_DYNAMIC_BLACK_LEVEL) }.getOrNull() ?: return null
+        return if (dyn.size >= 4) dyn.copyOf(4) else null
+    }
+
+    /**
+     * The metaJson NativeEngine.analyzeFrame takes, for a frame taken with [wb] whose capture
+     * result is [result]: the frame's own black level when there is one, else the static one.
+     */
+    fun analyzeMeta(cam: CamInfo, wb: WbLock?, result: CaptureResult?): String = JSONObject().apply {
+        put("cfa", cam.cfa)
+        put("whiteLevel", cam.whiteLevel)
+        val black = frameBlackLevel(result) ?: cam.blackLevelRaster
+        put("blackLevel", JSONArray(black.map { it.toDouble() }))
+        put("wbGains", JSONArray(rasterWbGains(wb?.gains, cam.cfa).map { it.toDouble() }))
+    }.toString()
 
     /**
      * Camera2's RggbChannelVector (R, G-even = the green on even rows, G-odd = the green on odd

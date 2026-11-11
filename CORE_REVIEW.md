@@ -71,4 +71,32 @@ as clean as one that did not.
 
 ## Results
 
-(filled in as each change lands)
+### Prototypes on the real frames (Python, before any engine change; 11 Nov 2026)
+
+- **Stars verified by motion.** A reference-frame star counts as real when the sky's own motion
+  puts a star there in most other frames. 8-frame session: 191 of 344 detections pass, every one
+  in true sky; every blob on the houses, lit windows, blinds and brick wall fails (checked by
+  eye on an overlay). 4-frame session: the sky moved under 3 px in all, so the test passes
+  almost everything (255 of 371): there a star's own width and a quiet neighbourhood (few bright
+  pixels within 30 px) have to do the sorting (216 left, nearly all sky).
+- **The photo then solves.** From the verified stars: 54 catalogue stars matched at 0.57 px rms
+  (centre RA 285.5, Dec +68.9: Draco, Ursa Minor, Cepheus; the window faces north), focal
+  length 1404.9 px against the header's 1397.5, radial distortion k = 0.019. The 4-frame session:
+  52 matched at 0.69 px, but only when the search started near the right part of the sky: a
+  blind search needs a hint (the phone's own sense of where it points) or a better star list.
+- **Star colour follows the catalogue.** ln(B/G) against B-V: correlation -0.94 (8 frames),
+  -0.86 (4 frames). The gains that make a solar-type star white, relative to the camera's
+  balance: R x 1.33, B x 0.74 in both sessions, which as absolute sensor gains is R 2.11 / B 1.69
+  and R 2.10 / B 1.68: two sessions, two pointings, the same answer within 0.5 %. The camera's own
+  balance (R 1.58, B 2.30, right for the lamp-lit houses) is what turns every star cyan.
+- **A lit landscape must keep the camera's balance.** With the stars' gains applied to the whole
+  picture the window frames turn yellow and clipped highlights get yellow blocks; applied to the
+  sky only (and never to clipped pixels) the stars get their colours and the houses stay as shot.
+- **The sky's brightness can be read off the same numbers.** The zero point (V + 2.5 log flux) is
+  9.46 in both sessions with a scatter of 0.17 mag; with the sky's level per pixel that is about
+  17.3 mag per square arcsecond: a town sky, as it is.
+- **Lens distortion does not limit this alignment.** A homography between undistorted star
+  positions fits no better than a plain one (0.45 px either way, 27 px of motion). Over a session
+  of tens of minutes the sky moves several times further; untested, no data.
+
+(engine and app results are added below as each change lands)

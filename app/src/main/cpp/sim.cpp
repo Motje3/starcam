@@ -2,7 +2,8 @@
 // arm it from adb (SkySim.kt); every frame a session takes is then replaced by one of these before
 // the engine sees it, so the whole capture loop - probe, star focus, lights, darks, the autopilot -
 // runs as it would under a real sky. The star field is fixed (seeded) and drifts like a sky on an
-// untracked tripod; clouds dim it, a focus error blurs it, dawn brightens it.
+// untracked tripod; clouds dim it, a focus error blurs it, dawn brightens it. How bright the sky and
+// the stars are follows the frame's exposure x ISO (SkySim.kt works it out), up to white.
 
 #include "sim.h"
 
@@ -81,7 +82,7 @@ bool simulate_sky(uint16_t* out, int w, int h, int strideElems, const SimParams&
             const double sx = cx + ct * dx - st * dy + tx;
             const double sy = cy + st * dx + ct * dy + ty;
             if (sx < -8 || sy < -8 || sx > w + 8 || sy > h + 8) continue;
-            const double amp = (0.03 + 1.6 * s.peak) * range * spread * light;
+            const double amp = (0.03 + 1.6 * s.peak) * range * spread * light * p.starGain;
             if (amp < 0.5) continue;
             const int x0 = clampi((int)std::floor(sx) - reach, 0, w - 1);
             const int x1 = clampi((int)std::floor(sx) + reach, 0, w - 1);
@@ -99,8 +100,10 @@ bool simulate_sky(uint16_t* out, int w, int h, int strideElems, const SimParams&
     }
 
     // Noise: read noise everywhere, photon noise on the signal; then the hot pixels, which sit
-    // in the same places in every frame, lights and darks alike (the darks must catch them).
+    // in the same places in every frame, lights and darks alike (the darks must catch them). The
+    // pedestal is the readout's, in every frame too, with no photon noise of its own.
     const float darkCurrent = 2.0f;
+    const float pedestal = std::max(0.0f, p.pedestal);
     parallel_for(0, h, [&](int y) {
         std::mt19937 rng(p.seed * 2654435761u + (uint32_t)y * 40503u + 17u);
         std::normal_distribution<float> g(0.0f, 1.0f);
@@ -109,7 +112,7 @@ bool simulate_sky(uint16_t* out, int w, int h, int strideElems, const SimParams&
         for (int x = 0; x < w; ++x) {
             const float sig = src[x] + darkCurrent;
             const float n = 3.0f * g(rng) + 0.6f * std::sqrt(std::max(0.0f, sig)) * g(rng);
-            const float v = clampf(p.black + sig + n, 0.0f, p.white);
+            const float v = clampf(p.black + pedestal + sig + n, 0.0f, p.white);
             dst[x] = (uint16_t)(v + 0.5f);
         }
     });

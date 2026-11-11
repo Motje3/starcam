@@ -167,6 +167,22 @@ class SettingsStore(context: Context) {
             t.takeUnless { it.isNaN() })
     }
 
+    /**
+     * What this camera's probe frame reads above the sky at [probeIso] (share of white), as the
+     * pilot frames have measured it ([com.wm.starcam.camera.AutoExposure.learnOffset]); null until
+     * a pilot has. Per lens and ISO: the offset is the sensor's readout, not the night's.
+     */
+    fun probeOffset(cameraId: String, probeIso: Int): Double? {
+        val v = prefs.getFloat(probeOffsetKey(cameraId, probeIso), Float.NaN)
+        return if (v.isNaN()) null else v.toDouble()
+    }
+
+    fun saveProbeOffset(cameraId: String, probeIso: Int, offset: Double) {
+        prefs.edit().putFloat(probeOffsetKey(cameraId, probeIso), offset.toFloat()).apply()
+    }
+
+    private fun probeOffsetKey(cameraId: String, probeIso: Int) = "probeOffset_${cameraId}_$probeIso"
+
     private val _settings = MutableStateFlow(load())
     val settings: StateFlow<AppSettings> = _settings
 

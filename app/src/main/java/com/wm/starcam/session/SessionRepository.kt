@@ -353,6 +353,8 @@ class SessionRepository(private val context: Context) {
             put("iso", iso)
             put("starCount", stats.starCount)
             put("fwhm", stats.medianFwhm.toDouble())
+            // The sky's share of white as the engine measured it: what the exposure delivered.
+            put("bgFrac", stats.bgFrac.toDouble())
             put("aligned", stats.aligned)
             put("inliers", stats.inliers)
             put("residual", stats.residual.toDouble())
