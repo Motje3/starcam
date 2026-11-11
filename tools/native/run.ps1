@@ -6,6 +6,8 @@
 #   powershell -ExecutionPolicy Bypass -File tools\native\run.ps1 -Session <sessionDir>
 #   powershell -ExecutionPolicy Bypass -File tools\native\run.ps1 -Session <sessionDir> -Mode align
 #   powershell -ExecutionPolicy Bypass -File tools\native\run.ps1 -Session <sessionDir> -Options my.json -Keep
+#   powershell -ExecutionPolicy Bypass -File tools\native\run.ps1 -PostTiff <master_linear16.tiff> -PostArgs 'v2 down=0'
+#   powershell -ExecutionPolicy Bypass -File tools\native\run.ps1 -PostScene -PostArgs '--dome v2'
 #
 # -SelfTest  the engine's own end-to-end check (selftest.cpp); prints each check, exit code 1 on a failure.
 # -Session   a session folder as the phone keeps it (cache\frame_*.sraw, meta\session.json): what
@@ -15,10 +17,16 @@
 # -Options   a JSON file of stacking options instead of the session's own (meta\session.json).
 # -Set       options to change on top of those, as key=value pairs: -Set foregroundComposite=true,detail=0.3
 # -Keep      also keep the big outputs (master_linear16.tiff, final_rgb.raw, single_rgb.raw).
+# -PostTiff  the look alone (tools\postlab) on a linear master: what tools\postlab\run.ps1 does on the
+#            emulator, here, in a few seconds. -PostScene: on postlab's synthetic scene, with its
+#            metrics. -PostArgs: postlab's own arguments (variants, key=value, --full for the
+#            full-size picture; a file named by skypts= must lie beside the master and is given
+#            as skypts=/in/<name>). Pictures (PNG) go to field-logs\postlab\<time>\ (or -Out).
 # -NoBuild   skip the build (nothing changed since the last run).
 
 param([switch]$SelfTest, [string]$Session, [ValidateSet('align', 'stack', 'both')][string]$Mode = 'both',
-      [string]$Options, [string[]]$Set, [string]$Out, [switch]$Keep, [switch]$NoBuild)
+      [string]$Options, [string[]]$Set, [string]$Out, [switch]$Keep, [switch]$NoBuild,
+      [string]$PostTiff, [switch]$PostScene, [string]$PostArgs = '')
 $ErrorActionPreference = 'Continue'
 $project = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $image = 'stelli-native:1'
@@ -62,6 +70,30 @@ if ($SelfTest) {
     if (-not $ok) { exit 1 }
 }
 
+if ($PostTiff -or $PostScene) {
+    $dest = if ($Out) { $Out } else { Join-Path $project ("field-logs\postlab\" + (Get-Date -Format 'yyyyMMdd_HHmmss')) }
+    New-Item -ItemType Directory -Force $dest | Out-Null
+    $dest = (Resolve-Path $dest).Path
+    if ($PostTiff) {
+        $PostTiff = (Resolve-Path $PostTiff).Path
+        $inDir = Split-Path $PostTiff -Parent
+        $inName = Split-Path $PostTiff -Leaf
+        # The master's folder is mounted as /in: a skypts= file beside it is /in/<name>.
+        InBox @("${inDir}:/in:ro", "${dest}:/out") "/build/postlab tiff /in/$inName /out $PostArgs 2>&1" |
+            Tee-Object (Join-Path $dest 'post.txt')
+    } else {
+        InBox @("${dest}:/out") "/build/postlab scene /out $PostArgs 2>&1" | Tee-Object (Join-Path $dest 'post.txt')
+    }
+    Add-Type -AssemblyName System.Drawing
+    Get-ChildItem $dest -Filter *.bmp | ForEach-Object {
+        $bmp = [System.Drawing.Bitmap]::FromFile($_.FullName)
+        $bmp.Save([IO.Path]::ChangeExtension($_.FullName, '.png'), [System.Drawing.Imaging.ImageFormat]::Png)
+        $bmp.Dispose()
+        Remove-Item $_.FullName
+    }
+    Write-Host "results: $dest"
+}
+
 if ($Session) {
     $Session = (Resolve-Path $Session).Path
     $name = Split-Path $Session -Leaf
@@ -79,7 +111,8 @@ if ($Session) {
         $cfg = (Get-Content $meta -Raw | ConvertFrom-Json).header.stackConfig
     }
     if ($null -eq $cfg) { $cfg = New-Object psobject }
-    foreach ($pair in $Set) {
+    # -File hands a list over as one string: split it here.
+    foreach ($pair in ($Set | ForEach-Object { $_ -split ',' } | Where-Object { $_ })) {
         if ($pair -notmatch '^([^=]+)=(.*)$') { throw "-Set wants key=value, got '$pair'" }
         $key = $matches[1]; $raw = $matches[2]
         $value = if ($raw -eq 'true') { $true } elseif ($raw -eq 'false') { $false }

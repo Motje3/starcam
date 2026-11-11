@@ -8,7 +8,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(ENGINE ${CMAKE_CURRENT_SOURCE_DIR}/../../app/src/main/cpp)
 
 add_executable(stacklab lab.cpp
-        ${ENGINE}/engine.cpp ${ENGINE}/sraw.cpp ${ENGINE}/bayer.cpp ${ENGINE}/stars.cpp
+        ${ENGINE}/engine.cpp ${ENGINE}/sraw.cpp ${ENGINE}/bayer.cpp ${ENGINE}/hotpix.cpp
+        ${ENGINE}/stars.cpp ${ENGINE}/skystars.cpp
         ${ENGINE}/align.cpp ${ENGINE}/stack.cpp ${ENGINE}/post.cpp ${ENGINE}/post2.cpp
         ${ENGINE}/preview.cpp ${ENGINE}/mask.cpp ${ENGINE}/trails.cpp ${ENGINE}/meteor.cpp
         ${ENGINE}/tiffout.cpp ${ENGINE}/studio.cpp ${ENGINE}/timelapse.cpp)

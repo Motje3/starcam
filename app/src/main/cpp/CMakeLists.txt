@@ -9,7 +9,9 @@ add_library(starcam SHARED
         engine.cpp
         sraw.cpp
         bayer.cpp
+        hotpix.cpp
         stars.cpp
+        skystars.cpp
         align.cpp
         stack.cpp
         post.cpp

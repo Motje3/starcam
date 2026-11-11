@@ -35,10 +35,46 @@ struct PostParams {
     float detail = 0.0f;           // 0..1, the sky's structure (dust lanes, star clouds) made stronger
     float starReduction = 0.0f;    // 0..1, stars made smaller and fainter
     float vignette = 0.0f;         // 0..1, the corners darkened
+    // White-balance gains for red and blue (green 1) from the stars' own colour once the photo is
+    // solved; 1 = the camera's balance. [0.25, 4]. They act on the sky's light - what stands above
+    // its background - and not on a lit landscape: see sky_lit_mask and postprocess_v2's stretch.
+    float wbR = 1.0f;
+    float wbB = 1.0f;
+    // Where the sky is, from its own stars: triples x, y, bg - a sky-verified star's position in the
+    // coordinates of the picture being developed (pixel centres at integers) and the luma of its
+    // surroundings, (r + 2g + b) / 4 in the picture's linear units (stars.json's "bg"). finalizeStack
+    // fills it from the stack's stars; the options' "skyStars" carry it for the studio. With fewer
+    // than 10 points the gains are not applied at all.
+    std::vector<float> skyPts;
+    // How many pixels of the full-size picture one pixel of this one stands for (the studio's
+    // preview and thumbnail; 1 otherwise): what is measured in pixels around the sky points
+    // shrinks with it, so a preview decides as its export will.
+    int skyReduce = 1;
 };
 
 // The v2 pipeline behind postprocess() for version >= 2. Same contract.
 void postprocess_v2(ImageF& rgb, const PostParams& p, const ProgressFn& progress);
+
+// Where the stars' white balance may not act: how much of each pixel is bright and starless - a lit
+// landscape, which the camera's own balance was right for - judged against the sky's local level
+// from its own stars (skyPts, see PostParams). 0 sky .. 1 lit, at half resolution
+// (max(1, w/2) x max(1, h/2)), from the linear picture before the look changes it. False (and
+// litHalf empty) with fewer than 10 sky points in the picture. reduce: PostParams::skyReduce.
+bool sky_lit_mask(const ImageF& rgb, const std::vector<float>& skyPts, std::vector<float>* litHalf,
+                  int reduce = 1);
+
+// The gains on a linear picture, pixel by pixel: gain_c = 1 + wSky * wHi * (g_c - 1) with
+// g = (wbR, 1, wbB), wSky = 1 - sky_lit_mask and wHi taking clipped highlights out (they stay
+// white, their unclipped skirts get the colour). The look does not call this: it applies the
+// same weights at its stretch, to what stands above the sky's background (postprocess_v2). Kept
+// for the self-test, which checks the weights through it. Nothing happens when both gains are 1
+// or the mask cannot be made; litHalf, when given, receives the mask (empty when nothing happened).
+void apply_sky_white_balance(ImageF& rgb, float wbR, float wbB, const std::vector<float>& skyPts,
+                             std::vector<float>* litHalf = nullptr);
+
+// The sky points for a picture box-averaged down by a whole factor (the studio's preview and
+// thumbnail): pixel x of the reduced picture is centred on x * factor + (factor - 1) / 2.
+std::vector<float> scale_sky_points(const std::vector<float>& skyPts, int factor);
 
 // Input: linear sRGB, roughly [0,1]. Output (in place): display-referred, sRGB-gamma-encoded [0,1].
 // Stages (each skippable per params): 2nd-order polynomial gradient removal (star-masked samples),

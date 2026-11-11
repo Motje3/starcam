@@ -35,13 +35,16 @@ public:
     std::string exportFull(const PostParams& p, int rotation, const std::string& outPath);
 
 private:
-    bool render(const ImageF& src, const PostParams& p, int rotation, uint32_t* argb, int outW, int outH);
+    // `factor`: how far src is box-averaged down from the master (p's sky stars are scaled by it).
+    bool render(const ImageF& src, int factor, const PostParams& p, int rotation, uint32_t* argb,
+                int outW, int outH);
 
     std::mutex mu_;
     std::string path_;
     int w_ = 0, h_ = 0;
     ImageF preview_;  // linear
     ImageF thumb_;    // linear, the preview scaled down again
+    int previewFactor_ = 1, thumbFactor_ = 1;  // each one's reduction from the master
 };
 
 }  // namespace starcam

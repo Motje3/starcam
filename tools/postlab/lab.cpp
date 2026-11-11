@@ -5,10 +5,12 @@
 //
 //   postlab scene <outdir> [variants] [--nofg] [--nomw] [--nograd] [--mwflat] [--dome] [--noise X]
 //                 [--seed N]
-//   postlab tiff <master_linear16.tiff> <outdir> [variants]
+//   postlab tiff <master_linear16.tiff> <outdir> [variants] [--full]
 //
 // variants: comma list of classic,v2 (default both), preview / preview_old (the live-stack preview
-// now / until 0.4.0). key=value pairs override PostParams fields.
+// now / until 0.4.0). key=value pairs override PostParams fields; skypts=<file> reads the sky's
+// stars for the white-balance gains (wbr=, wbb=), one "x y bg" per line. --full also writes each
+// result at full size.
 
 #include <algorithm>
 #include <chrono>
@@ -291,13 +293,32 @@ starcam::PostParams params_for(const std::string& variant, const std::vector<std
         else if (k == "vig") p.vignette = v;
         else if (k == "warm") p.warmth = v;
         else if (k == "tint") p.tint = v;
+        else if (k == "wbr") p.wbR = v;
+        else if (k == "wbb") p.wbB = v;
+        else if (k == "skypts") {
+            // The sky's stars from a text file, one "x y bg" per line, in the picture's coordinates.
+            FILE* f = std::fopen(a.c_str() + eq + 1, "r");
+            if (f == nullptr) {
+                std::fprintf(stderr, "cannot read %s\n", a.c_str() + eq + 1);
+                continue;
+            }
+            float x, y, bg;
+            while (std::fscanf(f, "%f %f %f", &x, &y, &bg) == 3) {
+                p.skyPts.push_back(x);
+                p.skyPts.push_back(y);
+                p.skyPts.push_back(bg);
+            }
+            std::fclose(f);
+            std::printf("skypts: %zu sky stars from %s\n", p.skyPts.size() / 3, a.c_str() + eq + 1);
+        }
     }
     return p;
 }
 
-void outputs(const ImageF& img, const std::string& dir, const std::string& name) {
+void outputs(const ImageF& img, const std::string& dir, const std::string& name, bool full) {
     const int W = img.w, H = img.h;
     write_bmp(dir + "/" + name + "_small.bmp", img, 0, 0, W, H, 4);
+    if (full) write_bmp(dir + "/" + name + "_full.bmp", img, 0, 0, W, H, 1);
     auto crop = [&](const char* tag, float fx, float fy) {
         const int cw = std::min(800, W), ch = std::min(600, H);
         const int x0 = starcam::clampi((int)(fx * W) - cw / 2, 0, W - cw);
@@ -321,6 +342,7 @@ int main(int argc, char** argv) {
     std::string outDir, tiffIn, variants = "classic,v2";
     std::vector<std::string> kv;
     bool rot90 = false;  // turn the scene a quarter clockwise: the ground ends up on the left
+    bool full = false;   // also the whole picture at full size (<variant>_full.bmp)
     int i = 2;
     if (cmd == "tiff") tiffIn = argv[i++];
     if (i >= argc) return 2;
@@ -335,6 +357,7 @@ int main(int argc, char** argv) {
         else if (a == "--noise" && i + 1 < argc) so.noise = std::strtof(argv[++i], nullptr);
         else if (a == "--seed" && i + 1 < argc) so.seed = (uint32_t)std::atoi(argv[++i]);
         else if (a == "--rot90") rot90 = true;
+        else if (a == "--full") full = true;
         else if (a.find('=') != std::string::npos) kv.push_back(a);
         else variants = a;
     }
@@ -391,7 +414,7 @@ int main(int argc, char** argv) {
         starcam::postprocess(img, params_for(v, kv), nullptr);
         const long ms = (long)std::chrono::duration_cast<std::chrono::milliseconds>(
                             std::chrono::steady_clock::now() - t0).count();
-        outputs(img, outDir, v);
+        outputs(img, outDir, v, full);
         if (cmd == "scene") {
             if (rot90) {  // measured the way it was rendered: turned back
                 ImageF back;

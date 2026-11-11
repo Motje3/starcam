@@ -317,10 +317,21 @@ JNIEXPORT jstring JNICALL Java_com_wm_starcam_engine_NativeEngine_finalizeStack(
         std::string options = jstr(env, optionsJson);
 
         jmethodID mid = nullptr;
+        // Optional on the same callback: String onStars(String starsJson), answered between the
+        // stack and the look (see EngineSession::finalizeStack). A callback without it - every
+        // caller written before it existed - gets no hook: GetMethodID throws NoSuchMethodError,
+        // which is cleared here.
+        jmethodID starsMid = nullptr;
         if (callback != nullptr) {
             jclass cbCls = env->GetObjectClass(callback);
             if (cbCls != nullptr) {
                 mid = env->GetMethodID(cbCls, "onProgress", "(Ljava/lang/String;I)V");
+                if (env->ExceptionCheck()) env->ExceptionClear();
+                starsMid = env->GetMethodID(cbCls, "onStars", "(Ljava/lang/String;)Ljava/lang/String;");
+                if (env->ExceptionCheck()) {
+                    env->ExceptionClear();
+                    starsMid = nullptr;
+                }
                 env->DeleteLocalRef(cbCls);
             }
             if (env->ExceptionCheck()) env->ExceptionClear();
@@ -340,7 +351,31 @@ JNIEXPORT jstring JNICALL Java_com_wm_starcam_engine_NativeEngine_finalizeStack(
             env->DeleteLocalRef(js);
         };
 
-        std::string res = s->finalizeStack(options, progress);
+        // Also on the calling thread only. A Java exception in onStars is described and cleared,
+        // and the answer is then "" (nothing changes).
+        starcam::StarsFn starsFn;
+        if (starsMid != nullptr) {
+            starsFn = [env, callback, starsMid](const std::string& starsJson) -> std::string {
+                jstring in = env->NewStringUTF(starsJson.c_str());
+                if (in == nullptr) {
+                    if (env->ExceptionCheck()) env->ExceptionClear();
+                    return std::string();
+                }
+                jstring out = (jstring)env->CallObjectMethod(callback, starsMid, in);
+                env->DeleteLocalRef(in);
+                if (env->ExceptionCheck()) {
+                    env->ExceptionDescribe();
+                    env->ExceptionClear();
+                    if (out != nullptr) env->DeleteLocalRef(out);
+                    return std::string();
+                }
+                const std::string answer = jstr(env, out);
+                if (out != nullptr) env->DeleteLocalRef(out);
+                return answer;
+            };
+        }
+
+        std::string res = s->finalizeStack(options, progress, starsFn);
         return toJString(env, res);
     } catch (...) {
         SLOGE("finalizeStack: native exception");

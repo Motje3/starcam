@@ -1,5 +1,6 @@
 # Stelli's engine built natively for Linux, inside the image of the Dockerfile beside this file:
-# the engine as a library, stacklab (tools/stacklab/lab.cpp) and the self-test with a main().
+# the engine as a library, stacklab (tools/stacklab/lab.cpp), postlab (tools/postlab) and the
+# self-test with a main().
 # Same flags as the app's engine, so what is measured here is the code the phone runs.
 # Built by run.ps1 with the repo mounted at /src.
 cmake_minimum_required(VERSION 3.22)
@@ -27,3 +28,8 @@ target_link_libraries(stacklab engine)
 add_executable(selftest ${SRC}/tools/native/selftest_main.cpp)
 target_compile_options(selftest PRIVATE -O3 -fno-math-errno -Wall)
 target_link_libraries(selftest engine)
+
+add_executable(postlab ${SRC}/tools/postlab/lab.cpp ${SRC}/tools/postlab/scene.cpp)
+target_include_directories(postlab PRIVATE ${SRC}/tools/postlab)
+target_compile_options(postlab PRIVATE -O3 -fno-math-errno -Wall)
+target_link_libraries(postlab engine)

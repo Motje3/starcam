@@ -25,7 +25,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <functional>
+#include <string>
 #include <vector>
 
 #include "post_util.h"
@@ -510,7 +512,391 @@ void box_blur3(std::vector<float>& a, int gw, int gh, float sigma) {
     }
 }
 
+// Minimum (erosion) or maximum (dilation) over a (2r+1) square, separable, in place on a (w x h);
+// t is scratch of the same size. The square is cut at the edges.
+void min_max_filter(std::vector<float>& a, std::vector<float>& t, int w, int h, int r, bool takeMax) {
+    if (r <= 0 || w <= 0 || h <= 0) return;
+    parallel_for(0, h, [&](int y) {
+        const float* in = &a[(size_t)y * w];
+        float* o = &t[(size_t)y * w];
+        for (int x = 0; x < w; ++x) {
+            const int x0 = std::max(0, x - r), x1 = std::min(w - 1, x + r);
+            float v = in[x0];
+            for (int xx = x0 + 1; xx <= x1; ++xx) v = takeMax ? std::max(v, in[xx]) : std::min(v, in[xx]);
+            o[x] = v;
+        }
+    });
+    parallel_for(0, h, [&](int y) {
+        const int y0 = std::max(0, y - r), y1 = std::min(h - 1, y + r);
+        float* o = &a[(size_t)y * w];
+        for (int x = 0; x < w; ++x) o[x] = t[(size_t)y0 * w + x];
+        for (int yy = y0 + 1; yy <= y1; ++yy) {
+            const float* in = &t[(size_t)yy * w];
+            for (int x = 0; x < w; ++x) o[x] = takeMax ? std::max(o[x], in[x]) : std::min(o[x], in[x]);
+        }
+    });
+}
+
+// Mean over a (2r+1) square, separable, in place; t is scratch. At the edges the mean of what is
+// inside (box_blur3 counts the outside as zero, which would fade a mask out along the border).
+void box_mean(std::vector<float>& a, std::vector<float>& t, int w, int h, int r) {
+    if (r <= 0 || w <= 0 || h <= 0) return;
+    parallel_for(0, h, [&](int y) {
+        const float* in = &a[(size_t)y * w];
+        float* o = &t[(size_t)y * w];
+        double s = 0.0;
+        int n = 0;
+        for (int x = 0; x <= std::min(r, w - 1); ++x, ++n) s += in[x];
+        for (int x = 0; x < w; ++x) {
+            o[x] = (float)(s / n);
+            if (x + r + 1 < w) { s += in[x + r + 1]; ++n; }
+            if (x - r >= 0) { s -= in[x - r]; --n; }
+        }
+    });
+    parallel_for(0, w, [&](int x) {
+        double s = 0.0;
+        int n = 0;
+        for (int y = 0; y <= std::min(r, h - 1); ++y, ++n) s += t[(size_t)y * w + x];
+        for (int y = 0; y < h; ++y) {
+            a[(size_t)y * w + x] = (float)(s / n);
+            if (y + r + 1 < h) { s += t[(size_t)(y + r + 1) * w + x]; ++n; }
+            if (y - r >= 0) { s -= t[(size_t)(y - r) * w + x]; --n; }
+        }
+    });
+}
+
+// The sky's local level from its own stars: a quadratic in x, y through the points' bg (each star's
+// surroundings), so a sky brighter toward the horizon is not taken for something lit. Least squares
+// in normalised coordinates, then twice again without the points beyond 2.5 robust sigmas; the
+// median for fewer than 20 points or a fit that cannot be solved. Before the first fit the points
+// beyond 2.5 robust sigmas of the median go too: a compact bright patch of sky (a Milky Way core)
+// is an outlier from the median, while a smooth gradient spreads the points and keeps them. Without
+// that the quadratic bent toward a central bright patch, its stars stayed in, and the patch fell
+// apart into starless pieces the stars could not claim. Clamped to [0.5 x the 10th, 2 x the 90th
+// percentile] of the points' bg, so it cannot run away where there are no stars (over the landscape).
+struct StarSkyLevel {
+    bool quad = false;
+    double c[6] = {0, 0, 0, 0, 0, 0};  // 1, u, v, u^2, uv, v^2
+    double cx = 0.0, cy = 0.0, inv = 1.0;  // u = (x - cx) * inv
+    float level = 0.0f;                // the median of the points' bg
+    float lo = 0.0f, hi = 0.0f;
+    int used = 0;                      // points in the final fit
+
+    float at(double x, double y) const {
+        double v = level;
+        if (quad) {
+            const double u = (x - cx) * inv, w = (y - cy) * inv;
+            v = c[0] + c[1] * u + c[2] * w + c[3] * u * u + c[4] * u * w + c[5] * w * w;
+        }
+        if (!std::isfinite(v)) v = level;
+        return clampf((float)v, lo, hi);
+    }
+};
+
+StarSkyLevel fit_star_sky_level(const std::vector<float>& pts) {
+    StarSkyLevel s;
+    const size_t n = pts.size() / 3;
+    if (n == 0) return s;
+    std::vector<float> bg(n), sorted(n);
+    for (size_t i = 0; i < n; ++i) sorted[i] = bg[i] = pts[i * 3 + 2];
+    std::sort(sorted.begin(), sorted.end());
+    s.level = sorted[n / 2];
+    s.lo = std::max(0.5f * sorted[(size_t)(0.10 * (double)(n - 1))], 1e-7f);
+    s.hi = std::max(2.0f * sorted[(size_t)(0.90 * (double)(n - 1))], s.lo);
+    s.level = clampf(s.level, s.lo, s.hi);
+    s.used = (int)n;
+    if (n < 20) return s;
+    double mx = 0.0, my = 0.0;
+    for (size_t i = 0; i < n; ++i) {
+        mx += pts[i * 3];
+        my += pts[i * 3 + 1];
+    }
+    s.cx = mx / (double)n;
+    s.cy = my / (double)n;
+    double ext = 1.0;
+    for (size_t i = 0; i < n; ++i)
+        ext = std::max(ext, std::max(std::fabs(pts[i * 3] - s.cx), std::fabs(pts[i * 3 + 1] - s.cy)));
+    s.inv = 1.0 / ext;
+    std::vector<uint8_t> keep(n, 1);
+    std::vector<float> res(n), dev;
+    {
+        // The median's own outliers first (see above).
+        for (size_t i = 0; i < n; ++i) dev.push_back(std::fabs(bg[i] - s.level));
+        const float sigma = 1.4826f * median_of(dev);
+        int kept = 0;
+        for (size_t i = 0; i < n; ++i) kept += std::fabs(bg[i] - s.level) <= 2.5f * sigma ? 1 : 0;
+        if (sigma > 0.0f && kept >= 20)
+            for (size_t i = 0; i < n; ++i) keep[i] = std::fabs(bg[i] - s.level) <= 2.5f * sigma ? 1 : 0;
+    }
+    double coef[6];
+    bool have = false;
+    for (int round = 0; round < 3; ++round) {
+        double A[6][6] = {}, B[6][3] = {}, out[3][6] = {};
+        int m = 0;
+        for (size_t i = 0; i < n; ++i) {
+            if (!keep[i]) continue;
+            const double u = (pts[i * 3] - s.cx) * s.inv, w = (pts[i * 3 + 1] - s.cy) * s.inv;
+            const double f[6] = {1.0, u, w, u * u, u * w, w * w};
+            for (int r = 0; r < 6; ++r) {
+                for (int k = 0; k < 6; ++k) A[r][k] += f[r] * f[k];
+                B[r][0] += f[r] * (double)bg[i];
+            }
+            ++m;
+        }
+        if (m < 20 || !postutil::solve6x6(A, B, out)) break;
+        bool finite = true;
+        for (int k = 0; k < 6; ++k) finite = finite && std::isfinite(out[0][k]);
+        if (!finite) break;
+        for (int k = 0; k < 6; ++k) coef[k] = out[0][k];
+        have = true;
+        s.used = m;
+        if (round == 2) break;
+        // Drop the points beyond 2.5 robust sigmas of this fit (a star on a bright patch, a star
+        // whose surroundings a neighbour lit), and fit again.
+        dev.clear();
+        for (size_t i = 0; i < n; ++i) {
+            const double u = (pts[i * 3] - s.cx) * s.inv, w = (pts[i * 3 + 1] - s.cy) * s.inv;
+            res[i] = (float)((double)bg[i] - (coef[0] + coef[1] * u + coef[2] * w + coef[3] * u * u +
+                                              coef[4] * u * w + coef[5] * w * w));
+            if (keep[i]) dev.push_back(std::fabs(res[i]));
+        }
+        const float sigma = 1.4826f * median_of(dev);
+        if (!(sigma > 0.0f)) break;
+        for (size_t i = 0; i < n; ++i) keep[i] = std::fabs(res[i]) <= 2.5f * sigma;
+    }
+    if (have) {
+        s.quad = true;
+        for (int k = 0; k < 6; ++k) s.c[k] = coef[k];
+    } else {
+        s.used = (int)n;
+    }
+    return s;
+}
+
 }  // namespace
+
+std::vector<float> scale_sky_points(const std::vector<float>& skyPts, int factor) {
+    if (factor <= 1) return skyPts;
+    std::vector<float> out = skyPts;
+    const float off = 0.5f * (float)(factor - 1), inv = 1.0f / (float)factor;
+    for (size_t i = 0; i + 2 < out.size(); i += 3) {
+        out[i] = (out[i] - off) * inv;
+        out[i + 1] = (out[i + 1] - off) * inv;
+    }
+    return out;
+}
+
+bool sky_lit_mask(const ImageF& rgb, const std::vector<float>& skyPts, std::vector<float>* litHalf,
+                  int reduce) {
+    if (litHalf == nullptr) return false;
+    litHalf->clear();
+    try {
+        if (rgb.empty() || rgb.ch != 3 || rgb.w <= 0 || rgb.h <= 0 ||
+            rgb.d.size() < (size_t)rgb.w * rgb.h * 3)
+            return false;
+        const int w = rgb.w, h = rgb.h;
+        const int hw = std::max(1, w / 2), hh = std::max(1, h / 2);
+        // The sky is where its stars are. Its level comes from their surroundings, not from the
+        // frame: under a dark sky the landscape is a black silhouette, darker than the sky, and a
+        // percentile of the frame (as this first did) landed on the ground and called the whole sky
+        // lit. Too few stars, no sky balance.
+        std::vector<float> pts;
+        for (size_t i = 0; i + 2 < skyPts.size(); i += 3) {
+            const float x = skyPts[i], y = skyPts[i + 1], b = skyPts[i + 2];
+            if (!(x >= -0.5f && y >= -0.5f && x <= (float)w - 0.5f && y <= (float)h - 0.5f) ||
+                !(b > 0.0f) || !std::isfinite(b))
+                continue;
+            pts.push_back(x);
+            pts.push_back(y);
+            pts.push_back(b);
+        }
+        const int nPts = (int)(pts.size() / 3);
+        if (nPts < 10) {
+            SLOG("sky_lit_mask: %d sky stars in the picture (10 needed): no star balance", nPts);
+            return false;
+        }
+        const StarSkyLevel sky = fit_star_sky_level(pts);
+        const float* img = rgb.d.data();
+        std::vector<float> a((size_t)hw * hh), t((size_t)hw * hh);
+
+        // Half-res luma in the units the points' bg is given in: (r + 2g + b) / 4.
+        auto luma = [](const float* q) { return 0.25f * (q[0] + 2.0f * q[1] + q[2]); };
+        parallel_for(0, hh, [&](int hy) {
+            const int y0 = std::min(hy * 2, h - 1), y1 = std::min(y0 + 1, h - 1);
+            const float* r0 = &img[(size_t)y0 * w * 3];
+            const float* r1 = &img[(size_t)y1 * w * 3];
+            float* o = &a[(size_t)hy * hw];
+            for (int hx = 0; hx < hw; ++hx) {
+                const int x0 = std::min(hx * 2, w - 1), x1 = std::min(x0 + 1, w - 1);
+                o[hx] = 0.25f * (luma(r0 + (size_t)x0 * 3) + luma(r0 + (size_t)x1 * 3) +
+                                 luma(r1 + (size_t)x0 * 3) + luma(r1 + (size_t)x1 * 3));
+            }
+        });
+        // Lit. Bright and starless is not sky. An opening (erode, then dilate, radius 6) removes
+        // stars and thin bright lines and keeps what is wide - lit walls, window frames, rows of
+        // windows - and what stays above 1.6-2.6 times the sky's local level is bright. Brightness
+        // alone cannot tell a lit pillar (3.6 times the sky on 2026-10-31) from the Milky Way's core
+        // or a light dome (2-3 times), but the sky has stars in it: each connected bright region
+        // holding at least 3 sky stars, at a quarter of the frame's average density of them or
+        // more, is sky however bright, and takes the gains. The rest - lit landscape, cloud, the
+        // Moon's glare - keeps the camera's balance. Grown by 4 and softened by 4 so the thin bright
+        // parts attached to a lit area are covered too and its edge does not show.
+        // A closing (dilate, then erode, radius 3) first bridges the dark gaps of a striped lit area
+        // - blinds, a row of balusters - which the opening alone took apart slat by slat; a star
+        // stays a star through it, and goes in the opening.
+        // The radii are for the full-size picture; in a reduced one (the studio's preview) they
+        // shrink with it, never below 1.
+        const int red = std::max(1, reduce);
+        auto radius = [red](int r) { return std::max(1, (r + red / 2) / red); };
+        min_max_filter(a, t, hw, hh, radius(3), true);
+        min_max_filter(a, t, hw, hh, radius(3), false);
+        min_max_filter(a, t, hw, hh, radius(6), false);
+        min_max_filter(a, t, hw, hh, radius(6), true);
+        parallel_for(0, hh, [&](int y) {
+            float* q = &a[(size_t)y * hw];
+            const double fy = 2.0 * y + 0.5;  // half-res pixel u is centred on full-res 2u + 0.5
+            for (int x = 0; x < hw; ++x)
+                q[x] = smoothstepf(1.6f, 2.6f, q[x] / sky.at(2.0 * x + 0.5, fy));
+        });
+        // The bright regions (8-connected, an explicit stack) and the sky stars in each.
+        const size_t np = (size_t)hw * hh;
+        std::vector<int32_t> lab(np, -1);
+        std::vector<int> area;
+        {
+            std::vector<int> stk;
+            for (size_t i0 = 0; i0 < np; ++i0) {
+                if (!(a[i0] > 0.0f) || lab[i0] >= 0) continue;
+                const int id = (int)area.size();
+                int n = 0;
+                lab[i0] = id;
+                stk.assign(1, (int)i0);
+                while (!stk.empty()) {
+                    const int i = stk.back();
+                    stk.pop_back();
+                    ++n;
+                    const int x = i % hw, y = i / hw;
+                    for (int dy = -1; dy <= 1; ++dy) {
+                        const int ny = y + dy;
+                        if (ny < 0 || ny >= hh) continue;
+                        for (int dx = -1; dx <= 1; ++dx) {
+                            const int nx = x + dx;
+                            if (nx < 0 || nx >= hw) continue;
+                            const size_t j = (size_t)ny * hw + nx;
+                            if (lab[j] < 0 && a[j] > 0.0f) {
+                                lab[j] = id;
+                                stk.push_back((int)j);
+                            }
+                        }
+                    }
+                }
+                area.push_back(n);
+            }
+        }
+        std::vector<int> stars(area.size(), 0);
+        for (int k = 0; k < nPts; ++k) {
+            const int hx = clampi((int)std::lround((pts[k * 3] - 0.5f) * 0.5f), 0, hw - 1);
+            const int hy = clampi((int)std::lround((pts[k * 3 + 1] - 0.5f) * 0.5f), 0, hh - 1);
+            const int id = lab[(size_t)hy * hw + hx];
+            if (id >= 0) ++stars[(size_t)id];
+        }
+        const double avgDensity = (double)nPts / (double)np;
+        std::vector<uint8_t> isSky(area.size(), 0);
+        int nSky = 0;
+        for (size_t id = 0; id < area.size(); ++id) {
+            if (stars[id] >= 3 && (double)stars[id] / (double)area[id] >= 0.25 * avgDensity) {
+                isSky[id] = 1;
+                ++nSky;
+            }
+        }
+        if (nSky > 0) {
+            parallel_for(0, hh, [&](int y) {
+                for (int x = 0; x < hw; ++x) {
+                    const size_t i = (size_t)y * hw + x;
+                    if (lab[i] >= 0 && isSky[(size_t)lab[i]]) a[i] = 0.0f;
+                }
+            });
+        }
+        {
+            // What was decided, the largest sky regions first.
+            std::vector<int> order;
+            for (size_t id = 0; id < area.size(); ++id)
+                if (isSky[id]) order.push_back((int)id);
+            std::sort(order.begin(), order.end(), [&area](int p, int q) { return area[(size_t)p] > area[(size_t)q]; });
+            std::string list;
+            for (size_t k = 0; k < order.size() && k < 5; ++k) {
+                char buf[64];
+                snprintf(buf, sizeof(buf), "%s%d px with %d stars", k ? ", " : " (", area[(size_t)order[k]],
+                         stars[(size_t)order[k]]);
+                list += buf;
+            }
+            if (!list.empty()) list += ")";
+            SLOG("sky_lit_mask: %d sky stars, sky level %.5f (%s of %d stars, held to "
+                 "%.5f..%.5f), %zu bright regions, %d of them sky%s",
+                 nPts, sky.level, sky.quad ? "quadratic" : "median", sky.used, sky.lo, sky.hi,
+                 area.size(), nSky, list.c_str());
+        }
+        lab.clear();
+        lab.shrink_to_fit();
+        min_max_filter(a, t, hw, hh, radius(4), true);
+        box_mean(a, t, hw, hh, radius(4));
+        box_mean(a, t, hw, hh, radius(4));  // twice: close to a Gaussian of 3.7 px
+        t.clear();
+        t.shrink_to_fit();
+        {
+            double lit = 0.0;
+            for (float v : a) lit += v;
+            SLOG("sky_lit_mask: %.1f%% of the frame kept lit", 100.0 * lit / (double)a.size());
+        }
+        *litHalf = std::move(a);
+        return true;
+    } catch (...) {
+        // Out of memory for the mask: the picture keeps the camera's balance.
+        SLOGE("sky_lit_mask: exception, no star balance");
+        litHalf->clear();
+        return false;
+    }
+}
+
+void apply_sky_white_balance(ImageF& rgb, float wbR, float wbB, const std::vector<float>& skyPts,
+                             std::vector<float>* litHalf) {
+    if (litHalf != nullptr) litHalf->clear();
+    wbR = std::isfinite(wbR) ? clampf(wbR, 0.25f, 4.0f) : 1.0f;
+    wbB = std::isfinite(wbB) ? clampf(wbB, 0.25f, 4.0f) : 1.0f;
+    if (wbR == 1.0f && wbB == 1.0f) return;  // the camera's balance: not a bit changes
+    std::vector<float> a;
+    if (!sky_lit_mask(rgb, skyPts, &a)) return;
+    {
+        const int w = rgb.w, h = rgb.h;
+        const int hw = std::max(1, w / 2), hh = std::max(1, h / 2);
+        float* img = rgb.d.data();
+        // The gains, with wSky = 1 - lit sampled bilinearly (half-res pixel u is centred on
+        // full-res 2u + 0.5) and wHi from the pixel itself.
+        const float gR = wbR - 1.0f, gB = wbB - 1.0f;
+        parallel_for(0, h, [&](int y) {
+            const float v = clampf(0.5f * (float)y - 0.25f, 0.0f, (float)(hh - 1));
+            const int v0 = (int)v, v1 = std::min(v0 + 1, hh - 1);
+            const float fv = v - (float)v0;
+            const float* l0 = &a[(size_t)v0 * hw];
+            const float* l1 = &a[(size_t)v1 * hw];
+            float* row = &img[(size_t)y * w * 3];
+            for (int x = 0; x < w; ++x) {
+                float* q = row + (size_t)x * 3;
+                const float wHi = 1.0f - smoothstepf(0.75f, 0.95f, std::max(q[0], std::max(q[1], q[2])));
+                if (!(wHi > 0.0f)) continue;
+                const float u = clampf(0.5f * (float)x - 0.25f, 0.0f, (float)(hw - 1));
+                const int u0 = (int)u, u1 = std::min(u0 + 1, hw - 1);
+                const float fu = u - (float)u0;
+                const float lit = (l0[u0] * (1.0f - fu) + l0[u1] * fu) * (1.0f - fv) +
+                                  (l1[u0] * (1.0f - fu) + l1[u1] * fu) * fv;
+                const float wgt = (1.0f - lit) * wHi;
+                if (!(wgt > 0.0f)) continue;
+                q[0] *= 1.0f + wgt * gR;
+                q[2] *= 1.0f + wgt * gB;
+            }
+        });
+    }
+    if (litHalf != nullptr) *litHalf = std::move(a);
+}
 
 void postprocess_v2(ImageF& rgb, const PostParams& p, const ProgressFn& progress) {
     try {
@@ -528,8 +914,26 @@ void postprocess_v2(ImageF& rgb, const PostParams& p, const ProgressFn& progress
         float* img = rgb.d.data();
         report(0);
 
+        // ---------------- the stars' white balance: where it may act ----------------
+        // The gains (p.wbR, p.wbB: white as the stars themselves show it) are applied at the
+        // stretch, to what stands above the sky's own background. Here, before anything changes
+        // the picture, only where: wbLit is what is bright and starless - a lit landscape, which
+        // the camera's balance was right for - at half resolution. With gains of 1, or too few
+        // sky stars, there is no balance and not a bit of the look changes.
+        const float wbGR = std::isfinite(p.wbR) ? clampf(p.wbR, 0.25f, 4.0f) : 1.0f;
+        const float wbGB = std::isfinite(p.wbB) ? clampf(p.wbB, 0.25f, 4.0f) : 1.0f;
+        std::vector<float> wbLit;
+        const bool starBalance =
+            (wbGR != 1.0f || wbGB != 1.0f) && sky_lit_mask(rgb, p.skyPts, &wbLit, p.skyReduce);
+        if (starBalance) SLOG("postprocess_v2: star balance, gains %.2f %.2f", wbGR, wbGB);
+
         // ---------------- half-res luma, star mask (as classic) ----------------
         const int hw = std::max(1, w / 2), hh = std::max(1, h / 2);
+        // How much of a pixel the star balance keeps as lit (only asked when there is a balance).
+        const bool litKnown = starBalance && wbLit.size() == (size_t)hw * hh;
+        auto litAt = [&](int x, int y) -> float {
+            return wbLit[(size_t)std::min(hh - 1, y >> 1) * hw + std::min(hw - 1, x >> 1)];
+        };
         std::vector<float> hl((size_t)hw * hh, 0.0f);
         parallel_for(0, hh, [&](int hy) {
             const int y0 = hy * 2, y1 = std::min(y0 + 1, h - 1);
@@ -1141,8 +1545,21 @@ void postprocess_v2(ImageF& rgb, const PostParams& p, const ProgressFn& progress
                 const float g = groundFine(x, y);
                 // The neutralizing offsets are the sky's; the landscape keeps its own colour.
                 const float sky = 1.0f - g;
-                float in[3] = {(q[0] - sky * off[0]) * wb[0], (q[1] - sky * off[1]) * wb[1],
-                               (q[2] - sky * off[2]) * wb[2]};
+                float in[3] = {q[0] - sky * off[0], q[1] - sky * off[1], q[2] - sky * off[2]};
+                if (litKnown && sky > 0.0f) {
+                    // The stars' white balance. The offsets have just made the sky's background
+                    // neutral; the gains act on what stands above it - a star, the Milky Way, a
+                    // glow - so the background itself, the landscape, and everything bright and
+                    // starless come out exactly as they do without gains. A clipped core stays
+                    // white (wHi), its unclipped skirt takes the colour.
+                    const float wHi = 1.0f - smoothstepf(0.75f, 0.95f, std::max(q[0], std::max(q[1], q[2])));
+                    const float wgt = sky * (1.0f - litAt(x, y)) * wHi;
+                    if (wgt > 0.0f) {
+                        in[0] = neutral + (1.0f + wgt * (wbGR - 1.0f)) * (in[0] - neutral);
+                        in[2] = neutral + (1.0f + wgt * (wbGB - 1.0f)) * (in[2] - neutral);
+                    }
+                }
+                for (int c = 0; c < 3; ++c) in[c] *= wb[c];
                 float out[3] = {0, 0, 0};
                 auto apply = [&in](float black, float k, float inv, float wgt, float cap, float* o) {
                     float v[3];

@@ -11,11 +11,13 @@
 
 #include "align.h"
 #include "bayer.h"
+#include "hotpix.h"
 #include "json_mini.h"
 #include "mask.h"
 #include "post.h"
 #include "post_options.h"
 #include "preview.h"
+#include "skystars.h"
 #include "stack.h"
 #include "stars.h"
 #include "tiffout.h"
@@ -138,12 +140,27 @@ bool write_text_file(const std::string& path, const std::string& text) {
 
 // ---------- small stats helpers ----------
 
+// A frame's star width: the median over its 300 brightest stars (the list is brightest first).
+// 300 is what detection kept until it kept 500, and every width compared between frames - the
+// sharpest frame for the reference, a soft frame, the focus sweep - was set on those: the fainter
+// stars read narrower than they are (their wings are under the threshold), and with them in the
+// median the reference of the 2026-10-31 session moved from frame 3 to frame 7.
 float median_fwhm_of(const std::vector<Star>& stars) {
     if (stars.empty()) return 0.0f;
+    const size_t n = std::min<size_t>(stars.size(), 300);
     std::vector<float> f;
-    f.reserve(stars.size());
-    for (const Star& s : stars) f.push_back(s.fwhm);
+    f.reserve(n);
+    for (size_t i = 0; i < n; ++i) f.push_back(stars[i].fwhm);
     return median_of(f);
+}
+
+// The sensor as this frame saw it: its own (dynamic) black level when the capture side sent one,
+// the static characteristics value otherwise - what addFrame writes into the frame's .sraw header.
+SensorInfo sensor_for_frame(const SensorInfo& si, const FrameMeta& meta) {
+    SensorInfo s = si;
+    if (meta.hasBlackLevel)
+        for (int b = 0; b < 4; ++b) s.blackLevel[b] = meta.blackLevel[b];
+    return s;
 }
 
 std::string error_json(const std::string& msg) {
@@ -183,46 +200,16 @@ std::vector<uint32_t> find_hot_pixels(const Image16& dark) {
     return hot;
 }
 
-// A star's width from how much of its light sits in its brightest pixel: for a Gaussian,
-// peak = flux / (2 pi sigma^2), so FWHM = 2.355 sqrt(flux / (2 pi peak)). It reads a star the
-// same in one frame and in a stack of many. A width from the pixels above the noise does not:
-// the stack's lower noise lets more of each star's wings in, and by it the phone's stacks of
-// 2026-10-31 read twice as wide as their frames (1.7 -> 3.3 px) however well aligned.
-// (x, y) in luma coords; 0 when the star is too near the edge or not a star.
-float effective_fwhm(const ImageF& luma, float x, float y) {
-    const int R = 9;
-    const int x0 = (int)std::lround(x), y0 = (int)std::lround(y);
-    if (x0 - R < 0 || y0 - R < 0 || x0 + R >= luma.w || y0 + R >= luma.h) return 0.0f;
-    std::vector<float> ring;
-    ring.reserve(256);
-    for (int py = y0 - R; py <= y0 + R; ++py) {
-        for (int px = x0 - R; px <= x0 + R; ++px) {
-            const float d = std::hypot((float)px - x, (float)py - y);
-            if (d >= 6.0f && d <= 9.0f) ring.push_back(luma.d[(size_t)py * luma.w + px]);
-        }
-    }
-    const float bg = median_of(ring);
-    float peak = 0.0f, flux = 0.0f;
-    for (int py = y0 - 5; py <= y0 + 5; ++py) {
-        for (int px = x0 - 5; px <= x0 + 5; ++px) {
-            const float d = std::hypot((float)px - x, (float)py - y);
-            if (d > 5.0f) continue;
-            const float v = luma.d[(size_t)py * luma.w + px] - bg;
-            flux += v;
-            if (d <= 1.5f) peak = std::max(peak, v);
-        }
-    }
-    if (!(peak > 0.0f) || !(flux > peak)) return 0.0f;
-    return 2.355f * std::sqrt(flux / (2.0f * (float)M_PI * peak));
-}
-
-// The reference frame's star width and the stack's, measured alike (effective_fwhm) at the
-// reference's 30 brightest stars that are not blown out: the stack is in the reference's
+// The reference frame's star width and the stack's, measured alike (effective_fwhm) at the 30
+// brightest stars of the reference that are not blown out: the stack is in the reference's
 // geometry, so what the stacking did to them - misalignment widens them - is the difference.
-void measure_star_widths(const ImageF& stackRGB, const FrameRecord& ref, const SensorInfo& si,
-                         float* fwhmRef, float* fwhmStack) {
+// The stars are the sky-verified ones when there are 10 of those: in a town the brightest blobs
+// are lit windows, and the widths of 2026-10-31 were theirs (11.5 RAW px; the stars' 4.4).
+// luma: the stack's luma at the frames' half resolution (stack_luma_half).
+void measure_star_widths(const ImageF& luma, const FrameRecord& ref, const SensorInfo& si,
+                         const std::vector<SkyStar>& sky, float* fwhmRef, float* fwhmStack) {
     *fwhmRef = *fwhmStack = 0.0f;
-    if (stackRGB.empty() || stackRGB.ch != 3 || stackRGB.w < 4 || stackRGB.h < 4) return;
+    if (luma.empty() || luma.w < 2 || luma.h < 2) return;
     SrawReader r;
     if (!r.open(ref.srawPath)) return;
     const SrawHeader& h = r.header();
@@ -230,37 +217,36 @@ void measure_star_widths(const ImageF& stackRGB, const FrameRecord& ref, const S
     for (int b = 0; b < 4; ++b) siR.blackLevel[b] = h.blackLevel[b];
     ImageF lumaRef;
     superpixel_luma(r.data(), (int)h.width, (int)h.height, (int)h.width, siR, h.wbGain, &lumaRef);
-
-    // The stack's luma at the same half resolution: each superpixel's 2 x 2 block.
-    ImageF luma;
-    luma.init(stackRGB.w / 2, stackRGB.h / 2, 1);
-    const int lw = luma.w, lh = luma.h;
-    parallel_for(0, lh, [&](int y) {
-        for (int x = 0; x < lw; ++x) {
-            float s = 0.0f;
-            for (int dy = 0; dy < 2; ++dy) {
-                for (int dx = 0; dx < 2; ++dx) {
-                    const float* p = stackRGB.px(2 * x + dx, 2 * y + dy);
-                    s += p[0] + p[1] + p[2];
-                }
-            }
-            luma.d[(size_t)y * lw + x] = s * (1.0f / 12.0f);
-        }
-    });
     if (lumaRef.w != luma.w || lumaRef.h != luma.h) return;
 
+    // Blown out (detection area 60 and more): its width says nothing.
+    int clearSky = 0;
+    for (const SkyStar& s : sky)
+        if (s.sky && s.area < 60) ++clearSky;
+    const bool fromSky = clearSky >= 10;
     std::vector<float> a, b;
-    for (const Star& s : ref.stars) {  // brightest first
-        if (a.size() >= 30) break;
-        if (s.area >= 60) continue;  // blown out: its width says nothing
-        const float fa = effective_fwhm(lumaRef, s.x, s.y), fb = effective_fwhm(luma, s.x, s.y);
-        if (fa <= 0.0f || fb <= 0.0f) continue;
+    auto measure = [&](float x, float y) {
+        const float fa = effective_fwhm(lumaRef, x, y), fb = effective_fwhm(luma, x, y);
+        if (fa <= 0.0f || fb <= 0.0f) return;
         a.push_back(fa);
         b.push_back(fb);
+    };
+    if (fromSky) {
+        for (const SkyStar& s : sky) {  // the reference's order: brightest first
+            if (a.size() >= 30) break;
+            if (s.sky && s.area < 60) measure(s.x, s.y);
+        }
+    } else {
+        for (const Star& s : ref.stars) {
+            if (a.size() >= 30) break;
+            if (s.area < 60) measure(s.x, s.y);
+        }
     }
     if (a.empty()) return;
     *fwhmRef = median_of(a);
     *fwhmStack = median_of(b);
+    SLOG("finalize: star widths %.2f -> %.2f px from %d %s", *fwhmRef, *fwhmStack, (int)a.size(),
+         fromSky ? "sky-verified stars" : "brightest blobs (too few sky-verified stars)");
 }
 
 // Warp-accumulate one frame's half-res RGB into the running live-preview mean.
@@ -561,9 +547,12 @@ std::string EngineSession::addFrame(const uint16_t* bayer, int w, int h, int str
             SLOGE("addFrame: sraw write failed for %s (disk full?)", path.c_str());
         }
 
-        // 2) Luma + stars.
+        // 2) Luma + stars. Over the frame's own black, as the header above and the stack use it:
+        //    with the static one, bgFrac (the sky the exposure is judged by) counted any difference
+        //    between the two blacks as sky.
+        const SensorInfo siF = sensor_for_frame(cfg_.sensor, meta);
         ImageF luma;
-        superpixel_luma(bayer, w, h, strideElems, cfg_.sensor, meta.wbGain, &luma);
+        superpixel_luma(bayer, w, h, strideElems, siF, meta.wbGain, &luma);
         SkyStats stats;
         detect_stars(luma, DetectParams(), &rec.stars, &stats);
         rec.bgFrac = stats.bgMedian;
@@ -606,12 +595,12 @@ std::string EngineSession::addFrame(const uint16_t* bayer, int w, int h, int str
         if (cfg_.mode == SessionMode::ASTRO || cfg_.mode == SessionMode::PRO) {
             if (cfg_.livePreview) {
                 ImageF rgb;
-                superpixel_rgb(bayer, w, h, strideElems, cfg_.sensor, meta.wbGain, &rgb);
+                superpixel_rgb(bayer, w, h, strideElems, siF, meta.wbGain, &rgb);
                 accumulate_live(liveSum_, liveCnt_, rgb, rec.T);
             }
         } else {  // TRAILS / METEOR
             ImageF rgb;
-            superpixel_rgb(bayer, w, h, strideElems, cfg_.sensor, meta.wbGain, &rgb);
+            superpixel_rgb(bayer, w, h, strideElems, siF, meta.wbGain, &rgb);
             trailsPreview_.add(rgb);
             if (cfg_.mode == SessionMode::METEOR) {
                 std::vector<Streak> found = meteor_.addFrame(luma, rec.meta.index);
@@ -640,7 +629,8 @@ std::string EngineSession::checkFrame(const uint16_t* bayer, int w, int h, int s
             return b.build();
         }
         ImageF luma;
-        superpixel_luma(bayer, w, h, strideElems, cfg_.sensor, meta.wbGain, &luma);
+        superpixel_luma(bayer, w, h, strideElems, sensor_for_frame(cfg_.sensor, meta), meta.wbGain,
+                        &luma);
         std::vector<Star> stars;
         SkyStats stats;
         detect_stars(luma, DetectParams(), &stars, &stats);
@@ -766,7 +756,7 @@ void EngineSession::abort() {
 }
 
 std::string EngineSession::finalizeStack(const std::string& optionsJson,
-                                         const ProgressFn& progress) {
+                                         const ProgressFn& progress, const StarsFn& starsFn) {
     const auto t0 = std::chrono::steady_clock::now();
     auto report = [&progress](const char* stage, int pct) {
         if (progress) progress(stage, pct);
@@ -879,7 +869,9 @@ std::string EngineSession::finalizeStack(const std::string& optionsJson,
         const bool rotationGuessed = opt.boolean("rotationGuessed", false);
         pp.downEdge = rawRotation >= 0 && !rotationGuessed ? down_edge_for_rotation(rotation) : -1;
 
-        const std::vector<uint32_t> hotIdx = find_hot_pixels(masterDark);
+        // Joined below by the hot pixels the light frames show (find_hot_pixels_lights).
+        std::vector<uint32_t> hotIdx = find_hot_pixels(masterDark);
+        const int hotFromDark = (int)hotIdx.size();
         // A master dark from the dark library comes from another night, with another black
         // point: subtract only its structure. Kotlin leaves a marker beside the copy it installs
         // (a session with a library dark shoots none of its own), and a re-stack - which feeds
@@ -913,6 +905,7 @@ std::string EngineSession::finalizeStack(const std::string& optionsJson,
 
         // ---- align (5-15): refine every frame against the reference, then reject. ----
         const bool needAlign = (mode != SessionMode::TRAILS);
+        std::vector<SkyStar> skyStars;  // the final reference's stars, checked against the sky
         if (needAlign) {
             if (refPos < 0 || refPos >= (int)frames.size() || refStars.empty())
                 return error_json("no reference frame (too few stars)");
@@ -968,8 +961,12 @@ std::string EngineSession::finalizeStack(const std::string& optionsJson,
                 for (int i = 0; i < n; ++i) {
                     const FrameRecord& fr = frames[i];
                     if (fr.rejected || !fr.aligned) continue;
-                    const float score =
-                        (float)fr.stars.size() * std::exp(-fr.medianFwhm / fwhmNorm);
+                    // Stars counted to 300 at most, the number detection used to stop at: among
+                    // frames that all show plenty, the sharpest is the reference. A frame is not
+                    // preferred for a few blobs more than its neighbours - in a town those are lit
+                    // windows drifting in and out of detection.
+                    const float score = std::min((float)fr.stars.size(), 300.0f) *
+                                        std::exp(-fr.medianFwhm / fwhmNorm);
                     if (score > bestScore) {
                         bestScore = score;
                         best = i;
@@ -1025,6 +1022,16 @@ std::string EngineSession::finalizeStack(const std::string& optionsJson,
                          fwhmBest);
                 }
             }
+            // Which of the reference's stars followed the sky (out/stars.json): with the final
+            // reference and the frames that survived, the motion the stack is built on.
+            skyStars = verify_sky_stars(frames, refPos, cfg_.sensor.width / 2, cfg_.sensor.height / 2);
+            int nSky = 0, nStatic = 0;
+            for (const SkyStar& s : skyStars) {
+                if (s.sky) ++nSky;
+                if (s.isStatic) ++nStatic;
+            }
+            SLOG("finalize: %d reference stars, %d followed the sky, %d stood still in the frame",
+                 (int)skyStars.size(), nSky, nStatic);
         } else {
             for (FrameRecord& fr : frames) {
                 if (!fr.rejected && !sraw_file_exists(fr.srawPath)) {
@@ -1037,6 +1044,26 @@ std::string EngineSession::finalizeStack(const std::string& optionsJson,
         for (const FrameRecord& fr : frames)
             if (!fr.rejected) ++used;
         if (used < 2) return error_json("not enough usable frames");
+
+        // Hot pixels from the light frames themselves, joined to the dark's: a session without
+        // darks had no repair at all, and sigma clipping removes a hot pixel only where the stars
+        // move far enough over it - never in the foreground (identity) stack. Every stack below
+        // (sky, foreground, trails, meteors, the single frame) takes the joined list.
+        int hotFromLights = 0;
+        if (sp.hotPixelFix) {
+            const auto th = std::chrono::steady_clock::now();
+            HotLightsReport hr;
+            const std::vector<uint32_t> fromLights =
+                find_hot_pixels_lights(frames, cfg_.sensor, &hr, &abort_);
+            hotFromLights = (int)fromLights.size();
+            if (!fromLights.empty()) hotIdx = merge_hot_lists(hotIdx, fromLights);
+            SLOG("finalize: hot pixels %d from the dark, %d from %d lights (%d candidates, %d "
+                 "persistent, %d of those the lens's), %d in all (%lld ms)",
+                 hotFromDark, hotFromLights, hr.frames, hr.candidates, hr.persistent, hr.shared,
+                 (int)hotIdx.size(),
+                 (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
+                     std::chrono::steady_clock::now() - th).count());
+        }
         report("align", 15);
         if (abort_.load()) return error_json("aborted");
 
@@ -1046,6 +1073,8 @@ std::string EngineSession::finalizeStack(const std::string& optionsJson,
         float fwhmRef = 0.0f, fwhmStack = 0.0f;  // measured alike: see measure_star_widths
         int meteorCount = 0;
         std::vector<int> meteorFrameIdx;  // frameIndex of each composited meteor candidate
+        StarPhotometry starPhot;
+        std::string starsJson;  // out/stars.json, built once the stars are measured
 
         if (mode == SessionMode::TRAILS) {
             std::vector<int> active;
@@ -1106,7 +1135,20 @@ std::string EngineSession::finalizeStack(const std::string& optionsJson,
                 return error_json(abort_.load() ? "aborted" : "stack failed");
             }
             if (stackRGB.empty()) return error_json("empty stack");
-            measure_star_widths(stackRGB, frames[refPos], cfg_.sensor, &fwhmRef, &fwhmStack);
+            {
+                // The stack's luma on the frames' half-res grid, for the widths and the stars.
+                ImageF stackLuma;
+                stack_luma_half(stackRGB, &stackLuma);
+                measure_star_widths(stackLuma, frames[refPos], cfg_.sensor, skyStars, &fwhmRef,
+                                    &fwhmStack);
+                // The stars measured on the stack as it comes out of stacking (after the CCM),
+                // before a meteor or the foreground is composited onto it.
+                float fallback = 2.0f * fwhmStack;
+                if (!(fallback > 0.0f)) fallback = 2.0f * frames[refPos].medianFwhm;
+                measure_stars(stackRGB, stackLuma, fallback, &skyStars, &starPhot);
+                if (!skyStars.empty())
+                    starsJson = stars_json(skyStars, starPhot, stackRGB.w, stackRGB.h, rotation, used);
+            }
             if (mode == SessionMode::METEOR) {
                 meteorCount = blend_meteors(streaks, frames, refPos, cfg_.sensor, masterDark,
                                             darkPedPtr, darkBlackPtr, hotIdx, sp.hotPixelFix,
@@ -1116,6 +1158,45 @@ std::string EngineSession::finalizeStack(const std::string& optionsJson,
         }
         report("stack", 70);
         if (abort_.load()) return error_json("aborted");
+
+        // ---- the stars, answered: between the stack and the look ----
+        // The app can solve the photo against the catalogue from out/stars.json and answer with the
+        // white balance the stars imply. Only "wbR" and "wbB" are read from the answer (clamped as
+        // the options are); an empty answer, one that does not parse or one without them changes
+        // nothing, and neither does a hook that throws.
+        if (starsFn && !starsJson.empty()) {
+            try {
+                const std::string answer = starsFn(starsJson);
+                jsonmini::Obj ans;
+                if (!answer.empty() && jsonmini::Obj::parse(answer, &ans)) {
+                    pp.wbR = wb_gain_from(ans.num("wbR", pp.wbR), pp.wbR);
+                    pp.wbB = wb_gain_from(ans.num("wbB", pp.wbB), pp.wbB);
+                    SLOG("finalize: the stars answered %s: wbR %.3f wbB %.3f", answer.c_str(),
+                         pp.wbR, pp.wbB);
+                } else {
+                    SLOG("finalize: the stars' answer (%zu bytes) changes nothing", answer.size());
+                }
+            } catch (...) {
+                SLOGE("finalize: the stars hook threw, carrying on without it");
+            }
+        }
+        // Where the sky is, for those gains (see sky_lit_mask): the sky-verified, measured stars at
+        // their RAW positions in the stack (the picture developed below, the single-frame
+        // comparison included) with the luma of their surroundings. Only stars the sky really
+        // carried along (more than 3 px, in a frame at least): where it hardly moved, a lamp
+        // follows it as well as a star does, and a lit wall with three lamps on it would count as
+        // sky. A session like that gets no star balance. The options' "skyStars" are in the upright
+        // master's coordinates, for the studio: not these.
+        pp.skyPts.clear();
+        if (pp.wbR != 1.0f || pp.wbB != 1.0f) {
+            for (const SkyStar& s : skyStars) {
+                if (!s.sky || !s.measured || s.staticTried < 1) continue;
+                pp.skyPts.push_back(2.0f * s.x + 0.5f);
+                pp.skyPts.push_back(2.0f * s.y + 0.5f);
+                pp.skyPts.push_back(0.25f * (s.bgRGB[0] + 2.0f * s.bgRGB[1] + s.bgRGB[2]));
+            }
+            SLOG("finalize: %zu sky stars for the gains", pp.skyPts.size() / 3);
+        }
 
         // 16-bit linear master (always the pure stack, pre-foreground, pre-post).
         const std::string tiffPath = outDir + "/master_linear16.tiff";
@@ -1302,6 +1383,31 @@ std::string EngineSession::finalizeStack(const std::string& optionsJson,
         // Trails stack nothing to measure: the reference's own width, as before.
         if (fwhmRef <= 0.0f && refPos >= 0 && refPos < (int)frames.size())
             fwhmRef = frames[refPos].medianFwhm;
+        // out/stars.json: every star of the final reference, whether it followed the sky, and its
+        // light on the linear stack: r, g, b and flux are sums over the aperture of (linear value,
+        // white = 1) x pixels of the full-resolution stack, the annulus median taken off; "bg" is
+        // the luma of that annulus, "skyBg" the sky-verified stars' annulus medians in the same
+        // units per pixel. Not for trails, which align nothing. A file left by an earlier stack of
+        // this session is removed when there is no new one, so the file always matches the photo.
+        std::string starsPath;
+        int skyCount = 0, staticCount = 0;
+        {
+            const std::string starsFile = outDir + "/stars.json";
+            if (mode != SessionMode::TRAILS && !starsJson.empty()) {
+                for (const SkyStar& s : skyStars) {
+                    if (s.sky) ++skyCount;
+                    if (s.isStatic) ++staticCount;
+                }
+                // The same string the stars hook was given.
+                if (write_text_file(starsFile, starsJson)) {
+                    starsPath = starsFile;
+                } else {
+                    SLOGE("finalize: failed to write %s", starsFile.c_str());
+                }
+            } else {
+                ::remove(starsFile.c_str());
+            }
+        }
         const int64_t elapsedMs = (int64_t)std::chrono::duration_cast<std::chrono::milliseconds>(
                                       std::chrono::steady_clock::now() - t0)
                                       .count();
@@ -1315,6 +1421,9 @@ std::string EngineSession::finalizeStack(const std::string& optionsJson,
             .add("fwhmStack", (double)fwhmStack)
             .add("meteorCount", meteorCount)
             .add("hotPixels", (int)hotIdx.size())
+            .add("hotFromLights", hotFromLights)
+            .add("skyStars", skyCount)
+            .add("staticStars", staticCount)
             .add("darkFrames", darkFrames)
             .add("darkSource", std::string(darkSource))
             .add("lensShading", !shading.empty())
@@ -1353,7 +1462,8 @@ std::string EngineSession::finalizeStack(const std::string& optionsJson,
             .add("foreground", fgOutcome)
             .add("singlePath", singlePath)
             .add("singleWidth", singleW)
-            .add("singleHeight", singleH);
+            .add("singleHeight", singleH)
+            .add("starsPath", starsPath);
         SLOG("finalize: done in %lld ms, %d/%d frames", (long long)elapsedMs, used,
              (int)frames.size());
         return res.build();
